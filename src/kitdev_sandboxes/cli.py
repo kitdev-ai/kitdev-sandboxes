@@ -11,10 +11,25 @@ from typing import Callable, Sequence
 sys.dont_write_bytecode = True
 
 from kitdev_sandboxes import __version__
-from kitdev_sandboxes.config import ConfigurationError, LifecycleMode, load_configuration
+from kitdev_sandboxes.collectors import LinuxFacts
+from kitdev_sandboxes.composition import (
+    InstallPlanReport,
+    build_composed_doctor_report,
+    build_install_plan_report,
+    collect_configured_linux_facts,
+    collect_directory_resource_facts,
+    render_install_plan_text,
+)
+from kitdev_sandboxes.config import (
+    Configuration,
+    ConfigurationError,
+    LifecycleMode,
+    load_configuration,
+)
+from kitdev_sandboxes.planning import ResourceFact
 from kitdev_sandboxes.preflight import (
+    DoctorReport,
     HostFacts,
-    build_doctor_report,
     collect_host_facts,
     render_text,
     safe_report_text,
@@ -30,15 +45,62 @@ class ArgumentParser(argparse.ArgumentParser):
         raise InvocationError(message)
 
 
+_MAX_ERROR_OUTPUT_BYTES = 4_096
+_TRUNCATION_MARKER = "...[truncated]"
+
+
+def _bounded_utf8(value: str, maximum_bytes: int) -> str:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= maximum_bytes:
+        return value
+    marker = _TRUNCATION_MARKER.encode("utf-8")
+    prefix = encoded[: maximum_bytes - len(marker)].decode("utf-8", errors="ignore")
+    return prefix + _TRUNCATION_MARKER
+
+
+def _emit_json_error(code: str, message: str) -> None:
+    rendered = json.dumps(
+        {"schema_version": 1, "error": {"code": code, "message": message}},
+        sort_keys=True,
+    )
+    if len(rendered.encode("utf-8")) + 1 > _MAX_ERROR_OUTPUT_BYTES:
+        raise ValueError("static JSON error envelope exceeds output bound")
+    try:
+        print(rendered)
+    except BrokenPipeError:
+        pass
+
+
+def _emit_human_error(label: str, message: str | None = None) -> None:
+    rendered = f"kitdev: {label}"
+    if message is not None:
+        rendered += f": {safe_report_text(message)}"
+    rendered = _bounded_utf8(rendered, _MAX_ERROR_OUTPUT_BYTES - 1)
+    try:
+        print(rendered, file=sys.stderr)
+    except BrokenPipeError:
+        pass
+
+
 def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path, default=argparse.SUPPRESS, help="operator config file")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="operator config file",
+    )
     parser.add_argument(
         "--lifecycle-mode",
         choices=tuple(mode.value for mode in LifecycleMode),
         default=argparse.SUPPRESS,
         help="explicit deployment lifecycle intent",
     )
-    parser.add_argument("--json", action="store_true", default=argparse.SUPPRESS, dest="json_output")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        dest="json_output",
+    )
     parser.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
     parser.add_argument(
         "--dry-run",
@@ -70,53 +132,55 @@ def build_parser() -> argparse.ArgumentParser:
         help="run strictly read-only host qualification checks",
         description="Collect and evaluate host facts without mutation or privilege acquisition.",
     )
+    commands.add_parser(
+        "install",
+        parents=[common],
+        help="calculate an installation plan; apply is not implemented",
+        description="Calculate a read-only plan. The --dry-run flag is mandatory.",
+    )
     return parser
 
 
 def _configuration_error(message: str, *, json_output: bool) -> None:
     if json_output:
-        payload = {
-            "schema_version": 1,
-            "error": {
-                "code": "invalid_configuration",
-                "message": "configuration could not be loaded or validated",
-            },
-        }
-        print(json.dumps(payload, sort_keys=True))
+        _emit_json_error(
+            "invalid_configuration",
+            "configuration could not be loaded or validated",
+        )
     else:
-        print(f"kitdev: configuration error: {safe_report_text(message)}", file=sys.stderr)
+        _emit_human_error("configuration error", message)
 
 
 def _invocation_error(message: str, *, json_output: bool) -> None:
     if json_output:
-        print(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "error": {"code": "invalid_invocation", "message": "invalid command invocation"},
-                },
-                sort_keys=True,
-            )
-        )
+        _emit_json_error("invalid_invocation", "invalid command invocation")
     else:
-        print(f"kitdev: invocation error: {safe_report_text(message)}", file=sys.stderr)
+        _emit_human_error("invocation error", message)
 
 
 def main(
     argv: Sequence[str] | None = None,
     *,
     fact_collector: Callable[[], HostFacts] = collect_host_facts,
+    linux_fact_collector: Callable[[Configuration], LinuxFacts] | None = None,
+    directory_fact_collector: Callable[[Configuration], tuple[ResourceFact, ...]] | None = None,
 ) -> int:
     parser = build_parser()
     raw_arguments = list(argv) if argv is not None else sys.argv[1:]
     json_requested = "--json" in raw_arguments
-    report = None
+    report: DoctorReport | InstallPlanReport | None = None
     try:
         arguments = parser.parse_args(raw_arguments)
     except InvocationError as error:
         _invocation_error(str(error), json_output=json_requested)
         return 2
     json_output = bool(getattr(arguments, "json_output", False))
+    if arguments.command == "install" and not bool(getattr(arguments, "dry_run", False)):
+        _invocation_error(
+            "install requires --dry-run; applying changes is not implemented",
+            json_output=json_output,
+        )
+        return 2
     overrides: dict[str, object] = {}
     lifecycle_override = getattr(arguments, "lifecycle_mode", None)
     if lifecycle_override is not None:
@@ -132,48 +196,52 @@ def main(
 
     try:
         facts = fact_collector()
-        report = build_doctor_report(
-            facts,
-            loaded.configuration.deployment.lifecycle_mode,
-            dry_run=bool(getattr(arguments, "dry_run", False)),
-        )
-        if json_output:
-            print(
-                json.dumps(
-                    report.as_dict(verbose=bool(getattr(arguments, "verbose", False))),
-                    indent=2,
-                    sort_keys=True,
-                )
+        if arguments.command == "doctor":
+            if linux_fact_collector is not None:
+                linux_facts = linux_fact_collector(loaded.configuration)
+            elif fact_collector is collect_host_facts:
+                linux_facts = collect_configured_linux_facts(loaded.configuration)
+            else:
+                linux_facts = None
+            report = build_composed_doctor_report(
+                loaded.configuration,
+                facts,
+                linux_facts,
+                dry_run=bool(getattr(arguments, "dry_run", False)),
             )
         else:
+            report = build_install_plan_report(
+                loaded.configuration,
+                facts,
+                linux_facts_collector=linux_fact_collector or collect_configured_linux_facts,
+                directory_facts_collector=(
+                    directory_fact_collector or collect_directory_resource_facts
+                ),
+            )
+        if json_output:
+            if isinstance(report, DoctorReport):
+                payload = report.as_dict(verbose=bool(getattr(arguments, "verbose", False)))
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                print(report.to_json())
+        elif isinstance(report, DoctorReport):
             print(render_text(report, verbose=bool(getattr(arguments, "verbose", False))))
+        else:
+            print(render_install_plan_text(report))
         return report.exit_code
     except BrokenPipeError:
         return report.exit_code if report is not None else 10
     except KeyboardInterrupt:
         if json_output:
-            print(
-                json.dumps(
-                    {"schema_version": 1, "error": {"code": "interrupted", "message": "interrupted"}},
-                    sort_keys=True,
-                )
-            )
+            _emit_json_error("interrupted", "interrupted")
         else:
-            print("kitdev: interrupted", file=sys.stderr)
+            _emit_human_error("interrupted")
         return 130
     except Exception as error:  # Defensive CLI boundary: never expose host evidence in a traceback.
         if json_output:
-            print(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "error": {"code": "internal_error", "message": "doctor failed internally"},
-                    },
-                    sort_keys=True,
-                )
-            )
+            _emit_json_error("internal_error", "command failed internally")
         else:
-            print(f"kitdev: doctor failed internally: {type(error).__name__}", file=sys.stderr)
+            _emit_human_error("command failed internally", type(error).__name__)
         return 10
 
 

@@ -7,9 +7,9 @@ runtime uses Firecracker microVMs and assumes sandbox workloads are hostile.
 ## Project status
 
 The project is in **Milestone 1: preflight and host preparation (in progress)**.
-The repository provides a dependency-free, strictly read-only `doctor`
-foundation, but it does not yet install, prepare, or run services. Do not use it
-to qualify or operate a production host yet.
+The repository provides dependency-free, strictly read-only `doctor` and
+`install --dry-run` foundations, but it does not yet install, prepare, or run
+services. Do not use it to qualify or operate a production host yet.
 
 Version 0.1 recognizes this host matrix:
 
@@ -42,10 +42,16 @@ always read-only and always proposes zero changes:
 ./kitdev doctor --lifecycle-mode development --json --verbose --dry-run
 ```
 
-The current first slice reports exit code `5` on an otherwise eligible host
-because required capacity, service, network, kernel-facility, and security
-collectors are still explicitly incomplete. It must not be treated as full host
-qualification. `install`, apply, bootstrap, and all host mutation remain absent.
+Complete normalized fact groups now replace their initial scope sentinels, but
+required-port policy remains blocking `unknown`; the command must not be treated
+as full host qualification. A deterministic `install --dry-run` is available:
+
+```console
+./kitdev install --dry-run --json
+```
+
+It remains blocked while required-port policy is unapproved. Bare `install`,
+apply, bootstrap, and all host mutation remain absent.
 
 ## Design priorities
 
@@ -78,9 +84,10 @@ The complete product brief is kept in `PROMPT.md`.
 
 ## Development
 
-See `CONTRIBUTING.md` before contributing. Only `kitdev doctor` has a read-only
-safety contract in the current slice; no install or host-preparation command is
-available. The dependency-free unit-test command is documented in
+See `CONTRIBUTING.md` before contributing. Both `kitdev doctor` and
+`kitdev install --dry-run` have read-only safety contracts in the current
+slice; no apply or host-preparation command is available. The dependency-free
+unit-test command is documented in
 [`tests/README.md`](tests/README.md).
 
 ## License

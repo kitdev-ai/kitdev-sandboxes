@@ -16,5 +16,7 @@ release boundary is defined.
 - Checked-in schemas for successful doctor reports and CLI error envelopes.
 - Focused unit coverage for configuration safety, lifecycle behavior,
   non-mutation semantics, redaction, and stable output contracts.
+- Bounded Linux fact composition for `doctor` and deterministic, timestamp-free,
+  deliberately blocking `install --dry-run` planning with a JSON Schema.
 - Milestone 0 repository scaffold, configuration contract, architecture, and
   decision records.

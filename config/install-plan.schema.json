@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kitdev-sandboxes:install-plan:v1",
+  "title": "kitdev install dry-run plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "project_release", "lifecycle_mode", "command_mode", "dry_run",
+    "blocking", "summary", "actions", "issues"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "project_release": { "type": "string" },
+    "lifecycle_mode": { "enum": ["production", "development", "migration"] },
+    "command_mode": { "const": "install-dry-run" },
+    "dry_run": { "const": true },
+    "blocking": { "type": "boolean" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actions", "issues", "blocking_issues"],
+      "properties": {
+        "actions": { "type": "integer", "minimum": 0, "maximum": 256 },
+        "issues": { "type": "integer", "minimum": 0, "maximum": 256 },
+        "blocking_issues": { "type": "integer", "minimum": 0, "maximum": 256 }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "category", "target", "current_state", "desired_state", "reason",
+          "privilege", "restart_impact", "reboot_required", "rollback", "confidence",
+          "ownership"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]*$" },
+          "category": {
+            "enum": [
+              "package", "account", "directory", "managed_file", "shared_file_merge",
+              "kernel_module", "sysctl", "network_firewall", "service", "compose",
+              "artifact", "template", "validation"
+            ]
+          },
+          "target": { "type": "string" },
+          "current_state": { "type": "string" },
+          "desired_state": { "type": "string" },
+          "reason": { "type": "string" },
+          "privilege": { "enum": ["unprivileged", "root"] },
+          "restart_impact": { "enum": ["none", "service", "compose", "host"] },
+          "reboot_required": { "type": "boolean" },
+          "rollback": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["strategy", "description"],
+            "properties": {
+              "strategy": {
+                "enum": [
+                  "remove_created", "restore_backup", "revert_value", "disable", "manual",
+                  "not_applicable"
+                ]
+              },
+              "description": { "type": "string" }
+            }
+          },
+          "confidence": { "enum": ["unknown", "low", "medium", "high"] },
+          "ownership": { "enum": ["project", "foreign", "shared", "unowned", "unknown"] }
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "code", "severity", "blocking", "fact_id", "explanation", "remediation"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]*$" },
+          "code": { "enum": ["conflict", "invalid_fact", "lifecycle", "unknown", "unsupported"] },
+          "severity": { "enum": ["warning", "blocking"] },
+          "blocking": { "type": "boolean" },
+          "fact_id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]*$" },
+          "explanation": { "type": "string" },
+          "remediation": { "type": "string" }
+        }
+      }
+    }
+  }
+}

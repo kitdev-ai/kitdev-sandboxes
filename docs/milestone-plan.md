@@ -31,10 +31,10 @@ No runtime component is installed.
 
 ## Milestone 1: preflight and host preparation
 
-Status: in progress. The current foundation slice includes typed configuration,
-the root CLI, and an initial read-only `doctor`. `install --dry-run`, full host
-qualification, Ansible bootstrap, apply, rollback, and host preparation remain
-required by this milestone and are not yet implemented.
+Status: in progress. The current foundation includes typed configuration,
+composed read-only `doctor`, and a blocking read-only `install --dry-run`.
+Required-port policy, full host qualification, Ansible bootstrap, apply,
+rollback, and host preparation remain required and are not yet implemented.
 
 Deliver:
 

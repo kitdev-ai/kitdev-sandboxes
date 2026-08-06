@@ -1,0 +1,25 @@
+{
+  "actions": [],
+  "blocking": true,
+  "command_mode": "install-dry-run",
+  "dry_run": true,
+  "issues": [
+    {
+      "blocking": true,
+      "code": "unknown",
+      "explanation": "Pinned required-port ownership and bind policy is not yet approved.",
+      "fact_id": "network.required_ports",
+      "id": "network.required_ports.policy",
+      "remediation": "Approve the versioned port policy before producing an actionable install plan.",
+      "severity": "blocking"
+    }
+  ],
+  "lifecycle_mode": "production",
+  "project_release": "0.0.0",
+  "schema_version": 1,
+  "summary": {
+    "actions": 0,
+    "blocking_issues": 1,
+    "issues": 1
+  }
+}
