@@ -10,7 +10,6 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-
 ROOT = Path(__file__).resolve().parents[2]
 CONTROL_PLANE = ROOT / "compose" / "control-plane"
 COMPOSE = CONTROL_PLANE / "compose.yaml"
@@ -97,7 +96,9 @@ class ControlPlaneAssetTests(unittest.TestCase):
             "client-proxy",
         ):
             block = service_block(self.compose, service)
-            targets = [int(value) for value in re.findall(r"^        target: (\d+)$", block, re.MULTILINE)]
+            targets = [
+                int(value) for value in re.findall(r"^        target: (\d+)$", block, re.MULTILINE)
+            ]
             published = [
                 int(value)
                 for value in re.findall(r'^        published: "(\d+)"$', block, re.MULTILINE)
@@ -109,9 +110,7 @@ class ControlPlaneAssetTests(unittest.TestCase):
         self.assertEqual(observed, expected)
 
     def test_tracked_configuration_contains_no_secret_values(self) -> None:
-        cluster = (CONTROL_PLANE / "clickhouse" / "cluster.xml").read_text(
-            encoding="ascii"
-        )
+        cluster = (CONTROL_PLANE / "clickhouse" / "cluster.xml").read_text(encoding="ascii")
         self.assertIn('<password from_env="CLICKHOUSE_PASSWORD"/>', cluster)
         self.assertNotRegex(cluster, r"<password>[^<]+</password>")
         combined = "\n".join(
@@ -157,14 +156,17 @@ class ControlPlaneAssetTests(unittest.TestCase):
             'ensure_directory "$KITDEV_DATA_ROOT/redis" 999 0 750',
             'ensure_directory "$KITDEV_DATA_ROOT/clickhouse" 101 101 750',
             'ensure_directory "$KITDEV_DATA_ROOT/loki" 10001 10001 750',
+            'ensure_directory "$KITDEV_RUNTIME_ROOT/orchestrator/template-storage/templates" '
+            "root kitdev 2700",
         ):
             self.assertIn(expected, layout)
 
         probe = f"""
-source {SCRIPTS / 'common.sh'}
+source {SCRIPTS / "common.sh"}
 getent() {{
   case "$1:$3" in
-    passwd:kitdev-worker) printf '%s\\n' 'kitdev-worker:x:61000:61000::/var/lib/kitdev-worker:/usr/sbin/nologin' ;;
+    passwd:kitdev-worker) printf '%s\\n' \
+      'kitdev-worker:x:61000:61000::/var/lib/kitdev-worker:/usr/sbin/nologin' ;;
     group:kitdev-worker) printf '%s\\n' 'kitdev-worker:x:61000:' ;;
     group:kvm) printf '%s\\n' 'kvm:x:108:kitdev-worker' ;;
     *) return 2 ;;
@@ -191,13 +193,11 @@ require_worker_identity
         self.assertIn("kitdev_worker_reserved_range_required", collision.stderr)
 
         gid_probe = f"""
-source {SCRIPTS / 'common.sh'}
+source {SCRIPTS / "common.sh"}
 getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
 [[ "$(identity_gid kitdev)" == 61042 ]]
 """
-        gid_result = subprocess.run(
-            ["bash", "-c", gid_probe], capture_output=True, text=True
-        )
+        gid_result = subprocess.run(["bash", "-c", gid_probe], capture_output=True, text=True)
         self.assertEqual(gid_result.returncode, 0, gid_result.stderr)
 
     def test_private_environment_is_nonrotating_and_parent_bound(self) -> None:
@@ -229,6 +229,190 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
             ):
                 namespace["read_document"]()
 
+    def test_private_environment_writes_bounded_e2e_curl_configs(self) -> None:
+        source = (SCRIPTS / "private_env.py").read_text(encoding="ascii")
+        source = source.replace("metadata.st_uid != 0", "metadata.st_uid != os.getuid()")
+        source = source.replace("metadata.st_gid != 0", "metadata.st_gid != os.getgid()")
+        source = source.replace("opened.st_uid != 0", "opened.st_uid != os.getuid()")
+        source = source.replace("opened.st_gid != 0", "opened.st_gid != os.getgid()")
+        namespace = {"__name__": "control_plane_private_env_e2e_test"}
+        exec(compile(source, str(SCRIPTS / "private_env.py"), "exec"), namespace)
+        with TemporaryDirectory(dir=ROOT) as directory:
+            root = Path(directory)
+            parent = root / "etc"
+            parent.mkdir(mode=0o700)
+            namespace["ENV_PATH"] = parent / "control-plane.env"
+            with redirect_stdout(StringIO()):
+                namespace["bootstrap"]()
+            admin_token = namespace["read_document"]()["ADMIN_TOKEN"]
+            api_key = "local_api_key_1234567890"
+            api_key_path = root / "api-key"
+            api_key_path.write_text(api_key + "\n", encoding="ascii")
+            api_key_path.chmod(0o600)
+            output = root / "configs"
+            output.mkdir(mode=0o700)
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                namespace["write_e2e_configs"](str(api_key_path), str(output))
+            self.assertNotIn(api_key, stdout.getvalue())
+            self.assertNotIn(admin_token, stdout.getvalue())
+            self.assertEqual((output / "admin.curlrc").stat().st_mode & 0o777, 0o600)
+            self.assertEqual((output / "api.curlrc").stat().st_mode & 0o777, 0o600)
+            self.assertEqual(
+                (output / "admin.curlrc").read_text(encoding="ascii"),
+                f'header = "X-Admin-Token: {admin_token}"\n',
+            )
+            self.assertEqual(
+                (output / "api.curlrc").read_text(encoding="ascii"),
+                f'header = "X-API-Key: {api_key}"\n',
+            )
+
+            occupied = root / "occupied"
+            occupied.mkdir(mode=0o700)
+            (occupied / "admin.curlrc").write_text("foreign\n", encoding="ascii")
+            with (
+                redirect_stdout(StringIO()),
+                redirect_stderr(StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                namespace["write_e2e_configs"](str(api_key_path), str(occupied))
+            self.assertEqual((occupied / "admin.curlrc").read_text(), "foreign\n")
+            self.assertFalse((occupied / "api.curlrc").exists())
+
+            api_occupied = root / "api-occupied"
+            api_occupied.mkdir(mode=0o700)
+            (api_occupied / "api.curlrc").write_text("foreign-api\n", encoding="ascii")
+            with (
+                redirect_stdout(StringIO()),
+                redirect_stderr(StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                namespace["write_e2e_configs"](str(api_key_path), str(api_occupied))
+            self.assertFalse((api_occupied / "admin.curlrc").exists())
+            self.assertEqual(
+                (api_occupied / "api.curlrc").read_text(encoding="ascii"), "foreign-api\n"
+            )
+
+            invalid_keys = []
+            wrong_mode = root / "wrong-mode"
+            wrong_mode.write_text(api_key, encoding="ascii")
+            wrong_mode.chmod(0o640)
+            invalid_keys.append(wrong_mode)
+            oversized = root / "oversized"
+            oversized.write_bytes(b"a" * 514)
+            oversized.chmod(0o600)
+            invalid_keys.append(oversized)
+            invalid_newline = root / "invalid-newline"
+            invalid_newline.write_text(api_key + "\n\n", encoding="ascii")
+            invalid_newline.chmod(0o600)
+            invalid_keys.append(invalid_newline)
+            symlink = root / "symlink-key"
+            symlink.symlink_to(api_key_path.name)
+            invalid_keys.append(symlink)
+            hardlink = root / "hardlink-key"
+            os.link(api_key_path, hardlink)
+            invalid_keys.extend((api_key_path, hardlink))
+            for index, invalid in enumerate(invalid_keys):
+                rejected = root / f"rejected-{index}"
+                rejected.mkdir(mode=0o700)
+                with (
+                    self.subTest(path=invalid.name),
+                    redirect_stdout(StringIO()),
+                    redirect_stderr(StringIO()),
+                    self.assertRaises(SystemExit),
+                ):
+                    namespace["write_e2e_configs"](str(invalid), str(rejected))
+                self.assertEqual(list(rejected.iterdir()), [])
+
+    def test_api_proxy_e2e_runner_is_bounded_offline_and_credential_safe(self) -> None:
+        runner = (SCRIPTS / "verify-api-proxy-e2e.sh").read_text(encoding="ascii")
+        client = (SCRIPTS / "e2e-process-client" / "main.go").read_text(encoding="ascii")
+        self.assertIn("umask 077", runner)
+        self.assertIn("mktemp -d /run/kitdev-sandboxes/api-proxy-e2e.", runner)
+        self.assertLess(runner.index("trap cleanup EXIT"), runner.index('stage="$(mktemp'))
+        self.assertNotIn("curl --config", runner)
+        self.assertEqual(runner.count("curl --disable"), 4)
+        self.assertNotIn("--verbose", runner)
+        self.assertNotIn("--trace", runner)
+        self.assertIn("--max-filesize 1048576", runner)
+        self.assertIn("--max-time 180", runner)
+        self.assertIn("--pull never --platform linux/amd64 --network none", runner)
+        self.assertIn('--volume "$stage/source:/src:ro"', runner)
+        self.assertLess(runner.index("go mod download"), runner.index("--network none"))
+        self.assertIn("require_clean_infra_checkout", runner)
+        self.assertIn("flock --nonblock 9", runner)
+        self.assertIn('node.get("id") == sys.argv[2]', runner)
+        self.assertIn('node.get("status") == "ready"', runner)
+        self.assertIn('item.get("buildID") == sys.argv[2]', runner)
+        self.assertIn('item.get("diskSizeMB") != 3722', runner)
+        self.assertIn('item.get("public") is not False', runner)
+        self.assertIn('re.fullmatch(r"i[a-z0-9]{20}"', runner)
+        self.assertIn("sandbox_list_state present", runner)
+        self.assertIn("sandbox_list_is_empty", runner)
+        self.assertIn("create_attempted=yes", runner)
+        self.assertIn("recover_target_sandbox_id", runner)
+        self.assertIn("terminal_state_ready", runner)
+        self.assertIn("pgrep -x firecracker", runner)
+        self.assertIn('redis-cli --raw --scan --pattern "*$sandbox_id*"', runner)
+        self.assertIn("head -c 4097", runner)
+        self.assertIn('[[ "$code" == 204 || "$code" == 404 ]]', runner)
+        self.assertIn('[[ "$code" == 204 ]]', runner)
+        self.assertNotIn("ADMIN_TOKEN", runner)
+        self.assertNotIn("X-API-Key", runner)
+        self.assertIn("`^i[a-z0-9]{20}$`", client)
+        self.assertIn("const maxOutputBytes = 4096", client)
+        self.assertIn("receivedBytes > maxOutputBytes", client)
+        self.assertIn("defer stream.Close()", client)
+
+    def test_api_proxy_e2e_sandbox_parsers_execute_exact_contracts(self) -> None:
+        runner = (SCRIPTS / "verify-api-proxy-e2e.sh").read_text(encoding="ascii")
+
+        def execute(marker: str, document: object, *arguments: str) -> subprocess.CompletedProcess:
+            match = re.search(rf"<<'{marker}'\n(?P<code>.*?)\n{marker}", runner, re.DOTALL)
+            self.assertIsNotNone(match)
+            with TemporaryDirectory(dir=ROOT) as directory:
+                path = Path(directory) / "response.json"
+                path.write_text(json.dumps(document), encoding="ascii")
+                return subprocess.run(
+                    ["python3", "-I", "-B", "-S", "-", str(path), *arguments],
+                    input=match.group("code"),
+                    capture_output=True,
+                    text=True,
+                )
+
+        sandbox_id = "i" + "a" * 20
+        item = {
+            "sandboxID": sandbox_id,
+            "templateID": "2d9a8389-f5f5-4449-b0eb-e1d364ee98ae",
+        }
+        self.assertEqual(execute("PY_SANDBOX_LIST", [item], sandbox_id, "present").returncode, 0)
+        self.assertEqual(execute("PY_SANDBOX_LIST", [], sandbox_id, "absent").returncode, 0)
+        self.assertEqual(execute("PY_SANDBOX_LIST_EMPTY", []).returncode, 0)
+        self.assertNotEqual(execute("PY_SANDBOX_LIST_EMPTY", [item]).returncode, 0)
+        recovered = execute(
+            "PY_RECOVER_TARGET",
+            [item],
+            "2d9a8389-f5f5-4449-b0eb-e1d364ee98ae",
+        )
+        self.assertEqual((recovered.returncode, recovered.stdout), (0, sandbox_id + "\n"))
+        self.assertNotEqual(
+            execute(
+                "PY_RECOVER_TARGET",
+                [item, {**item, "sandboxID": "i" + "b" * 20}],
+                "2d9a8389-f5f5-4449-b0eb-e1d364ee98ae",
+            ).returncode,
+            0,
+        )
+        self.assertNotEqual(
+            execute(
+                "PY_RECOVER_TARGET",
+                [{**item, "sandboxID": "invalid"}],
+                "2d9a8389-f5f5-4449-b0eb-e1d364ee98ae",
+            ).returncode,
+            0,
+        )
+        self.assertNotEqual(execute("PY_SANDBOX_LIST", {}, sandbox_id, "absent").returncode, 0)
+
     def test_all_control_plane_shell_entrypoints_parse_and_are_strict(self) -> None:
         scripts = sorted(SCRIPTS.glob("*.sh"))
         self.assertTrue(scripts)
@@ -243,9 +427,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn('for component in ("api", "db", "clickhouse", "client-proxy")', images)
         self.assertIn('"$KITDEV_INFRA_ROOT/packages/clickhouse"', images)
         self.assertIn("image_ids_not_distinct", images)
-        self.assertEqual(
-            images.count('--build-arg "COMMIT_SHA=$KITDEV_INFRA_SHORT_COMMIT"'), 2
-        )
+        self.assertEqual(images.count('--build-arg "COMMIT_SHA=$KITDEV_INFRA_SHORT_COMMIT"'), 2)
         self.assertNotIn('--build-arg "COMMIT_SHA=$KITDEV_INFRA_COMMIT"', images)
         self.assertEqual(images.count('$KITDEV_INFRA_SHORT_COMMIT"'), 10)
         self.assertIn('mapfile -t ids <<<"$manifest_output"', images)
@@ -255,7 +437,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         envd = (SCRIPTS / "build-envd.sh").read_text(encoding="ascii")
         self.assertIn('git -C "$KITDEV_INFRA_ROOT" archive', envd)
         self.assertIn('--volume "$stage/source:/src"', envd)
-        self.assertNotIn('$KITDEV_INFRA_ROOT:/src:ro', envd)
+        self.assertNotIn("$KITDEV_INFRA_ROOT:/src:ro", envd)
         self.assertIn(
             "530d84dfbfd82c05181e0dc61ca842f3caaa349b0cc2f3f52d2d8eb9478aa67e",
             envd,
@@ -308,9 +490,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn('extra_hosts_map(host.get("ExtraHosts"))', replay)
         self.assertIn("--wait-timeout 300 api client-proxy", replay)
 
-        preflight = (SCRIPTS / "preflight-orchestrator.sh").read_text(
-            encoding="ascii"
-        )
+        preflight = (SCRIPTS / "preflight-orchestrator.sh").read_text(encoding="ascii")
         for expected in (
             "0:0:755:3566832:1",
             "0:0:644:43638104:1",
@@ -319,9 +499,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         ):
             self.assertIn(expected, preflight)
 
-        installer = (SCRIPTS / "install-orchestrator-service.sh").read_text(
-            encoding="ascii"
-        )
+        installer = (SCRIPTS / "install-orchestrator-service.sh").read_text(encoding="ascii")
         verify_branch = installer.split('if [[ "$mode" == verify ]]', maxsplit=1)[1]
         self.assertLess(
             verify_branch.index("require_exact_directory"),
@@ -329,9 +507,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         )
         self.assertEqual(installer.count("require_exact_file"), 8)
         self.assertIn("orchestrator.env.expected", installer)
-        environment = (ROOT / "systemd" / "orchestrator.env.template").read_text(
-            encoding="ascii"
-        )
+        environment = (ROOT / "systemd" / "orchestrator.env.template").read_text(encoding="ascii")
         self.assertIn(
             "TEMPLATE_STORAGE_URL=file:///var/lib/kitdev-sandboxes/data/runtime/"
             "orchestrator/template-storage/templates",
@@ -349,8 +525,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
             verifier_path = Path(directory) / "verify_ufw.py"
             verifier_path.write_text(verifier, encoding="ascii")
             command = (
-                'python3 -I -B -S "$1" 172.18.0.0/16 172.18.0.1 '
-                'br-kitdev eth0 no subset 3<<<"$2"'
+                'python3 -I -B -S "$1" 172.18.0.0/16 172.18.0.1 br-kitdev eth0 no subset 3<<<"$2"'
             )
             for rule in (
                 "ufw allow in on veth+",

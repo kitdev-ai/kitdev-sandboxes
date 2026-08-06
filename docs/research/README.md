@@ -74,5 +74,8 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`ovh-api-client-proxy-e2e.md`](ovh-api-client-proxy-e2e.md): live pinned
   snapshot-to-API-to-client-proxy command assertion, discovered storage,
   discovery, Docker gateway, and firewall requirements, plus verified cleanup.
+- [`pinned-api-e2e-readiness-contract.md`](pinned-api-e2e-readiness-contract.md):
+  pinned OpenAPI shapes and credential-safe live predicates for node, template,
+  sandbox-create, and terminal-state verification.
 - [`upstream-e2b.md`](upstream-e2b.md): pinned upstream revisions, contracts,
   architecture, and host requirements.

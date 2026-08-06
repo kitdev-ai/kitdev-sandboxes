@@ -947,3 +947,20 @@ untracked, and must never be quoted into tracked documentation.
   26.04 replay and reinstall qualification remain open; Ubuntu 25.04 is
   development/migration-only and Ubuntu 24.04 is unsupported.
 - **Commit:** Pending in this change set.
+
+## 2026-08-06 - Reproducible API-to-proxy E2E verifier
+
+- **Intent:** Turn the successful live API, Firecracker, client-proxy, and envd
+  command path into a bounded, credential-safe replay gate for development and
+  migration hosts.
+- **Implementation:** Added transactional curl credential files, an exact
+  pinned API readiness predicate, an offline-built ConnectRPC command client,
+  serialized sandbox creation, and cleanup that converges API, Firecracker,
+  and Redis state on success or failure.
+- **Evidence boundary:** The API schema predicates were checked against pinned
+  source and a credential-safe live query. Local unit, shell, lint, and static
+  security gates passed; the complete wrapper still requires execution on the
+  Ubuntu x86_64 development host with a caller-supplied API-key file.
+- **Support:** Ubuntu 25.04 remains development/migration-only and Ubuntu 26.04
+  is the production target. Ubuntu 24.04 is unsupported.
+- **Commit:** Pending in this change set.
