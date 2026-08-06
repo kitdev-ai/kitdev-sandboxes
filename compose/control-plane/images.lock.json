@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "platform": "linux/amd64",
+  "source": {
+    "repository": "https://github.com/e2b-dev/infra.git",
+    "commit": "882a3b4786755db9e94be3297de6827f9100ce5e",
+    "commit_sha_build_value": "882a3b4"
+  },
+  "migration_contract": {
+    "postgres": {
+      "migration_count": 129,
+      "maximum_timestamp": "20260728163016"
+    },
+    "clickhouse": {
+      "migration_count": 28,
+      "maximum_timestamp": "20260702181515",
+      "table_count_after_apply": 20
+    }
+  },
+  "base_images": {
+    "golang_builder": {
+      "reference": "docker.io/library/golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2",
+      "linux_amd64_manifest_digest": "sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8"
+    },
+    "alpine_runtime": {
+      "reference": "docker.io/library/alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",
+      "linux_amd64_manifest_digest": "sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f"
+    }
+  },
+  "runtime_images": {
+    "postgres": {
+      "reference": "docker.io/library/postgres:17.4@sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad",
+      "linux_amd64_manifest_digest": "sha256:d4eceb7552a57997fff2e9ceb1a624210e61b6432a2a1f7934a418c27bfe1406"
+    },
+    "redis": {
+      "reference": "docker.io/library/redis:7.4.6@sha256:a9cc41d6d01da2aa26c219e4f99ecbeead955a7b656c1c499cce8922311b2514",
+      "linux_amd64_manifest_digest": "sha256:6a11fed904cf317684ebb75bfe987d4f777c605d6f4e98d1bf3066db6c58f0c1"
+    },
+    "clickhouse": {
+      "reference": "docker.io/library/clickhouse:25.4.5.24@sha256:ad201eec325abb23e558e344d46d81bc9e2eba5a011fc02af440c124a27a1a61",
+      "linux_amd64_manifest_digest": null
+    },
+    "loki": {
+      "reference": "docker.io/grafana/loki:3.4.1@sha256:1d0c5ddc7644b88956aa0bd775ad796d9635180258a225d6ab3552751d5e2a66",
+      "linux_amd64_manifest_digest": "sha256:e3a897f58e38daaff7ff005681131bee715ee503a9004ca8ea04bd3ac10cdaff"
+    }
+  },
+  "source_images": {
+    "api": {
+      "compose_environment": "E2B_API_IMAGE_REF",
+      "repository_tag": "kitdev/e2b-api:882a3b4",
+      "dockerfile": "packages/api/Dockerfile",
+      "context": "packages",
+      "build_args": {
+        "COMMIT_SHA": "882a3b4",
+        "EXPECTED_MIGRATION_TIMESTAMP": "20260728163016"
+      },
+      "content_digest": null,
+      "status": "required-before-apply"
+    },
+    "postgres_migrator": {
+      "compose_environment": "E2B_DB_MIGRATOR_IMAGE_REF",
+      "repository_tag": "kitdev/e2b-db-migrator:882a3b4",
+      "dockerfile": "packages/db/Dockerfile",
+      "context": "packages",
+      "build_args": {},
+      "content_digest": null,
+      "status": "required-before-apply"
+    },
+    "clickhouse_migrator": {
+      "compose_environment": "E2B_CLICKHOUSE_MIGRATOR_IMAGE_REF",
+      "repository_tag": "kitdev/e2b-clickhouse-migrator:882a3b4",
+      "dockerfile": "packages/clickhouse/Dockerfile",
+      "context": "packages/clickhouse",
+      "build_args": {},
+      "content_digest": null,
+      "status": "required-before-apply"
+    },
+    "client_proxy": {
+      "compose_environment": "E2B_CLIENT_PROXY_IMAGE_REF",
+      "repository_tag": "kitdev/e2b-client-proxy:882a3b4",
+      "dockerfile": "packages/client-proxy/Dockerfile",
+      "context": "packages",
+      "build_args": {
+        "COMMIT_SHA": "882a3b4"
+      },
+      "content_digest": null,
+      "status": "required-before-apply"
+    }
+  }
+}

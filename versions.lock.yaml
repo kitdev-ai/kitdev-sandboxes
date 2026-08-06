@@ -163,6 +163,14 @@ artifacts:
     upstream_checksum_available: false
     status: hash-verified
 
+  envd_infra_build_amd64:
+    version: 0.6.13
+    source_commit: 882a3b4786755db9e94be3297de6827f9100ce5e
+    sha256: 530d84dfbfd82c05181e0dc61ca842f3caaa349b0cc2f3f52d2d8eb9478aa67e
+    size_bytes: 12927102
+    selection: Artifact used by the successful live create-build and resume smoke.
+    status: live-validated-candidate
+
 container_images:
   note: >-
     These are the selected infra commit's local-development datastore versions,
@@ -183,6 +191,36 @@ container_images:
   otel_collector:
     image: otel/opentelemetry-collector-contrib:0.146.0
     digest: sha256:9742116fb9441d82900be0f35be168e14714fa64ff1f0f7aa182cfcf676832b1
+
+build_images:
+  note: >-
+    These immutable registry objects are inputs to the project-owned E2B image
+    and host-binary wrappers. Locally built output image IDs are captured on
+    the target host and are not inferred from these input pins.
+  golang_alpine:
+    image: golang:1.26.5-alpine3.24
+    index_digest: sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
+    linux_amd64_manifest_digest: sha256:111d79159b2326f7e80c4a4706e1ba166acb0e2611df853955f3621828cd49e8
+    status: candidate-observed
+  alpine_runtime:
+    image: alpine:3.24
+    index_digest: sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+    linux_amd64_manifest_digest: sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
+    status: candidate-observed
+  golang_bookworm:
+    image: golang:1.26.5-bookworm
+    index_digest: sha256:6c5605ab3a9a9fb3c4eafe5b3d63cdbf3881caf113262b67862547b54a9db599
+    linux_amd64_manifest_digest: sha256:db25d241820546be7b96953eea8d3e6bd15d413d59d00a75b68b74dfb5e2ecd2
+    status: candidate-observed
+
+template_images:
+  e2b_base:
+    image: e2bdev/base:latest
+    digest: sha256:4a369f01a820fe5e65f53c2c5727a78899daf86f0541b721097f289559c8b73f
+    selection: >-
+      Live create-build input at the pinned E2B infra commit; provisioning,
+      snapshot create/load, envd initialization, and final resume smoke passed.
+    status: live-provisioned-snapshot-resume-validated-candidate
 
 unresolved:
   volume_content_service:

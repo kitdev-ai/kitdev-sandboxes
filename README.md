@@ -6,10 +6,18 @@ runtime uses Firecracker microVMs and assumes sandbox workloads are hostile.
 
 ## Project status
 
-The project is in **Milestone 1: preflight and host preparation (in progress)**.
-The repository provides dependency-free, strictly read-only `doctor` and
-`install --dry-run` foundations, but it does not yet install, prepare, or run
-services. Do not use it to qualify or operate a production host yet.
+The production installer remains in **Milestone 1: preflight and host
+preparation (in progress)**. Its dependency-free `doctor` and `install
+--dry-run` foundations are strictly read-only. In parallel, explicitly approved
+work on a disposable Ubuntu 26.04 bare-metal lab has validated pinned Docker
+Engine, the containerized control plane, the privileged host orchestrator, and
+a first Firecracker template build plus snapshot/resume cycle.
+
+The repository now contains reproducible control-plane assets derived from
+that lab evidence, but they are not yet integrated into `sudo ./kitdev install`
+and have not passed clean-host apply/apply, rollback, reboot, or reinstall
+qualification. Do not use the current tree to qualify or operate a production
+host yet.
 
 Version 0.1 recognizes this host matrix:
 
@@ -50,8 +58,9 @@ as full host qualification. A deterministic `install --dry-run` is available:
 ./kitdev install --dry-run --json
 ```
 
-It remains blocked while required-port policy is unapproved. Bare `install`,
-apply, bootstrap, and all host mutation remain absent.
+It remains blocked while required-port policy is unapproved. Bare `kitdev
+install` still performs no mutation. Separately reviewed lab/bootstrap and
+control-plane replay scripts are not a substitute for the journaled installer.
 
 ## Design priorities
 
@@ -70,7 +79,7 @@ apply, bootstrap, and all host mutation remain absent.
 | --- | --- |
 | `config/` | Versioned defaults and JSON Schema |
 | `ansible/` | Local convergence playbooks and roles, starting in Milestone 1 |
-| `compose/` | Project-private state services, starting in Milestone 2 |
+| `compose/` | Digest-pinned project-private control-plane services |
 | `systemd/` | Host-integrated service definitions |
 | `templates/` | Versioned guest template build inputs |
 | `networking/` | Project-owned network policy and nftables inputs |
@@ -85,9 +94,10 @@ The complete product brief is kept in `PROMPT.md`.
 ## Development
 
 See `CONTRIBUTING.md` before contributing. Both `kitdev doctor` and
-`kitdev install --dry-run` have read-only safety contracts in the current
-slice; no apply or host-preparation command is available. The dependency-free
-unit-test command is documented in
+`kitdev install --dry-run` retain read-only safety contracts; there is no
+top-level apply or host-preparation command. Standalone replay assets require
+their own documented gates and remain pending clean-host qualification. The
+dependency-free unit-test command is documented in
 [`tests/README.md`](tests/README.md).
 
 ## License

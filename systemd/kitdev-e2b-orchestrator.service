@@ -1,0 +1,32 @@
+[Unit]
+Description=Kitdev E2B orchestrator and template manager
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+RequiresMountsFor=/var/lib/kitdev-sandboxes/data
+ConditionPathExists=/dev/kvm
+ConditionPathExists=/dev/net/tun
+ConditionPathExists=/sys/module/nbd/parameters/nbds_max
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/kitdev-sandboxes/orchestrator.env
+ExecStartPre=/opt/kitdev-sandboxes/libexec/control-plane/preflight-orchestrator.sh
+ExecStart=/var/lib/kitdev-sandboxes/data/runtime/orchestrator/orchestrator
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=90s
+LimitNOFILE=1048576
+TasksMax=infinity
+UMask=0077
+Delegate=yes
+NoNewPrivileges=no
+PrivateDevices=no
+PrivateMounts=no
+ProtectControlGroups=no
+RestrictNamespaces=no
+
+[Install]
+WantedBy=multi-user.target

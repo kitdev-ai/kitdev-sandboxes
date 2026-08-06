@@ -20,6 +20,9 @@ private keys, secret values, or unnecessary personal/host identifiers.
   ledger updated before each commit and review or deployment gate.
 - [`cloud-options.md`](cloud-options.md): GCP, AWS, hosted bare-metal, and local
   nested-virtualization deployment comparison.
+- [`control-plane-replay-slice.md`](control-plane-replay-slice.md): pinned
+  Compose, host-runtime, firewall, identity, and persistent orchestrator replay
+  derived from the successful disposable-host control-plane run.
 - [`host-discovery.md`](host-discovery.md): read-only `kit@pc` capability and
   coexistence inventory.
 - [`milestone-1-pc-doctor.md`](milestone-1-pc-doctor.md): temporary read-only

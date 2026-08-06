@@ -892,3 +892,28 @@ untracked, and must never be quoted into tracked documentation.
   No complete reverse plan exists; reinstall remains the authoritative reset.
 - **Commit:** Initial record in `67fc006`; control-plane follow-up pending in
   this change set.
+
+## 2026-08-06 - Reproducible control-plane replay slice
+
+- **Intent:** Convert the successful disposable-host control plane into
+  reviewable, replayable repository assets without claiming production
+  qualification or mutating the remote host.
+- **Implementation:** Added digest-pinned Compose services, exact source-build
+  wrappers, nonrotating root-only private state, verified network adoption,
+  conflict-audited UFW rules, exact runtime layout, and a persistent host
+  orchestrator unit with fail-closed preflight and byte-for-byte install
+  verification.
+- **Identity correction:** Reserved UID/GID `61000-61999` for project service
+  identities and persisted deterministic mappings in the Stage 20 plan. The
+  replay rejects the disposable host's colliding UID `999` worker before
+  layout mutation. Clean-image probes established PostgreSQL `999:root` mode
+  `0700`, Redis `999:root` mode `0750`, ClickHouse `101:101` mode `0750`, and
+  Loki `10001:10001` mode `0750` as the convergent top-level datastore state.
+- **Evidence boundary:** The implementation and tests ran locally and made no
+  SSH or OVH mutation. Credentials and management endpoints are absent. The
+  successful live build/resume and public-port observations are normalized in
+  [`control-plane-replay-slice.md`](control-plane-replay-slice.md).
+- **Remaining gate:** Fresh Ubuntu 26.04 apply/apply, restart, rollback,
+  reinstall, restore, and concurrent-sandbox qualification remain required.
+  Ubuntu 25.04 remains development/migration-only; Ubuntu 24.04 is unsupported.
+- **Commit:** Pending in this change set.

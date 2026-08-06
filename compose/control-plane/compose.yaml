@@ -1,0 +1,278 @@
+name: kitdev-control-plane
+
+x-service-labels: &service-labels
+  io.kitdev-sandboxes.component: control-plane
+  io.kitdev-sandboxes.deployment: single-host
+  io.kitdev-sandboxes.source-commit: 882a3b4786755db9e94be3297de6827f9100ce5e
+
+x-locked-down: &locked-down
+  cap_drop:
+    - ALL
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  postgres:
+    image: docker.io/library/postgres:17.4@sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad
+    environment:
+      PGDATA: /var/lib/postgresql/17/docker
+      POSTGRES_DB: kitdev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_USER: kitdev
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U kitdev -d kitdev]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 10s
+    labels: *service-labels
+    networks:
+      - core
+    ports:
+      - name: postgres-diagnostics
+        target: 5432
+        published: "5432"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    restart: unless-stopped
+    stop_grace_period: 60s
+    volumes:
+      - type: bind
+        source: /var/lib/kitdev-sandboxes/data/postgres
+        target: /var/lib/postgresql/17/docker
+
+  redis:
+    image: docker.io/library/redis:7.4.6@sha256:a9cc41d6d01da2aa26c219e4f99ecbeead955a7b656c1c499cce8922311b2514
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 5s
+    labels: *service-labels
+    networks:
+      - core
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - type: bind
+        source: /var/lib/kitdev-sandboxes/data/redis
+        target: /data
+
+  clickhouse:
+    image: docker.io/library/clickhouse:25.4.5.24@sha256:ad201eec325abb23e558e344d46d81bc9e2eba5a011fc02af440c124a27a1a61
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?required}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:?required}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          clickhouse-client --user "$${CLICKHOUSE_USER}"
+          --password "$${CLICKHOUSE_PASSWORD}" --query "SELECT 1"
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 15s
+    labels: *service-labels
+    networks:
+      - core
+    ports:
+      - name: clickhouse-http-diagnostics
+        target: 8123
+        published: "8123"
+        host_ip: 127.0.0.1
+        protocol: tcp
+      - name: clickhouse-native-diagnostics
+        target: 9000
+        published: "9000"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    restart: unless-stopped
+    stop_grace_period: 90s
+    volumes:
+      - type: bind
+        source: /var/lib/kitdev-sandboxes/data/clickhouse
+        target: /var/lib/clickhouse
+      - type: bind
+        source: ./clickhouse/cluster.xml
+        target: /etc/clickhouse-server/config.d/kitdev-cluster.xml
+        read_only: true
+
+  loki:
+    image: docker.io/grafana/loki:3.4.1@sha256:1d0c5ddc7644b88956aa0bd775ad796d9635180258a225d6ab3552751d5e2a66
+    command:
+      - -config.file=/etc/loki/kitdev.yaml
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget --quiet --tries=1 --output-document=-
+          http://localhost:3100/ready | grep -q -w ready
+      interval: 5s
+      timeout: 2s
+      retries: 24
+      start_period: 20s
+    labels: *service-labels
+    networks:
+      - core
+    restart: unless-stopped
+    stop_grace_period: 30s
+    user: "10001:10001"
+    volumes:
+      - type: bind
+        source: /var/lib/kitdev-sandboxes/data/loki
+        target: /loki
+      - type: bind
+        source: ./loki/config.yaml
+        target: /etc/loki/kitdev.yaml
+        read_only: true
+
+  postgres-migrator:
+    <<: *locked-down
+    image: ${E2B_DB_MIGRATOR_IMAGE_REF:?required}
+    pull_policy: never
+    environment:
+      POSTGRES_CONNECTION_STRING: ${POSTGRES_CONNECTION_STRING:?required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    labels: *service-labels
+    networks:
+      - core
+    restart: "no"
+    user: "65532:65532"
+
+  clickhouse-migrator:
+    <<: *locked-down
+    image: ${E2B_CLICKHOUSE_MIGRATOR_IMAGE_REF:?required}
+    pull_policy: never
+    environment:
+      GOOSE_DBSTRING: ${CLICKHOUSE_CONNECTION_STRING:?required}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+        restart: true
+    labels: *service-labels
+    networks:
+      - core
+    restart: "no"
+    user: "65532:65532"
+
+  api:
+    <<: *locked-down
+    image: ${E2B_API_IMAGE_REF:?required}
+    pull_policy: never
+    command:
+      - --port
+      - "3000"
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?required}
+      AUTH_PROVIDER_CONFIG: '{"jwt":[]}'
+      CLICKHOUSE_CONNECTION_STRING: ${CLICKHOUSE_CONNECTION_STRING:?required}
+      DOMAIN_NAME: localhost
+      ENVIRONMENT: local
+      LOCAL_ORCHESTRATOR_ADDRESS: host.docker.internal:5008
+      LOKI_URL: http://loki:3100
+      NODE_ID: kitdev-api-01
+      POSTGRES_CONNECTION_STRING: ${POSTGRES_CONNECTION_STRING:?required}
+      REDIS_URL: redis:6379
+      SANDBOX_ACCESS_TOKEN_HASH_SEED: ${SANDBOX_ACCESS_TOKEN_HASH_SEED:?required}
+      SERVICE_DISCOVERY_PROVIDER: local
+      VOLUME_TOKEN_ENABLED: "false"
+    extra_hosts:
+      - host.docker.internal:${KITDEV_CORE_GATEWAY:?required}
+    depends_on:
+      clickhouse-migrator:
+        condition: service_completed_successfully
+      loki:
+        condition: service_healthy
+        restart: true
+      postgres-migrator:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget --quiet --tries=1 --output-document=/dev/null
+          http://localhost:3000/health
+      interval: 5s
+      timeout: 2s
+      retries: 24
+      start_period: 10s
+    labels: *service-labels
+    networks:
+      - core
+    ports:
+      - name: api-http
+        target: 3000
+        published: "3000"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    restart: unless-stopped
+    stop_grace_period: 90s
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    user: "65532:65532"
+
+  client-proxy:
+    <<: *locked-down
+    image: ${E2B_CLIENT_PROXY_IMAGE_REF:?required}
+    pull_policy: never
+    environment:
+      API_INTERNAL_GRPC_ADDRESS: api:5009
+      ENVIRONMENT: local
+      NODE_ID: kitdev-client-proxy-01
+      REDIS_URL: redis:6379
+    depends_on:
+      api:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget --quiet --tries=1 --output-document=/dev/null
+          http://localhost:3003/health
+      interval: 5s
+      timeout: 2s
+      retries: 24
+      start_period: 10s
+    labels: *service-labels
+    networks:
+      - core
+    ports:
+      - name: client-proxy-http
+        target: 3002
+        published: "3002"
+        host_ip: 127.0.0.1
+        protocol: tcp
+      - name: client-proxy-health
+        target: 3003
+        published: "3003"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    restart: unless-stopped
+    stop_grace_period: 90s
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    user: "65532:65532"
+
+networks:
+  core:
+    name: kitdev-core
+    external: true
