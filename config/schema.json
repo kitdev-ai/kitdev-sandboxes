@@ -5,7 +5,7 @@
   "description": "Non-secret operator configuration. Secrets are stored separately.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "deployment", "paths", "sandbox", "network", "features"],
+  "required": ["schema_version", "deployment", "paths", "sandbox", "network", "features", "identity"],
   "properties": {
     "schema_version": { "const": 1 },
     "deployment": {
@@ -106,6 +106,19 @@
         "backups": { "type": "boolean" },
         "browser_template": { "type": "boolean" },
         "desktop_template": { "type": "boolean" }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operator"],
+      "properties": {
+        "operator": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z_][a-z0-9_-]{0,30}$",
+          "not": { "const": "root" },
+          "description": "Explicit existing human operator; never inferred from process environment."
+        }
       }
     }
   },

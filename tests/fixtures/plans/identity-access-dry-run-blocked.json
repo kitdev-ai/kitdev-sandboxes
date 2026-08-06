@@ -1,0 +1,26 @@
+{
+  "actions": [],
+  "allocations": [
+    { "gid": 101, "name": "kitdev-e2b", "uid": 102 },
+    { "gid": 103, "name": "kitdev-proxy", "uid": 103 },
+    { "gid": 104, "name": "kitdev-worker", "uid": 104 }
+  ],
+  "blocking": true,
+  "command_mode": "install-dry-run",
+  "dry_run": true,
+  "issues": [
+    { "code": "unknown", "explanation": "The bootstrap prerequisite is not verified.", "id": "identity.prerequisite.bootstrap" },
+    { "code": "unknown", "explanation": "The host-key prerequisite is not verified.", "id": "identity.prerequisite.host-key" },
+    { "code": "unknown", "explanation": "The journal prerequisite is not verified.", "id": "identity.prerequisite.journal" },
+    { "code": "unknown", "explanation": "The operator-ssh-key prerequisite is not verified.", "id": "identity.prerequisite.operator-ssh-key" },
+    { "code": "unknown", "explanation": "The recovery prerequisite is not verified.", "id": "identity.prerequisite.recovery" },
+    { "code": "unknown", "explanation": "The second-session prerequisite is not verified.", "id": "identity.prerequisite.second-session" },
+    { "code": "unknown", "explanation": "The sudo-policy prerequisite is not verified.", "id": "identity.prerequisite.sudo-policy" }
+  ],
+  "lifecycle_mode": "production",
+  "phase": "identity-access",
+  "plan_hash": "sha256:e61fe5e947ae07b1866d9bf8af0efa40ef5e4499671d8d74ef6764a8642f9fb3",
+  "project_release": "0.0.0",
+  "schema_version": 1,
+  "summary": { "actions": 0, "allocations": 3, "issues": 7 }
+}

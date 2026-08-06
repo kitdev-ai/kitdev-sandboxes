@@ -82,6 +82,11 @@ class FeaturesConfig:
 
 
 @dataclass(frozen=True)
+class IdentityConfig:
+    operator: str | None
+
+
+@dataclass(frozen=True)
 class Configuration:
     schema_version: int
     deployment: DeploymentConfig
@@ -89,6 +94,7 @@ class Configuration:
     sandbox: SandboxConfig
     network: NetworkConfig
     features: FeaturesConfig
+    identity: IdentityConfig = IdentityConfig(operator=None)
 
 
 @dataclass(frozen=True)
@@ -358,7 +364,11 @@ def validate_configuration(data: dict[str, Any]) -> Configuration:
     """Validate merged data against the version 1 configuration contract."""
 
     top = _mapping(data, "configuration")
-    _keys(top, {"schema_version", "deployment", "paths", "sandbox", "network", "features"}, "configuration")
+    _keys(
+        top,
+        {"schema_version", "deployment", "paths", "sandbox", "network", "features", "identity"},
+        "configuration",
+    )
     if top["schema_version"] != 1 or isinstance(top["schema_version"], bool):
         raise ConfigurationError("schema_version must be 1")
 
@@ -472,6 +482,15 @@ def validate_configuration(data: dict[str, Any]) -> Configuration:
     feature_keys = {"observability", "persistence", "backups", "browser_template", "desktop_template"}
     _keys(features, feature_keys, "features")
 
+    identity = _mapping(top["identity"], "identity")
+    _keys(identity, {"operator"}, "identity")
+    operator = _string(identity["operator"], "identity.operator", nullable=True)
+    if operator is not None:
+        if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,30}", operator) or operator == "root":
+            raise ConfigurationError(
+                "identity.operator must be a non-root Linux account name of at most 31 characters"
+            )
+
     return Configuration(
         schema_version=1,
         deployment=DeploymentConfig(
@@ -504,6 +523,7 @@ def validate_configuration(data: dict[str, Any]) -> Configuration:
         features=FeaturesConfig(**{
             key: _boolean(features[key], f"features.{key}") for key in feature_keys
         }),
+        identity=IdentityConfig(operator=cast(str | None, operator)),
     )
 
 

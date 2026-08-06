@@ -39,3 +39,6 @@ features:
   backups: false
   browser_template: false
   desktop_template: false
+
+identity:
+  operator: null

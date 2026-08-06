@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kitdev-sandboxes:identity-access-plan:v1",
+  "title": "kitdev-sandboxes identity-access dry-run plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "project_release", "lifecycle_mode", "command_mode",
+    "phase", "dry_run", "blocking", "plan_hash", "summary", "allocations",
+    "actions", "issues"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "project_release": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "lifecycle_mode": { "enum": ["production", "development", "migration"] },
+    "command_mode": { "const": "install-dry-run" },
+    "phase": { "const": "identity-access" },
+    "dry_run": { "const": true },
+    "blocking": { "type": "boolean" },
+    "plan_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actions", "allocations", "issues"],
+      "properties": {
+        "actions": { "type": "integer", "minimum": 0, "maximum": 7 },
+        "allocations": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "issues": { "type": "integer", "minimum": 0, "maximum": 64 }
+      }
+    },
+    "allocations": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "uid", "gid"],
+        "properties": {
+          "name": { "enum": ["kitdev-e2b", "kitdev-proxy", "kitdev-worker"] },
+          "uid": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+          "gid": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "category", "target", "desired_state", "privilege", "rollback"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^identity\\.[a-z0-9.-]+$", "maxLength": 96 },
+          "category": { "enum": ["account", "account_group", "group_membership"] },
+          "target": { "type": "string", "pattern": "^(kitdev-(e2b|proxy|worker)|configured-operator)$" },
+          "desired_state": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "privilege": { "const": "root" },
+          "rollback": { "type": "string", "minLength": 1, "maxLength": 256 }
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "code", "explanation"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^identity\\.[a-z0-9.-]+$", "maxLength": 128 },
+          "code": { "enum": ["unknown", "conflict", "unsupported"] },
+          "explanation": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    }
+  }
+}

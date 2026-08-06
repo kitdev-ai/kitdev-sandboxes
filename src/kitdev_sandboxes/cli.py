@@ -27,6 +27,14 @@ from kitdev_sandboxes.config import (
     load_configuration,
 )
 from kitdev_sandboxes.planning import ResourceFact
+from kitdev_sandboxes.identity import (
+    IdentityFacts,
+    IdentityPlan,
+    IdentityPrerequisites,
+    build_identity_plan,
+    collect_identity_facts,
+    render_identity_plan_text,
+)
 from kitdev_sandboxes.preflight import (
     DoctorReport,
     HostFacts,
@@ -132,11 +140,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="run strictly read-only host qualification checks",
         description="Collect and evaluate host facts without mutation or privilege acquisition.",
     )
-    commands.add_parser(
+    install = commands.add_parser(
         "install",
         parents=[common],
         help="calculate an installation plan; apply is not implemented",
         description="Calculate a read-only plan. The --dry-run flag is mandatory.",
+    )
+    install.add_argument(
+        "--phase",
+        choices=("identity-access",),
+        default=None,
+        help="calculate one explicitly selected installation phase",
     )
     return parser
 
@@ -164,11 +178,13 @@ def main(
     fact_collector: Callable[[], HostFacts] = collect_host_facts,
     linux_fact_collector: Callable[[Configuration], LinuxFacts] | None = None,
     directory_fact_collector: Callable[[Configuration], tuple[ResourceFact, ...]] | None = None,
+    identity_fact_collector: Callable[[Configuration], IdentityFacts] | None = None,
+    identity_prerequisites: IdentityPrerequisites = IdentityPrerequisites(),
 ) -> int:
     parser = build_parser()
     raw_arguments = list(argv) if argv is not None else sys.argv[1:]
     json_requested = "--json" in raw_arguments
-    report: DoctorReport | InstallPlanReport | None = None
+    report: DoctorReport | InstallPlanReport | IdentityPlan | None = None
     try:
         arguments = parser.parse_args(raw_arguments)
     except InvocationError as error:
@@ -209,6 +225,16 @@ def main(
                 linux_facts,
                 dry_run=bool(getattr(arguments, "dry_run", False)),
             )
+        elif getattr(arguments, "phase", None) == "identity-access":
+            identity_facts = (identity_fact_collector or collect_identity_facts)(
+                loaded.configuration
+            )
+            report = build_identity_plan(
+                loaded.configuration,
+                facts,
+                identity_facts,
+                identity_prerequisites,
+            )
         else:
             report = build_install_plan_report(
                 loaded.configuration,
@@ -222,12 +248,16 @@ def main(
             if isinstance(report, DoctorReport):
                 payload = report.as_dict(verbose=bool(getattr(arguments, "verbose", False)))
                 print(json.dumps(payload, indent=2, sort_keys=True))
+            elif isinstance(report, InstallPlanReport):
+                print(report.to_json())
             else:
                 print(report.to_json())
         elif isinstance(report, DoctorReport):
             print(render_text(report, verbose=bool(getattr(arguments, "verbose", False))))
-        else:
+        elif isinstance(report, InstallPlanReport):
             print(render_install_plan_text(report))
+        else:
+            print(render_identity_plan_text(report))
         return report.exit_code
     except BrokenPipeError:
         return report.exit_code if report is not None else 10
