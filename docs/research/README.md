@@ -62,5 +62,11 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`ovh-disposable-lab-framework.md`](ovh-disposable-lab-framework.md): staged,
   gated experiment harness, executable/blocked boundary, evidence controls, and
   reinstall-to-production promotion rule.
+- [`ovh-docker-bootstrap-manual-run.md`](ovh-docker-bootstrap-manual-run.md):
+  approved disposable-host package/repository/Docker mutation, exact observed
+  versions and trust pins, interrupted-attempt diagnosis, and rollback caveats.
+- [`ovh-live-lab-services-first-run.md`](ovh-live-lab-services-first-run.md):
+  normalized firewall, hugepage, pinned build, persistent database, migration,
+  and seed results with stage ownership and rollback blockers.
 - [`upstream-e2b.md`](upstream-e2b.md): pinned upstream revisions, contracts,
   architecture, and host requirements.

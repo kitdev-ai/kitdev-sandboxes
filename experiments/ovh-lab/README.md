@@ -68,11 +68,20 @@ OVH_LAB_KNOWN_HOSTS=/operator/private/verified-known-hosts \
 ./experiments/ovh-lab/run-stage.sh 00 execute
 ```
 
-Stages `00` and `30` are executable read-only/discovery stages. Stage `05` is
+Stages `00` and `30` are executable read-only/discovery stages. Stage `10` is
+an executable plan-only cached inventory and simulation stage. Stage `05` is
 the sole executable mutation: it creates only the canonical disposable-lab
 authorization marker and empty workspace under an operation-wide journal lock.
-Stages `10`, `20`, and `40` through `90` remain blocked. `stages.json` is
-authoritative for stage selection and status.
+Stages `20` and `40` through `90` remain blocked. `stages.json` is authoritative
+for stage selection and status.
+
+`bootstrap-docker-engine.sh` records a separately approved mutation-first
+disposable-host exercise. It is deliberately outside `stages.json`, requires a
+framed component-digest acknowledgement from a root-owned immutable checkout
+plus operation-wide validated Stage 05 authorization, pins the observed
+top-level package versions and repository trust material, and has no rollback
+mode. Its existence does not enable Stage 50 or qualify production automation;
+reinstall remains the authoritative lab reset.
 
 The Stage 05 bundle deterministically embeds the exact reviewed
 `journal.py` and `stage05.py` bytes and their component digests. Bash streams

@@ -801,3 +801,82 @@ untracked, and must never be quoted into tracked documentation.
   tests are required before generating a new exact bundle-bound approval.
   Stage 10 still cannot apply, and Stage 50 remains blocked.
 - **Commit:** Pending in this change set.
+
+## 2026-08-06 - Manual disposable-lab Docker bootstrap and tracked replay
+
+- **Intent:** Preserve the explicitly approved mutation-first package,
+  repository, and Docker Engine exercise as a reviewable disposable-host replay
+  without enabling the staged Docker mutation.
+- **Safe activity summary:** The project lead ran `apt-get update`, explicitly
+  requested the fixed baseline tools, verified and published the pinned Docker
+  key and canonical Resolute source, refreshed metadata, and installed five
+  exact Docker package versions. Only `make` was newly installed by the
+  baseline request; eight already-installed packages were changed to manual.
+  Docker and containerd ended active/enabled with overlayfs, systemd cgroups,
+  cgroup v2, zero containers, and zero images.
+- **Interrupted attempt:** The first Docker script stopped after repository
+  update and before Docker installation because an early-exit `awk` consumer
+  caused `apt-cache` to receive `SIGPIPE` under `pipefail`. The safely resumed
+  parser consumes the full input and decides in `END`; the tracked replay keeps
+  that invariant.
+- **Tracked artifact:** `experiments/ovh-lab/bootstrap-docker-engine.sh` pins
+  all explicitly requested observed versions, the key digest/fingerprints, and
+  exact source bytes; rejects conflicts/foreign state and clears caller
+  `APT_CONFIG`;
+  requires a framed component-digest acknowledgement from a root-owned
+  immutable checkout and operation-wide Stage 05 authorization; publishes with
+  no-clobber semantics; and provides an exact read-only verify mode.
+- **Mutation status:** The approved host work changed APT lists and manual
+  marks, installed `make`, wrote repository trust/source files, installed
+  Docker packages and solver dependencies, and activated package-managed
+  services. This implementation task itself used no SSH and made repository
+  edits/tests only.
+- **Rollback / promotion:** The original dependency closure and complete mark
+  pre-state were not captured, so no automated rollback is claimed. Reinstall
+  remains authoritative. Stage 50 stays blocked, and production still requires
+  isolated artifacts, journaling, reverse-plan qualification, and clean-image
+  automation tests.
+- **Result:** The dedicated bootstrap suite ran 12 tests with one expected
+  Linux-only skip. The focused bootstrap/Stage 10/framework suite ran 60 tests
+  with the same skip, and the complete suite ran 257 tests with the same skip.
+  `bash -n` and `git diff --check` passed. Independent LUNA re-review approved
+  the normalized invocation and complete component-ancestry trust boundary
+  with no remaining blocker.
+- **Commit:** Pending in this change set.
+
+## 2026-08-06 - Live-lab firewall, hugepage, build, and database mutations
+
+- **Intent:** Preserve public-safe facts from the explicitly approved
+  mutation-first lab work without treating manual state as qualified stage
+  automation.
+- **Safe activity summary:** UFW was enabled with deny-in/allow-out and SSH-only
+  ingress; 2,048 2-MiB hugepages and hugetlbfs were configured; pinned E2B
+  orchestrator binaries were built; digest-pinned PostgreSQL, Redis, and
+  ClickHouse containers were bound to loopback with persistent data; and the
+  pinned PostgreSQL/ClickHouse migrations and local development seed completed.
+- **Control plane:** Redis and digest-pinned Loki were moved to the internal
+  Docker network without host ports. Root-only fresh lab secrets were created
+  without output. The pinned API is loopback-only and runs but reports `503`
+  because the host orchestrator is not yet running; the loopback-only pinned
+  client proxy reports healthy. Missing final application image digests remain
+  an evidence blocker.
+- **Guest artifact:** A direct Go build produced the root-owned, group-readable
+  `envd` 0.6.13 artifact at pinned commit `882a3b4`: 12,927,102 bytes with
+  SHA-256 `530d84dfbfd82c05181e0dc61ca842f3caaa349b0cc2f3f52d2d8eb9478aa67e`.
+  Earlier precompile attempts exposed dubious-checkout ownership and a missing
+  `make` assumption in the pinned builder image; neither altered the checkout.
+- **Failure/resume evidence:** The ClickHouse migrator first stopped on its
+  missing `cluster` dependency, and the seed first stopped because Go attempted
+  to update a read-only `go.work.sum`. The corrected ClickHouse config and an
+  isolated writable seed-source copy allowed safe reruns without modifying the
+  canonical checkout.
+- **Security boundary:** Lab credentials are omitted. A generated ClickHouse
+  bind config required host mode `0644`, which is a production blocker for
+  embedded credentials. All database host ports were loopback-only, and SSH
+  effective policy was observed but not mutated.
+- **Mutation status:** These host changes were manual and explicitly approved.
+  Preparing this report used no SSH and made documentation changes only.
+- **Automation / rollback:** Stages 20/40/60/70/80 remain blocked and must own
+  their respective identity, hugepage, firewall, build, and service changes.
+  No complete reverse plan exists; reinstall remains the authoritative reset.
+- **Commit:** Pending in this change set.
