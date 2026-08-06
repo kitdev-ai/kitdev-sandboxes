@@ -29,7 +29,9 @@ OTHER_HASH = "sha256:" + "b" * 64
 def _competing_creator(root: str, start: object, results: object) -> None:
     path = Path(root)
     policy = JournalSecurityPolicy(
-        expected_owner_uid=os.getuid(), trusted_prefix=temporary_trust_boundary(path)
+        expected_owner_uid=os.getuid(),
+        expected_owner_gid=os.getegid(),
+        trusted_prefix=temporary_trust_boundary(path),
     )
     start.wait()  # type: ignore[attr-defined]
     try:
@@ -38,6 +40,31 @@ def _competing_creator(root: str, start: object, results: object) -> None:
         results.put("conflict")  # type: ignore[attr-defined]
     else:
         results.put("created")  # type: ignore[attr-defined]
+
+
+def _try_session_lock(root: str, results: object) -> None:
+    path = Path(root)
+    policy = JournalSecurityPolicy(
+        expected_owner_uid=os.getuid(),
+        expected_owner_gid=os.getegid(),
+        trusted_prefix=temporary_trust_boundary(path),
+    )
+    try:
+        with JournalStore(path, policy).locked():
+            results.put("acquired")  # type: ignore[attr-defined]
+    except JournalConflict:
+        results.put("conflict")  # type: ignore[attr-defined]
+
+
+def _exit_while_holding_session(root: str) -> None:
+    path = Path(root)
+    policy = JournalSecurityPolicy(
+        expected_owner_uid=os.getuid(),
+        expected_owner_gid=os.getegid(),
+        trusted_prefix=temporary_trust_boundary(path),
+    )
+    with JournalStore(path, policy).locked():
+        os._exit(0)
 
 
 def resources() -> tuple[ResourceRecord, ...]:
@@ -72,6 +99,7 @@ class JournalTests(unittest.TestCase):
         self.root.chmod(0o700)
         self.policy = JournalSecurityPolicy(
             expected_owner_uid=os.getuid(),
+            expected_owner_gid=os.getegid(),
             trusted_prefix=temporary_trust_boundary(self.root),
         )
         self.store = JournalStore(self.root, self.policy)
@@ -198,6 +226,7 @@ class JournalTests(unittest.TestCase):
         self.root.chmod(0o700)
         rejecting = JournalSecurityPolicy(
             expected_owner_uid=os.getuid(),
+            expected_owner_gid=os.getegid(),
             stat_validator=lambda _metadata, _directory: False,
             trusted_prefix=temporary_trust_boundary(self.root),
         )
@@ -227,6 +256,74 @@ class JournalTests(unittest.TestCase):
         finally:
             os.close(descriptor)
         self.assertFalse(self.path().exists())
+
+    def test_locked_session_reuses_one_root_and_avoids_nested_locking(self) -> None:
+        with patch.object(self.store, "_open_root", wraps=self.store._open_root) as opened:
+            with self.store.locked() as session:
+                self.assertEqual(session.create(record()), record())
+                self.assertEqual(session.load("install-001"), record())
+                updated = session.transition(
+                    "install-001",
+                    "bootstrap-v1",
+                    PLAN_HASH,
+                    resources(),
+                    JournalState.APPLYING,
+                )
+                self.assertEqual(updated.state, JournalState.APPLYING)
+                self.assertEqual(opened.call_count, 1)
+                with self.assertRaises(JournalConflict):
+                    self.store.load("install-001")
+            self.assertEqual(opened.call_count, 2)
+
+        with self.assertRaises(JournalConflict):
+            session.load("install-001")
+
+    def test_shared_session_is_read_only(self) -> None:
+        self.store.create(record())
+        with self.store.locked(exclusive=False) as session:
+            self.assertEqual(session.load("install-001"), record())
+            with self.assertRaises(JournalConflict):
+                session.create(record("install-002"))
+            with self.assertRaises(JournalConflict):
+                session.transition(
+                    "install-001",
+                    "bootstrap-v1",
+                    PLAN_HASH,
+                    resources(),
+                    JournalState.APPLYING,
+                )
+
+    def test_shared_session_does_not_repair_linked_create_residue(self) -> None:
+        self.store.create(record())
+        residue = self.root / (".install-001.journal.json.tmp." + "4" * 32)
+        os.link(self.path(), residue)
+
+        with self.store.locked(exclusive=False) as session:
+            with self.assertRaises(JournalSecurityError):
+                session.load("install-001")
+        self.assertTrue(residue.exists())
+
+        self.assertEqual(self.store.load("install-001"), record())
+        self.assertFalse(residue.exists())
+
+    def test_session_lock_excludes_processes_and_is_released_on_process_exit(self) -> None:
+        context = multiprocessing.get_context("fork")
+        results = context.Queue()
+        with self.store.locked():
+            worker = context.Process(
+                target=_try_session_lock, args=(str(self.root), results)
+            )
+            worker.start()
+            self.assertEqual(results.get(timeout=5), "conflict")
+            worker.join(timeout=5)
+            self.assertEqual(worker.exitcode, 0)
+
+        worker = context.Process(target=_exit_while_holding_session, args=(str(self.root),))
+        worker.start()
+        worker.join(timeout=5)
+        self.assertEqual(worker.exitcode, 0)
+        with self.store.locked():
+            pass
 
     def test_two_actual_competing_creators_publish_exactly_once(self) -> None:
         context = multiprocessing.get_context("fork")
@@ -289,6 +386,29 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(self.store.load("install-001").state, JournalState.PLANNED)
         self.assertEqual(list(self.root.glob(".*.tmp.*")), [])
 
+    def test_transition_directory_fsync_failure_leaves_updated_record_reopenable(self) -> None:
+        self.store.create(record())
+        with patch(
+            "kitdev_sandboxes.journal.os.fsync",
+            side_effect=(None, OSError("interrupted after transition replace")),
+        ):
+            with self.assertRaises(OSError):
+                self.store.transition(
+                    "install-001",
+                    "bootstrap-v1",
+                    PLAN_HASH,
+                    resources(),
+                    JournalState.APPLYING,
+                )
+
+        reopened = self.store.load("install-001")
+        self.assertEqual(reopened.state, JournalState.APPLYING)
+        self.assertEqual(
+            self.store.resume("install-001", "bootstrap-v1", PLAN_HASH, resources()),
+            reopened,
+        )
+        self.assertEqual(list(self.root.glob(".*.tmp.*")), [])
+
     def test_directory_fsync_interruption_leaves_a_complete_reopenable_record(self) -> None:
         with patch(
             "kitdev_sandboxes.journal.os.fsync",
@@ -308,7 +428,7 @@ class JournalTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.store.create(record())
         self.assertEqual(self.store.load("install-001"), record())
-        self.assertEqual(len(list(self.root.glob(".*.tmp.*"))), 1)
+        self.assertEqual(list(self.root.glob(".*.tmp.*")), [])
 
         updated = self.store.transition(
             "install-001",
@@ -349,6 +469,7 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob(".*.tmp.*")), [])
 
     def test_default_ancestry_policy_and_injected_temp_boundary_are_explicit(self) -> None:
+        self.assertEqual(JournalSecurityPolicy().expected_owner_gid, os.getegid())
         self.assertTrue(
             JournalSecurityPolicy().accepts_ancestor(
                 Path("/").stat(), below_trusted=False
@@ -360,6 +481,92 @@ class JournalTests(unittest.TestCase):
             JournalStore(self.root).create(record())
         self.assertEqual(self.store.create(record()), record())
 
+    def test_explicit_wrong_gid_is_rejected_for_root_and_files(self) -> None:
+        wrong_gid = JournalSecurityPolicy(
+            expected_owner_uid=os.getuid(),
+            expected_owner_gid=os.getegid() + 1,
+            trusted_prefix=temporary_trust_boundary(self.root),
+        )
+        with self.assertRaises(JournalSecurityError):
+            JournalStore(self.root, wrong_gid).create(record())
+
+        self.store.create(record())
+        metadata_values = list(self.path().stat())
+        metadata_values[5] = os.getegid() + 1
+        self.assertFalse(
+            self.policy.accepts(os.stat_result(metadata_values), directory=False)
+        )
+
+    def test_unexplained_hard_link_to_published_journal_is_rejected(self) -> None:
+        self.store.create(record())
+        extra = self.root / "unexplained-link"
+        os.link(self.path(), extra)
+
+        with self.assertRaises(JournalSecurityError):
+            self.store.load("install-001")
+        self.assertTrue(extra.exists())
+        self.assertEqual(self.path().stat().st_nlink, 2)
+
+    def test_multiple_canonical_temp_artifacts_are_rejected_untouched(self) -> None:
+        canonical = (
+            json.dumps(record().as_dict(), sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode("ascii")
+        residues = [
+            self.root / (f".install-001.journal.json.tmp.{digit * 32}")
+            for digit in ("1", "2")
+        ]
+        for residue in residues:
+            residue.write_bytes(canonical)
+            residue.chmod(0o600)
+
+        with self.assertRaises(JournalSecurityError):
+            self.store.create(record())
+        self.assertTrue(all(residue.exists() for residue in residues))
+        self.assertFalse(self.path().exists())
+
+    def test_path_replacement_during_read_is_rejected(self) -> None:
+        self.store.create(record())
+        original = self.path().read_bytes()
+        real_read = os.read
+        replaced = False
+
+        def replacing_read(descriptor: int, size: int) -> bytes:
+            nonlocal replaced
+            chunk = real_read(descriptor, size)
+            if chunk and not replaced:
+                replacement = self.root / "replacement"
+                replacement.write_bytes(original)
+                replacement.chmod(0o600)
+                os.replace(replacement, self.path())
+                replaced = True
+            return chunk
+
+        with patch("kitdev_sandboxes.journal.os.read", side_effect=replacing_read):
+            with self.assertRaises(JournalSecurityError):
+                self.store.load("install-001")
+        self.assertTrue(replaced)
+
+    def test_in_place_change_during_read_is_rejected(self) -> None:
+        self.store.create(record())
+        real_read = os.read
+        changed = False
+
+        def changing_read(descriptor: int, size: int) -> bytes:
+            nonlocal changed
+            chunk = real_read(descriptor, size)
+            if chunk and not changed:
+                with self.path().open("ab") as journal:
+                    journal.write(b" ")
+                    journal.flush()
+                    os.fsync(journal.fileno())
+                changed = True
+            return chunk
+
+        with patch("kitdev_sandboxes.journal.os.read", side_effect=changing_read):
+            with self.assertRaises(JournalSecurityError):
+                self.store.load("install-001")
+        self.assertTrue(changed)
+
     def test_world_writable_sticky_and_wrong_owner_ancestors_are_rejected(self) -> None:
         for mode in (0o777, 0o1777):
             with self.subTest(mode=oct(mode)):
@@ -369,7 +576,9 @@ class JournalTests(unittest.TestCase):
                 target.mkdir(mode=0o700)
                 parent.chmod(mode)
                 policy = JournalSecurityPolicy(
-                    expected_owner_uid=os.getuid(), trusted_prefix=self.root
+                    expected_owner_uid=os.getuid(),
+                    expected_owner_gid=os.getegid(),
+                    trusted_prefix=self.root,
                 )
                 with self.assertRaises(JournalSecurityError):
                     JournalStore(target, policy).create(record(f"mode-{mode:o}"))
@@ -378,6 +587,7 @@ class JournalTests(unittest.TestCase):
         owned.mkdir(mode=0o700)
         wrong_owner = JournalSecurityPolicy(
             expected_owner_uid=os.getuid() + 1,
+            expected_owner_gid=os.getegid(),
             trusted_prefix=temporary_trust_boundary(self.root),
             stat_validator=lambda metadata, directory: (
                 stat.S_ISDIR(metadata.st_mode) if directory else stat.S_ISREG(metadata.st_mode)

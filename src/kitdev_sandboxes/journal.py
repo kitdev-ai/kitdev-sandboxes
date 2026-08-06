@@ -15,10 +15,11 @@ import re
 import secrets
 import stat
 import unicodedata
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 from urllib.parse import unquote
 
 
@@ -78,6 +79,20 @@ _ALLOWED_TRANSITIONS: dict[JournalState, frozenset[JournalState]] = {
     JournalState.ROLLED_BACK: frozenset(),
     JournalState.FAILED: frozenset({JournalState.ROLLING_BACK}),
 }
+
+
+def _stable_metadata(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
 
 
 def _text(name: str, value: object, *, stable_id: bool = False) -> str:
@@ -280,10 +295,13 @@ class JournalSecurityPolicy:
     file_mode: int = _FILE_MODE
     stat_validator: Callable[[os.stat_result, bool], bool] | None = None
     trusted_prefix: Path | None = None
+    expected_owner_gid: int = field(default_factory=os.getegid)
 
     def __post_init__(self) -> None:
         if self.expected_owner_uid.__class__ is not int or self.expected_owner_uid < 0:
             raise ValueError("expected_owner_uid must be a non-negative integer")
+        if self.expected_owner_gid.__class__ is not int or self.expected_owner_gid < 0:
+            raise ValueError("expected_owner_gid must be a non-negative integer")
         for name, mode in (
             ("directory_mode", self.directory_mode),
             ("file_mode", self.file_mode),
@@ -305,15 +323,24 @@ class JournalSecurityPolicy:
             ):
                 raise ValueError("trusted_prefix must be a safe non-root absolute path")
 
-    def accepts(self, metadata: os.stat_result, directory: bool) -> bool:
-        if self.stat_validator is not None:
-            return self.stat_validator(metadata, directory)
+    def accepts(
+        self,
+        metadata: os.stat_result,
+        directory: bool,
+        *,
+        allowed_nlinks: frozenset[int] = frozenset({1}),
+    ) -> bool:
         expected_type = stat.S_ISDIR if directory else stat.S_ISREG
         expected_mode = self.directory_mode if directory else self.file_mode
-        return (
+        accepted = (
             expected_type(metadata.st_mode)
             and metadata.st_uid == self.expected_owner_uid
+            and metadata.st_gid == self.expected_owner_gid
             and stat.S_IMODE(metadata.st_mode) == expected_mode
+            and (directory or metadata.st_nlink in allowed_nlinks)
+        )
+        return accepted and (
+            self.stat_validator is None or self.stat_validator(metadata, directory)
         )
 
     def accepts_ancestor(self, metadata: os.stat_result, *, below_trusted: bool) -> bool:
@@ -328,17 +355,22 @@ class JournalSecurityPolicy:
         if not stat.S_ISDIR(metadata.st_mode):
             return False
         owner = self.expected_owner_uid if below_trusted else 0
-        return metadata.st_uid == owner and not (stat.S_IMODE(metadata.st_mode) & 0o022)
+        group = self.expected_owner_gid if below_trusted else 0
+        return (
+            metadata.st_uid == owner
+            and metadata.st_gid == group
+            and not (stat.S_IMODE(metadata.st_mode) & 0o022)
+        )
 
 
 class JournalStore:
     """A no-follow journal store rooted in an existing trusted directory."""
 
-    def __init__(self, root: Path, policy: JournalSecurityPolicy = JournalSecurityPolicy()):
+    def __init__(self, root: Path, policy: JournalSecurityPolicy | None = None):
         if not isinstance(root, Path):
             raise TypeError("journal root must be a pathlib.Path")
         self._root = root
-        self._policy = policy
+        self._policy = policy if policy is not None else JournalSecurityPolicy()
 
     def _open_root(self) -> int:
         if not self._root.is_absolute():
@@ -402,15 +434,23 @@ class JournalStore:
         _text("install_id", install_id, stable_id=True)
         return f"{install_id}.journal.json"
 
-    def _read_at(self, root_fd: int, filename: str) -> JournalRecord:
+    def _read_at(
+        self,
+        root_fd: int,
+        filename: str,
+        *,
+        allowed_nlinks: frozenset[int] = frozenset({1}),
+    ) -> tuple[JournalRecord, os.stat_result]:
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
         try:
             descriptor = os.open(filename, flags, dir_fd=root_fd)
         except OSError as error:
             raise JournalSecurityError("journal cannot be opened safely") from error
         try:
-            metadata = os.fstat(descriptor)
-            if not self._policy.accepts(metadata, False):
+            before = os.fstat(descriptor)
+            if not self._policy.accepts(
+                before, False, allowed_nlinks=allowed_nlinks
+            ):
                 raise JournalSecurityError("journal owner, mode, or type is unsafe")
             chunks: list[bytes] = []
             remaining = _MAX_JOURNAL_BYTES + 1
@@ -420,9 +460,74 @@ class JournalStore:
                     break
                 chunks.append(chunk)
                 remaining -= len(chunk)
-            return _decode(b"".join(chunks))
+            after = os.fstat(descriptor)
+            try:
+                published = os.stat(filename, dir_fd=root_fd, follow_symlinks=False)
+            except OSError as error:
+                raise JournalSecurityError(
+                    "journal name changed while it was being read"
+                ) from error
+            if (
+                _stable_metadata(before) != _stable_metadata(after)
+                or _stable_metadata(after) != _stable_metadata(published)
+                or not self._policy.accepts(
+                    published, False, allowed_nlinks=allowed_nlinks
+                )
+            ):
+                raise JournalSecurityError("journal changed while it was being read")
+            return _decode(b"".join(chunks)), after
         finally:
             os.close(descriptor)
+
+    def _load_at(self, root_fd: int, filename: str, *, recover: bool) -> JournalRecord:
+        record, metadata = self._read_at(
+            root_fd, filename, allowed_nlinks=frozenset({1, 2})
+        )
+        if metadata.st_nlink == 1:
+            return record
+        if not recover:
+            raise JournalSecurityError("journal has an unresolved hard-link residue")
+        self._recover_linked_create(root_fd, filename, record, metadata)
+        recovered, _ = self._read_at(root_fd, filename)
+        return recovered
+
+    def _recover_linked_create(
+        self,
+        root_fd: int,
+        filename: str,
+        expected: JournalRecord,
+        final_metadata: os.stat_result,
+    ) -> None:
+        prefix = f".{filename}.tmp."
+        entries = self._directory_entries(root_fd)
+        candidates = sorted(name for name in entries if name.startswith(prefix))
+        if len(candidates) != 1 or not re.fullmatch(
+            re.escape(prefix) + r"[0-9a-f]{32}", candidates[0]
+        ):
+            raise JournalSecurityError("journal has an unexplained hard link")
+        residue, residue_metadata = self._read_at(
+            root_fd, candidates[0], allowed_nlinks=frozenset({2})
+        )
+        if (
+            residue != expected
+            or residue_metadata.st_dev != final_metadata.st_dev
+            or residue_metadata.st_ino != final_metadata.st_ino
+        ):
+            raise JournalSecurityError("journal hard-link residue is not canonical")
+        os.unlink(candidates[0], dir_fd=root_fd)
+        os.fsync(root_fd)
+
+    @staticmethod
+    def _directory_entries(root_fd: int) -> list[str]:
+        try:
+            entries = os.listdir(root_fd)
+        except OSError as error:
+            raise JournalSecurityError(
+                "journal directory cannot be enumerated safely"
+            ) from error
+        if len(entries) > _MAX_DIRECTORY_ENTRIES:
+            raise JournalSecurityError("journal directory contains too many entries")
+        return entries
 
     def _new_temp(self, root_fd: int, filename: str, record: JournalRecord) -> str:
         payload = _encode(record)
@@ -467,25 +572,40 @@ class JournalStore:
         self, root_fd: int, filename: str, expected: tuple[JournalRecord, ...]
     ) -> None:
         prefix = f".{filename}.tmp."
-        try:
-            entries = os.listdir(root_fd)
-        except OSError as error:
-            raise JournalSecurityError("journal directory cannot be enumerated safely") from error
-        if len(entries) > _MAX_DIRECTORY_ENTRIES:
-            raise JournalSecurityError("journal directory contains too many entries")
+        entries = self._directory_entries(root_fd)
         candidates = sorted(name for name in entries if name.startswith(prefix))
+        if len(candidates) > 1:
+            raise JournalSecurityError("multiple journal temporary artifacts exist")
         changed = False
         for name in candidates:
             if not re.fullmatch(re.escape(prefix) + r"[0-9a-f]{32}", name):
                 raise JournalSecurityError("suspicious journal temporary artifact exists")
             try:
-                residue = self._read_at(root_fd, name)
+                residue, residue_metadata = self._read_at(
+                    root_fd, name, allowed_nlinks=frozenset({1, 2})
+                )
             except JournalError:
                 raise JournalSecurityError(
                     "journal temporary artifact is not owned canonical residue"
                 ) from None
             if residue not in expected:
                 raise JournalConflict("journal temporary artifact belongs to another plan state")
+            if residue_metadata.st_nlink == 2:
+                try:
+                    final_metadata = os.stat(
+                        filename, dir_fd=root_fd, follow_symlinks=False
+                    )
+                except OSError as error:
+                    raise JournalSecurityError(
+                        "linked journal residue has no published record"
+                    ) from error
+                if (
+                    final_metadata.st_dev != residue_metadata.st_dev
+                    or final_metadata.st_ino != residue_metadata.st_ino
+                ):
+                    raise JournalSecurityError(
+                        "linked journal residue does not match the published record"
+                    )
             os.unlink(name, dir_fd=root_fd)
             changed = True
         if changed:
@@ -526,35 +646,29 @@ class JournalStore:
                 pass
             raise
 
-    def create(self, record: JournalRecord) -> JournalRecord:
+    def _create_at(self, root_fd: int, record: JournalRecord) -> JournalRecord:
         if record.state is not JournalState.PLANNED or record.transitions != (
             JournalState.PLANNED,
         ):
             raise JournalConflict("new journal must contain only the initial planned state")
-        root_fd = self._open_root()
+        filename = self._filename(record.install_id)
+        self._cleanup_stale_temps(root_fd, filename, (record,))
         try:
-            fcntl.flock(root_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            filename = self._filename(record.install_id)
-            self._cleanup_stale_temps(root_fd, filename, (record,))
-            try:
-                os.stat(filename, dir_fd=root_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                pass
-            else:
-                raise JournalConflict("journal already exists")
-            self._atomic_create(root_fd, filename, record)
-            return self._read_at(root_fd, filename)
-        except BlockingIOError as error:
-            raise JournalConflict("journal directory is locked") from error
-        finally:
-            os.close(root_fd)
+            os.stat(filename, dir_fd=root_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise JournalConflict("journal already exists")
+        self._atomic_create(root_fd, filename, record)
+        return self._load_at(root_fd, filename, recover=True)
+
+    def create(self, record: JournalRecord) -> JournalRecord:
+        with self.locked() as session:
+            return session.create(record)
 
     def load(self, install_id: str) -> JournalRecord:
-        root_fd = self._open_root()
-        try:
-            return self._read_at(root_fd, self._filename(install_id))
-        finally:
-            os.close(root_fd)
+        with self.locked() as session:
+            return session.load(install_id)
 
     @staticmethod
     def _assert_exact(
@@ -579,8 +693,113 @@ class JournalStore:
         plan_hash: str,
         resources: tuple[ResourceRecord, ...],
     ) -> JournalRecord:
-        record = self.load(install_id)
+        with self.locked() as session:
+            return session.resume(install_id, plan_id, plan_hash, resources)
+
+    def transition(
+        self,
+        install_id: str,
+        plan_id: str,
+        plan_hash: str,
+        resources: tuple[ResourceRecord, ...],
+        state: JournalState,
+    ) -> JournalRecord:
+        with self.locked() as session:
+            return session.transition(
+                install_id, plan_id, plan_hash, resources, state
+            )
+
+    def _transition_at(
+        self,
+        root_fd: int,
+        install_id: str,
+        plan_id: str,
+        plan_hash: str,
+        resources: tuple[ResourceRecord, ...],
+        state: JournalState,
+    ) -> JournalRecord:
+        if state.__class__ is not JournalState:
+            raise TypeError("state must be a JournalState")
+        filename = self._filename(install_id)
+        record = self._load_at(root_fd, filename, recover=True)
         self._assert_exact(record, plan_id, plan_hash, resources)
+        if state not in _ALLOWED_TRANSITIONS[record.state]:
+            raise JournalConflict(
+                f"transition {record.state.value}->{state.value} is not allowed"
+            )
+        updated = JournalRecord(
+            record.install_id,
+            record.plan_id,
+            record.plan_hash,
+            record.resources,
+            record.transitions + (state,),
+        )
+        self._cleanup_stale_temps(root_fd, filename, (record, updated))
+        self._atomic_replace(root_fd, filename, updated)
+        return self._load_at(root_fd, filename, recover=True)
+
+    @contextmanager
+    def locked(self, *, exclusive: bool = True) -> Iterator[JournalSession]:
+        if exclusive.__class__ is not bool:
+            raise TypeError("exclusive must be a bool")
+        root_fd = self._open_root()
+        operation = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+        try:
+            try:
+                fcntl.flock(root_fd, operation | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise JournalConflict("journal directory is locked") from error
+            session = JournalSession(self, root_fd, exclusive=exclusive)
+            try:
+                yield session
+            finally:
+                session._close()
+        finally:
+            os.close(root_fd)
+
+
+class JournalSession:
+    """Caller-held journal lock and validated root descriptor."""
+
+    def __init__(self, store: JournalStore, root_fd: int, *, exclusive: bool):
+        self._store = store
+        self._root_fd = root_fd
+        self._exclusive = exclusive
+        self._closed = False
+
+    def _require_open(self) -> None:
+        if self._closed:
+            raise JournalConflict("journal session is closed")
+
+    def _require_exclusive(self) -> None:
+        self._require_open()
+        if not self._exclusive:
+            raise JournalConflict("journal mutation requires an exclusive session")
+
+    def _close(self) -> None:
+        self._closed = True
+
+    def create(self, record: JournalRecord) -> JournalRecord:
+        self._require_exclusive()
+        return self._store._create_at(self._root_fd, record)
+
+    def load(self, install_id: str) -> JournalRecord:
+        self._require_open()
+        return self._store._load_at(
+            self._root_fd,
+            self._store._filename(install_id),
+            recover=self._exclusive,
+        )
+
+    def resume(
+        self,
+        install_id: str,
+        plan_id: str,
+        plan_hash: str,
+        resources: tuple[ResourceRecord, ...],
+    ) -> JournalRecord:
+        record = self.load(install_id)
+        self._store._assert_exact(record, plan_id, plan_hash, resources)
         if record.state in {JournalState.VALIDATED, JournalState.ROLLED_BACK}:
             raise JournalConflict("completed journal cannot be resumed")
         return record
@@ -593,29 +812,7 @@ class JournalStore:
         resources: tuple[ResourceRecord, ...],
         state: JournalState,
     ) -> JournalRecord:
-        if state.__class__ is not JournalState:
-            raise TypeError("state must be a JournalState")
-        root_fd = self._open_root()
-        try:
-            fcntl.flock(root_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            filename = self._filename(install_id)
-            record = self._read_at(root_fd, filename)
-            self._assert_exact(record, plan_id, plan_hash, resources)
-            if state not in _ALLOWED_TRANSITIONS[record.state]:
-                raise JournalConflict(
-                    f"transition {record.state.value}->{state.value} is not allowed"
-                )
-            updated = JournalRecord(
-                record.install_id,
-                record.plan_id,
-                record.plan_hash,
-                record.resources,
-                record.transitions + (state,),
-            )
-            self._cleanup_stale_temps(root_fd, filename, (record, updated))
-            self._atomic_replace(root_fd, filename, updated)
-            return self._read_at(root_fd, filename)
-        except BlockingIOError as error:
-            raise JournalConflict("journal directory is locked") from error
-        finally:
-            os.close(root_fd)
+        self._require_exclusive()
+        return self._store._transition_at(
+            self._root_fd, install_id, plan_id, plan_hash, resources, state
+        )
