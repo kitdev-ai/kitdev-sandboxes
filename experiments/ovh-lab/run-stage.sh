@@ -9,6 +9,8 @@ readonly REMOTE_TIMEOUT_SECONDS=90
 readonly EVIDENCE_MAX_BYTES=1048576
 readonly STAGE05_JOURNAL_SOURCE="$SCRIPT_DIR/../../src/kitdev_sandboxes/journal.py"
 readonly STAGE05_RECONCILER_SOURCE="$SCRIPT_DIR/../../src/kitdev_sandboxes/stage05.py"
+readonly STAGE10_RUNNER_SOURCE="$SCRIPT_DIR/../../src/kitdev_sandboxes/runner.py"
+readonly STAGE10_RESOLVER_SOURCE="$SCRIPT_DIR/../../src/kitdev_sandboxes/stage10.py"
 
 usage() {
   printf 'usage: OVH_LAB_TARGET=<ssh-alias> OVH_LAB_SSH_CONFIG=<private-absolute-path> OVH_LAB_KNOWN_HOSTS=<guarded-absolute-path> %s <stage-id> approval|approval-rollback|execute|rollback\n' "$0" >&2
@@ -59,8 +61,10 @@ readonly STAGE_SCRIPT
 
 bundle_stage() {
   cat -- "$COMMON"
-  if [[ "$STAGE_ID" == 05 ]]; then
-    python3 - "$STAGE_SCRIPT" "$STAGE05_JOURNAL_SOURCE" "$STAGE05_RECONCILER_SOURCE" <<'PY_STAGE05_BUNDLE'
+  if [[ "$STAGE_ID" == 05 || "$STAGE_ID" == 10 ]]; then
+    python3 - "$STAGE_ID" "$STAGE_SCRIPT" "$STAGE05_JOURNAL_SOURCE" \
+      "$STAGE05_RECONCILER_SOURCE" "$STAGE10_RUNNER_SOURCE" \
+      "$STAGE10_RESOLVER_SOURCE" <<'PY_EMBEDDED_BUNDLE'
 import base64
 import hashlib
 import os
@@ -85,32 +89,57 @@ def stable_read(path, limit):
             if len(content) > limit:
                 raise SystemExit(64)
         after = os.fstat(descriptor)
-        fields = ("st_mode", "st_uid", "st_gid", "st_size", "st_dev", "st_ino", "st_mtime_ns", "st_ctime_ns")
-        if any(getattr(opened, field) != getattr(after, field) for field in fields):
+        published = os.stat(path, follow_symlinks=False)
+        fields = (
+            "st_mode", "st_uid", "st_gid", "st_nlink", "st_size", "st_dev", "st_ino",
+            "st_mtime_ns", "st_ctime_ns",
+        )
+        if any(
+            getattr(opened, field) != getattr(after, field)
+            or getattr(after, field) != getattr(published, field)
+            for field in fields
+        ):
             raise SystemExit(64)
         return bytes(content)
     finally:
         os.close(descriptor)
 
-stage = stable_read(sys.argv[1], 262_144).decode("utf-8", errors="strict")
+stage_id = sys.argv[1]
+stage = stable_read(sys.argv[2], 262_144).decode("utf-8", errors="strict")
 body_marker = "# OVH_LAB_STAGE_BODY\n"
 if stage.count(body_marker) != 1:
     raise SystemExit(64)
 body = stage.split(body_marker, 1)[1]
-journal = stable_read(sys.argv[2], 1_000_000)
-reconciler = stable_read(sys.argv[3], 1_000_000)
-replacements = {
-    "__STAGE05_JOURNAL_SHA256__": hashlib.sha256(journal).hexdigest(),
-    "__STAGE05_JOURNAL_B64__": base64.b64encode(journal).decode("ascii"),
-    "__STAGE05_RECONCILER_SHA256__": hashlib.sha256(reconciler).hexdigest(),
-    "__STAGE05_RECONCILER_B64__": base64.b64encode(reconciler).decode("ascii"),
-}
+journal = stable_read(sys.argv[3], 1_000_000)
+stage05 = stable_read(sys.argv[4], 1_000_000)
+if stage_id == "05":
+    replacements = {
+        "__STAGE05_JOURNAL_SHA256__": hashlib.sha256(journal).hexdigest(),
+        "__STAGE05_JOURNAL_B64__": base64.b64encode(journal).decode("ascii"),
+        "__STAGE05_RECONCILER_SHA256__": hashlib.sha256(stage05).hexdigest(),
+        "__STAGE05_RECONCILER_B64__": base64.b64encode(stage05).decode("ascii"),
+    }
+elif stage_id == "10":
+    runner = stable_read(sys.argv[5], 1_000_000)
+    resolver = stable_read(sys.argv[6], 1_000_000)
+    replacements = {
+        "__STAGE10_RUNNER_SHA256__": hashlib.sha256(runner).hexdigest(),
+        "__STAGE10_RUNNER_B64__": base64.b64encode(runner).decode("ascii"),
+        "__STAGE10_JOURNAL_SHA256__": hashlib.sha256(journal).hexdigest(),
+        "__STAGE10_JOURNAL_B64__": base64.b64encode(journal).decode("ascii"),
+        "__STAGE10_STAGE05_SHA256__": hashlib.sha256(stage05).hexdigest(),
+        "__STAGE10_STAGE05_B64__": base64.b64encode(stage05).decode("ascii"),
+        "__STAGE10_RESOLVER_SHA256__": hashlib.sha256(resolver).hexdigest(),
+        "__STAGE10_RESOLVER_B64__": base64.b64encode(resolver).decode("ascii"),
+    }
+else:
+    raise SystemExit(64)
 for marker, value in replacements.items():
     if body.count(marker) != 1:
         raise SystemExit(64)
     body = body.replace(marker, value)
 sys.stdout.write(body)
-PY_STAGE05_BUNDLE
+PY_EMBEDDED_BUNDLE
   else
     awk 'body { print } /^# OVH_LAB_STAGE_BODY$/ { body=1 }' "$STAGE_SCRIPT"
   fi
@@ -268,6 +297,7 @@ mkdir -p -- "$RUN_ROOT"
 readonly RUN_DIR="$(mktemp -d "$RUN_ROOT/run-${STAGE_ID}-XXXXXXXX")"
 readonly LOG_FILE="$RUN_DIR/evidence.log"
 readonly SUMMARY_FILE="$RUN_DIR/summary.txt"
+readonly STAGE10_RESOLUTION_FILE="$RUN_DIR/stage10-resolution.json"
 readonly SSH_CONFIG_SNAPSHOT="$RUN_DIR/private-ssh-config"
 readonly KNOWN_HOSTS_SNAPSHOT="$RUN_DIR/private-known-hosts"
 
@@ -364,6 +394,229 @@ PY_STAGE05_EVIDENCE
 )" || die "Stage 05 plan evidence invalid; redacted evidence: $RUN_DIR" 74
   readonly STAGE05_PLAN_SHA256
   printf 'stage05_plan_sha256=%s\n' "$STAGE05_PLAN_SHA256" >>"$SUMMARY_FILE"
+fi
+if [[ "$STAGE_ID" == 10 && "$operation_rc" == 0 && "$after_rc" == 0 && "$post_rc" == 0 ]]; then
+  STAGE10_RESOLUTION_SHA256="$(python3 - "$LOG_FILE" "$STAGE10_RESOLUTION_FILE" \
+    "$OPERATION" "$BUNDLE_SHA256" <<'PY_STAGE10_EVIDENCE'
+import base64
+import hashlib
+import json
+import os
+import re
+import sys
+
+HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+PACKAGE_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]{0,127}(?::[a-z0-9][a-z0-9-]{0,31})?$")
+VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+:~_-]{0,255}$")
+ARCH_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+STATUS_RE = re.compile(r"^[a-z][a-z-]{0,31}$")
+EXPECTED_KEYS = {
+    "actions", "apply_authorized", "architecture", "apt_extended_states", "automatic",
+    "candidate_scope", "conflicts", "docker_key", "docker_source", "dpkg_status",
+    "foreign_docker_sources", "holds", "inventory_clean", "legacy_docker_keys", "manual",
+    "operation", "os_release_sha256", "packages", "resolver_bundle_sha256",
+    "schema_version", "stage", "stage05_bundle_sha256", "trust_packages",
+    "ubuntu_archive_keyring",
+}
+PACKAGE_KEYS = {
+    "candidate_version", "error", "installed_architecture", "installed_version", "name",
+    "selection", "status",
+}
+
+def exact_dict(value, keys):
+    return value.__class__ is dict and set(value) == keys
+
+def safe_string(value, pattern):
+    return value.__class__ is str and pattern.fullmatch(value) is not None
+
+def hash_or_absent(value):
+    return value == "absent" or safe_string(value, HASH_RE)
+
+def package_records(value, expected_names, *, candidates):
+    if value.__class__ is not list or len(value) != len(expected_names):
+        return False
+    if [item.get("name") for item in value if item.__class__ is dict] != expected_names:
+        return False
+    for item in value:
+        if not exact_dict(item, PACKAGE_KEYS):
+            return False
+        if not safe_string(item["name"], PACKAGE_RE) or not safe_string(item["status"], STATUS_RE):
+            return False
+        if not safe_string(item["selection"], STATUS_RE) or item["error"] != "ok":
+            return False
+        version = item["installed_version"]
+        architecture = item["installed_architecture"]
+        if (version is None) != (architecture is None):
+            return False
+        if version is not None and not safe_string(version, VERSION_RE):
+            return False
+        if architecture is not None and not safe_string(architecture, ARCH_RE):
+            return False
+        if item["status"] == "absent" and version is not None:
+            return False
+        candidate = item["candidate_version"]
+        if candidates:
+            if candidate is None and item["status"] == "installed":
+                pass
+            elif not safe_string(candidate, VERSION_RE):
+                return False
+        elif candidate is not None:
+            return False
+    return True
+
+def token_list(value, pattern, *, maximum=8192):
+    return (
+        value.__class__ is list
+        and len(value) <= maximum
+        and len(value) == len(set(value))
+        and all(safe_string(item, pattern) for item in value)
+    )
+
+def valid_document(document, operation, bundle_digest):
+    if not exact_dict(document, EXPECTED_KEYS):
+        return False
+    if (
+        document["schema_version"].__class__ is not int
+        or document["schema_version"] != 1
+        or document["stage"] != "10-resolution"
+        or document["operation"] != operation
+        or document["apply_authorized"] is not False
+        or document["architecture"] != "amd64"
+        or document["candidate_scope"] != "host-cache-untrusted-for-apply"
+        or document["resolver_bundle_sha256"] != "sha256:" + bundle_digest
+        or not safe_string(document["stage05_bundle_sha256"], HASH_RE)
+        or not safe_string(document["os_release_sha256"], HASH_RE)
+        or not hash_or_absent(document["apt_extended_states"])
+        or not hash_or_absent(document["dpkg_status"])
+        or not safe_string(document["ubuntu_archive_keyring"], HASH_RE)
+        or document["inventory_clean"].__class__ is not bool
+    ):
+        return False
+    if not package_records(document["packages"], ["ca-certificates", "curl"], candidates=True):
+        return False
+    if not package_records(
+        document["conflicts"],
+        [
+            "containerd", "docker-buildx", "docker-compose", "docker-compose-v2",
+            "docker-doc", "docker.io", "podman-docker", "runc",
+        ],
+        candidates=False,
+    ):
+        return False
+    if not package_records(document["trust_packages"], ["ubuntu-keyring"], candidates=False):
+        return False
+    if not all(
+        token_list(document[key], PACKAGE_RE)
+        for key in ("automatic", "holds", "manual")
+    ):
+        return False
+    if set(document["automatic"]).intersection(document["manual"]):
+        return False
+    actions = document["actions"]
+    if actions.__class__ is not list or len(actions) > 256:
+        return False
+    action_pairs = []
+    for action in actions:
+        if not exact_dict(action, {"name", "version"}):
+            return False
+        if not safe_string(action["name"], PACKAGE_RE) or not safe_string(
+            action["version"], VERSION_RE
+        ):
+            return False
+        action_pairs.append((action["name"], action["version"]))
+    if action_pairs != sorted(action_pairs) or len({name for name, _ in action_pairs}) != len(actions):
+        return False
+    if not token_list(
+        document["foreign_docker_sources"],
+        re.compile(r"^(?:sources-list|source-part-[1-9][0-9]*)$"),
+        maximum=4096,
+    ):
+        return False
+    if not token_list(
+        document["legacy_docker_keys"], re.compile(r"^legacy-key-[1-3]$"), maximum=3
+    ):
+        return False
+    key = document["docker_key"]
+    source = document["docker_source"]
+    return (
+        exact_dict(key, {"captured_sha256", "primary_fingerprint", "signing_fingerprint", "state"})
+        and key["captured_sha256"]
+        == "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+        and key["primary_fingerprint"] == "9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+        and key["signing_fingerprint"] == "D3306A018370199E527AE7997EA0A9C3F273FCD8"
+        and key["state"] in {"absent", "captured-pin", "conflict"}
+        and exact_dict(source, {"sha256", "state"})
+        and source["sha256"]
+        == "sha256:47be0f749c19273936c7e56fff5a29b9108bcce8137ee677cc736523fb876e71"
+        and source["state"] in {"absent", "exact", "conflict"}
+    )
+
+with open(sys.argv[1], "rb") as handle:
+    content = handle.read(4_194_305)
+if len(content) > 4_194_304:
+    raise SystemExit(1)
+requested_operation = sys.argv[3]
+bundle_digest = sys.argv[4]
+if requested_operation not in {"execute", "rollback"} or not re.fullmatch(r"[0-9a-f]{64}", bundle_digest):
+    raise SystemExit(1)
+expected_operations = (
+    ["before", "execute", "after", "postconditions"]
+    if requested_operation == "execute"
+    else ["before", "rollback", "after", "rollback-postconditions"]
+)
+matches = re.findall(
+    br"^stage=10 operation=([a-z-]+) [^\r\n]* "
+    br"resolution_sha256=(sha256:[0-9a-f]{64}) resolution_b64url=([A-Za-z0-9_=-]+)$",
+    content,
+    re.MULTILINE,
+)
+if len(matches) != 4 or [item[0].decode("ascii") for item in matches] != expected_operations:
+    raise SystemExit(1)
+observed = []
+for encoded_operation, claimed, encoded in matches:
+    operation = encoded_operation.decode("ascii")
+    try:
+        resolution = base64.b64decode(encoded, altchars=b"-_", validate=True)
+        document = json.loads(resolution.decode("ascii", errors="strict"))
+    except (ValueError, UnicodeError):
+        raise SystemExit(1)
+    canonical = (
+        json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n"
+    ).encode("ascii")
+    actual = b"sha256:" + hashlib.sha256(resolution).hexdigest().encode("ascii")
+    if (
+        not resolution
+        or len(resolution) > 65_536
+        or resolution != canonical
+        or claimed != actual
+        or not valid_document(document, operation, bundle_digest)
+    ):
+        raise SystemExit(1)
+    comparison = dict(document)
+    comparison.pop("operation")
+    observed.append((operation, comparison, resolution, actual))
+if any(item[1] != observed[0][1] for item in observed[1:]):
+    raise SystemExit(1)
+selected = next(item for item in observed if item[0] == requested_operation)
+resolution = selected[2]
+actual = selected[3]
+flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+descriptor = os.open(sys.argv[2], flags, 0o600)
+try:
+    view = memoryview(resolution)
+    while view:
+        written = os.write(descriptor, view)
+        if written <= 0:
+            raise SystemExit(1)
+        view = view[written:]
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+print(actual.decode("ascii"))
+PY_STAGE10_EVIDENCE
+)" || die "Stage 10 resolution evidence invalid; redacted evidence: $RUN_DIR" 74
+  readonly STAGE10_RESOLUTION_SHA256
+  printf 'stage10_resolution_sha256=%s\n' "$STAGE10_RESOLUTION_SHA256" >>"$SUMMARY_FILE"
 fi
 printf 'event=run_end operation_rc=%s after_rc=%s postconditions_rc=%s\n' \
   "$operation_rc" "$after_rc" "$post_rc" | tee -a "$LOG_FILE"

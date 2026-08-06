@@ -457,6 +457,226 @@ print("stage=05 operation=fake status=pass plan_sha256=" + os.environ["EXPECTED_
         self.assertIn(f"stage05_plan_sha256={plan_hash}\n", summary)
         shutil.rmtree(run_directory)
 
+    def test_stage10_bundle_is_deterministic_plan_only_and_embeds_resolver(self) -> None:
+        stage = next(item for item in self.manifest["stages"] if item["id"] == "10")
+        self.assertEqual((stage["status"], stage["kind"]), ("executable", "plan-only"))
+        approvals = [
+            subprocess.run(
+                [str(LAB / "run-stage.sh"), "10", "approval"],
+                env=self.approval_environment(),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            for _ in range(2)
+        ]
+        self.assertEqual(approvals[0], approvals[1])
+        self.assertRegex(
+            approvals[0],
+            r"^DISPOSABLE_OVH_LAB:10:execute:reviewed-alias:[0-9a-f]{64}:"
+            r"[0-9a-f]{64}:[0-9a-f]{64}$",
+        )
+        runner = (LAB / "run-stage.sh").read_text(encoding="utf-8")
+        script = (LAB / stage["script"]).read_text(encoding="utf-8")
+        resolver = (ROOT / "src/kitdev_sandboxes/stage10.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("STAGE10_RESOLVER_SOURCE", runner)
+        self.assertIn("__STAGE10_RESOLVER_SHA256__", script)
+        self.assertIn("kitdev_sandboxes.stage10", script)
+        self.assertIn("apply_authorized=no", resolver)
+
+        fake_bin = Path(self.private_directory.name) / "stage10-bin"
+        fake_bin.mkdir()
+        captured = Path(self.private_directory.name) / "stage10-bundle"
+        fake_ssh = fake_bin / "ssh"
+        fake_ssh.write_text(
+            """#!/usr/bin/python3
+import base64
+import hashlib
+import json
+import os
+import sys
+
+content = sys.stdin.buffer.read()
+capture = os.environ["CAPTURED_STAGE10_BUNDLE"]
+if os.path.exists(capture):
+    if open(capture, "rb").read() != content:
+        raise SystemExit(96)
+else:
+    with open(capture, "xb") as handle:
+        handle.write(content)
+mode = sys.argv[-3]
+bundle_digest = sys.argv[-1]
+fault = os.environ.get("STAGE10_FAULT", "")
+def package(name, status, version, architecture, candidate):
+    return {
+        "candidate_version": candidate,
+        "error": "ok",
+        "installed_architecture": architecture,
+        "installed_version": version,
+        "name": name,
+        "selection": "install" if status == "installed" else "unknown",
+        "status": status,
+    }
+document = {
+    "actions": [],
+    "apply_authorized": False,
+    "architecture": "amd64",
+    "apt_extended_states": "absent",
+    "automatic": [],
+    "candidate_scope": "host-cache-untrusted-for-apply",
+    "conflicts": [
+        package(name, "absent", None, None, None)
+        for name in (
+            "containerd", "docker-buildx", "docker-compose", "docker-compose-v2",
+            "docker-doc", "docker.io", "podman-docker", "runc",
+        )
+    ],
+    "docker_key": {
+        "captured_sha256": "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
+        "primary_fingerprint": "9DC858229FC7DD38854AE2D88D81803C0EBFCD88",
+        "signing_fingerprint": "D3306A018370199E527AE7997EA0A9C3F273FCD8",
+        "state": "absent",
+    },
+    "docker_source": {
+        "sha256": "sha256:47be0f749c19273936c7e56fff5a29b9108bcce8137ee677cc736523fb876e71",
+        "state": "absent",
+    },
+    "dpkg_status": "absent",
+    "foreign_docker_sources": [],
+    "holds": [],
+    "inventory_clean": False,
+    "legacy_docker_keys": [],
+    "manual": [],
+    "operation": mode,
+    "os_release_sha256": "sha256:" + "2" * 64,
+    "packages": [
+        package("ca-certificates", "installed", "1.0", "all", None),
+        package("curl", "installed", "1.0", "amd64", "1.0"),
+    ],
+    "resolver_bundle_sha256": "sha256:" + bundle_digest,
+    "schema_version": 1,
+    "stage": "10-resolution",
+    "stage05_bundle_sha256": "sha256:" + "1" * 64,
+    "trust_packages": [
+        package("ubuntu-keyring", "installed", "1.0", "all", None),
+    ],
+    "ubuntu_archive_keyring": "sha256:" + "3" * 64,
+}
+if fault == "extra-schema":
+    document["unexpected"] = "must-not-cross-evidence-boundary"
+elif fault == "bundle-mismatch":
+    document["resolver_bundle_sha256"] = "sha256:" + "0" * 64
+elif fault == "phase-divergence" and mode == "after":
+    document["holds"] = ["changed-during-run"]
+resolution = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\\n").encode("ascii")
+digest = "sha256:" + hashlib.sha256(resolution).hexdigest()
+encoded = base64.urlsafe_b64encode(resolution).decode("ascii")
+print(
+    "stage=10 operation=" + mode + " status=pass apply_authorized=no "
+    "resolution_sha256=" + digest + " resolution_b64url=" + encoded
+)
+""",
+            encoding="utf-8",
+        )
+        fake_ssh.chmod(0o700)
+        environment = self.approval_environment()
+        environment.update(
+            {
+                "CAPTURED_STAGE10_BUNDLE": str(captured),
+                "DISPOSABLE_OVH_LAB": approvals[0],
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+            }
+        )
+        result = subprocess.run(
+            [str(LAB / "run-stage.sh"), "10", "execute"],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bundle = captured.read_text(encoding="utf-8")
+        for label, source in (
+            ("RUNNER", ROOT / "src/kitdev_sandboxes/runner.py"),
+            ("JOURNAL", ROOT / "src/kitdev_sandboxes/journal.py"),
+            ("STAGE05", ROOT / "src/kitdev_sandboxes/stage05.py"),
+            ("RESOLVER", ROOT / "src/kitdev_sandboxes/stage10.py"),
+        ):
+            digest = re.search(
+                rf"readonly STAGE10_{label}_SHA256='([0-9a-f]{{64}})'", bundle
+            )
+            payload = re.search(
+                rf"readonly STAGE10_{label}_B64='([A-Za-z0-9+/=]+)'", bundle
+            )
+            self.assertIsNotNone(digest)
+            self.assertIsNotNone(payload)
+            decoded = base64.b64decode(payload.group(1), validate=True)
+            self.assertEqual(decoded, source.read_bytes())
+            self.assertEqual(hashlib.sha256(decoded).hexdigest(), digest.group(1))
+        self.assertNotIn("__STAGE10_", bundle)
+        run_directory = next(
+            Path(line.rsplit(" ", 1)[-1])
+            for line in result.stdout.splitlines()
+            if line.startswith("ovh-lab: stage passed; redacted evidence: ")
+        )
+        resolution = run_directory / "stage10-resolution.json"
+        self.assertTrue(resolution.is_file())
+        document = json.loads(resolution.read_text(encoding="ascii"))
+        self.assertEqual(document["operation"], "execute")
+        summary = (run_directory / "summary.txt").read_text(encoding="ascii")
+        self.assertIn(
+            "stage10_resolution_sha256=sha256:"
+            + hashlib.sha256(resolution.read_bytes()).hexdigest()
+            + "\n",
+            summary,
+        )
+        shutil.rmtree(run_directory)
+
+        rollback_approval = subprocess.run(
+            [str(LAB / "run-stage.sh"), "10", "approval-rollback"],
+            env=self.approval_environment(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        environment["DISPOSABLE_OVH_LAB"] = rollback_approval
+        rollback = subprocess.run(
+            [str(LAB / "run-stage.sh"), "10", "rollback"],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(rollback.returncode, 0, rollback.stderr)
+        rollback_directory = next(
+            Path(line.rsplit(" ", 1)[-1])
+            for line in rollback.stdout.splitlines()
+            if line.startswith("ovh-lab: stage passed; redacted evidence: ")
+        )
+        rollback_document = json.loads(
+            (rollback_directory / "stage10-resolution.json").read_text(encoding="ascii")
+        )
+        self.assertEqual(rollback_document["operation"], "rollback")
+        shutil.rmtree(rollback_directory)
+
+        environment["DISPOSABLE_OVH_LAB"] = approvals[0]
+        for fault in ("extra-schema", "bundle-mismatch", "phase-divergence"):
+            with self.subTest(fault=fault):
+                environment["STAGE10_FAULT"] = fault
+                rejected = subprocess.run(
+                    [str(LAB / "run-stage.sh"), "10", "execute"],
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(rejected.returncode, 74, rejected.stderr)
+                self.assertIn("Stage 10 resolution evidence invalid", rejected.stderr)
+                rejected_directory = Path(
+                    rejected.stderr.rstrip().rsplit("redacted evidence: ", 1)[1]
+                )
+                self.assertFalse((rejected_directory / "stage10-resolution.json").exists())
+                shutil.rmtree(rejected_directory)
+
     def test_stage05_execute_ssh_interruption_preserves_failure_and_collects_evidence(self) -> None:
         from kitdev_sandboxes.stage05 import build_plan
 
