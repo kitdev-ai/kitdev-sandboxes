@@ -1,0 +1,41 @@
+schema_version: 1
+
+deployment:
+  profile: minimal
+  lifecycle_mode: production
+  listen_address: 127.0.0.1
+  public_exposure: false
+  domain: null
+
+paths:
+  install: /opt/kitdev-sandboxes
+  config: /etc/kitdev-sandboxes
+  state: /var/lib/kitdev-sandboxes
+  logs: /var/log/kitdev-sandboxes
+  runtime: /run/kitdev-sandboxes
+
+sandbox:
+  default_template: base
+  default_vcpus: 2
+  default_memory_mib: 2048
+  default_disk_mib: 10240
+  default_timeout_seconds: 900
+  default_ttl_seconds: 3600
+  max_processes: 512
+  max_output_bytes: 10485760
+
+network:
+  ipv4_cidr: 172.31.0.0/16
+  ipv6_enabled: false
+  dns_resolvers: []
+  allow_http_egress: true
+  allow_private_egress: false
+  private_egress_allowlist: []
+  sandbox_to_sandbox: false
+
+features:
+  observability: false
+  persistence: false
+  backups: false
+  browser_template: false
+  desktop_template: false

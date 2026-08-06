@@ -1,0 +1,4 @@
+-r requirements.in
+
+# Development pins are selected when CI is introduced. The lock must still use
+# exact versions and hashes.

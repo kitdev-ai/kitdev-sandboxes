@@ -1,0 +1,9 @@
+# This is the canonical, generated Python dependency lock for deployment.
+# Milestone 0 has no Python runtime dependencies, so the lock is intentionally
+# empty. Future regeneration command:
+#
+#   python -m piptools compile --generate-hashes --resolver=backtracking \
+#     --output-file=requirements.lock requirements.in
+#
+# The pip-tools version and Python interpreter used to generate this file must
+# themselves be pinned in the development toolchain and recorded in the change.

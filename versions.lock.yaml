@@ -1,0 +1,202 @@
+schema_version: 1
+
+metadata:
+  project: kitdev-sandboxes
+  purpose: milestone-0-upstream-candidate-lock
+  generated_at: "2026-08-06"
+  retrieved_at: "2026-08-06"
+  production_approved: false
+  note: >-
+    These are immutable discovery pins. Promotion requires the Milestone 2
+    build and SDK compatibility gates described in
+    docs/research/upstream-e2b.md.
+
+sources:
+  e2b_infra:
+    repository: https://github.com/e2b-dev/infra.git
+    commit: 882a3b4786755db9e94be3297de6827f9100ce5e
+    commit_date: "2026-08-05T22:17:56Z"
+    ref_observed: refs/heads/main
+    license: Apache-2.0
+    selection: >-
+      Current main at retrieval; includes the migration from the legacy public
+      build bucket to e2b-artifact-binaries. Upstream has no platform release.
+    status: candidate-unverified
+
+  e2b_sdk:
+    repository: https://github.com/e2b-dev/e2b.git
+    head_observed: 998e560a1abb85f0e5d2c6346b5c033f81f17736
+    commit: 7a1fe4528cb29ccea0334adbee4dc86fadb7244d
+    commit_date: "2026-08-03T19:45:46Z"
+    license: Apache-2.0
+    releases:
+      javascript:
+        package: e2b
+        version: 2.38.0
+        package_license: MIT
+        tag: e2b@2.38.0
+        tag_object: 9a4da4f086dbb77f2f79f83f6510c2466493afdb
+      python:
+        package: e2b
+        version: 2.37.0
+        package_license: MIT
+        tag: "@e2b/python-sdk@2.37.0"
+        tag_object: a6c83b8b4ea4eb14f2c449eff6c56b1cf1d7a4c9
+    generated_contracts:
+      infra_ref_recorded_by_sdk: 24a054bca26ec50a6d59031d9360c1582612b3f8
+      api_openapi_sha256: 11a0e23ec7abffc81d5e004d60697e56f49344985742638f5d331cf056a13186
+      envd_openapi_sha256: dab04a541720b813e837eb803074a8ae7e5611411b79a619bddf676e7e5fb324
+      belt_ref_recorded_by_sdk: 13ca196c19eb2acbec6b2696ce2ff98fec1ceaf8
+    selection: Latest coordinated stable JS and Python SDK release at retrieval.
+    status: candidate-unverified
+
+  e2b_desktop:
+    repository: https://github.com/e2b-dev/desktop.git
+    head_observed: 5cf64667128b01298f0b2c5a9e3fb4ea5c490824
+    commit: 8bc61a0b6a716dd5e4714d7ab5882b43e261a591
+    commit_date: "2026-07-23T16:57:48Z"
+    license: Apache-2.0
+    releases:
+      javascript:
+        package: "@e2b/desktop"
+        version: 2.3.1
+        package_license: MIT
+        release_tag: "@e2b/desktop@2.3.1"
+        release_tag_commit: 35b5be86d3d60711cb87a5ddf8e0a8d016e9695d
+        core_sdk_range: "^2.27.1"
+        release_lock_core_sdk: 2.32.0
+      python:
+        package: e2b-desktop
+        version: 2.4.2
+        package_license: MIT
+        release_tag: "@e2b/desktop-python@2.4.2"
+        release_tag_commit: 5ff41c5b9fd34635d32c099c943da349a75f3ad2
+        core_sdk_range: "^2.25.1"
+        release_lock_core_sdk: 2.31.0
+    selection: >-
+      Release-version commit containing both published package versions. The
+      annotated package tags point to the preceding changes commits, whose
+      manifests still contain the prior versions.
+    status: candidate-unverified
+
+  fc_kernels_recipe:
+    repository: https://github.com/e2b-dev/fc-kernels.git
+    commit: c9212424d29b6ef11a4a6998648cb6ae75abdada
+    commit_date: "2026-08-05T22:16:17Z"
+    license: Apache-2.0
+    upstream_linux_repository: https://github.com/amazonlinux/linux.git
+    upstream_linux_tag: microvm-kernel-6.1.158-15.288.amzn2023
+    upstream_linux_commit: c2b7f640ec01cb093c6ba9e08b7ebcb400741bb4
+    status: provenance-partial
+
+  fc_versions_recipe:
+    repository: https://github.com/e2b-dev/fc-versions.git
+    commit: f249bfcf902efa0eb67f223cea48401c22917877
+    commit_date: "2026-08-05T22:16:22Z"
+    license: Apache-2.0
+    status: candidate-unverified
+
+  e2b_firecracker:
+    repository: https://github.com/e2b-dev/firecracker.git
+    version_name: v1.14.1_431f1fc
+    upstream_tag: v1.14.1
+    upstream_tag_commit: 37593df439aeb19fc70b292e618770108e563e7e
+    commit: 431f1fc7d47f4cfe1dfe42437b9394f20972b65d
+    commit_date: "2026-05-26T13:00:50Z"
+    selection: >-
+      DefaultFirecrackerVersion in the selected infra commit. The orchestrator
+      README still says v1.14.1_458ca91, but the compiled default and current
+      integration fixtures both use v1.14.1_431f1fc.
+    status: candidate-unverified
+
+  desktop_novnc:
+    repository: https://github.com/e2b-dev/noVNC.git
+    ref_observed: refs/heads/e2b-desktop
+    commit: 461b7f1ccb20755037d8995612e5fb08ed16f9e4
+    commit_date: "2025-03-11T23:15:08Z"
+    status: candidate-unverified
+
+  desktop_websockify:
+    repository: https://github.com/novnc/websockify.git
+    tag: v0.12.0
+    tag_object: d867752be1891f134596a9afde5d25e0fa3f9d8f
+    commit: 99f83ca08390dc876b1b3580c210abea5b9f4edd
+    commit_date: "2024-06-03T12:34:30Z"
+    status: candidate-unverified
+
+artifacts:
+  kernel_amd64:
+    version: vmlinux-6.1.158
+    url: https://storage.googleapis.com/e2b-artifact-binaries/kernels/vmlinux-6.1.158/amd64/vmlinux.bin
+    sha256: 1982f8d5f1bc1680a36b0cdf126f605834b1633bba200d3281bccd53b86ff9ee
+    size_bytes: 43638104
+    gcs_generation: 1785878364719378
+    upstream_checksum_available: false
+    status: hash-verified-provenance-partial
+
+  firecracker_amd64:
+    version: v1.14.1_431f1fc
+    url: https://storage.googleapis.com/e2b-artifact-binaries/firecrackers/v1.14.1_431f1fc/amd64/firecracker
+    sha256: d81fd733be7e027406b4d5241442c447a2b5878b06dfa63dc236e68f3536d689
+    size_bytes: 3566832
+    gcs_generation: 1785878364316615
+    source_commit: 431f1fc7d47f4cfe1dfe42437b9394f20972b65d
+    upstream_checksum_available: false
+    status: hash-verified
+
+  busybox_amd64:
+    version: 1.36.1
+    url: https://storage.googleapis.com/e2b-artifact-binaries/busybox/1.36.1/amd64/busybox
+    checksum_url: https://storage.googleapis.com/e2b-artifact-binaries/busybox/1.36.1/amd64/busybox.sha256
+    sha256: d7cce939adb09a41a22a5f846d22ba8d576b38dbb2b46a5c77a3a3e27ec52520
+    size_bytes: 1210176
+    gcs_generation: 1785878364151858
+    status: upstream-checksum-verified
+
+  envd_amd64:
+    version: 0.6.13
+    source_commit: 2acf2d51bd1e2fe146914f24c44f7ee07d2213c5
+    url: https://storage.googleapis.com/e2b-artifact-binaries/envd/v0.6.13/envd
+    sha256: 139b9edb6b7598c2bd2d2acff863846408c878cc038353e10f4c47a0276737f5
+    size_bytes: 12927102
+    gcs_generation: 1785782967864975
+    upstream_checksum_available: false
+    status: hash-verified
+
+container_images:
+  note: >-
+    These are the selected infra commit's local-development datastore versions,
+    pinned to observed multi-platform manifest digests. They remain candidates
+    until the single-host Compose design is tested.
+  clickhouse:
+    image: clickhouse:25.4.5.24
+    digest: sha256:ad201eec325abb23e558e344d46d81bc9e2eba5a011fc02af440c124a27a1a61
+  postgres:
+    image: postgres:17.4
+    digest: sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad
+  redis:
+    image: redis:7.4.6
+    digest: sha256:a9cc41d6d01da2aa26c219e4f99ecbeead955a7b656c1c499cce8922311b2514
+  loki:
+    image: grafana/loki:3.4.1
+    digest: sha256:1d0c5ddc7644b88956aa0bd775ad796d9635180258a225d6ab3552751d5e2a66
+  otel_collector:
+    image: otel/opentelemetry-collector-contrib:0.146.0
+    digest: sha256:9742116fb9441d82900be0f35be168e14714fa64ff1f0f7aa182cfcf676832b1
+
+unresolved:
+  volume_content_service:
+    repository_reference: https://github.com/e2b-dev/belt
+    commit_recorded_by_sdk: 13ca196c19eb2acbec6b2696ce2ff98fec1ceaf8
+    reason: Repository was not publicly cloneable at retrieval.
+    consequence: SDK volume content operations cannot yet be claimed compatible.
+  kernel_build_provenance:
+    reason: >-
+      The public kernel object has no checksum sidecar or source-commit metadata;
+      its content hash is locked, but bit-for-bit source reproduction is unproven.
+  dashboard:
+    repository: https://github.com/e2b-dev/dashboard.git
+    reason: Not required for the E2B SDK contract or Milestone 2 core path.
+  code_interpreter:
+    repository: https://github.com/e2b-dev/code-interpreter.git
+    reason: Separate SDK/template surface; defer until core Sandbox compatibility passes.

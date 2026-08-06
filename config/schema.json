@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kitdev-sandboxes:config:v1",
+  "title": "kitdev-sandboxes configuration",
+  "description": "Non-secret operator configuration. Secrets are stored separately.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "deployment", "paths", "sandbox", "network", "features"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "lifecycle_mode", "listen_address", "public_exposure", "domain"],
+      "properties": {
+        "profile": { "enum": ["minimal", "standard", "full"] },
+        "lifecycle_mode": {
+          "enum": ["production", "development", "migration"],
+          "description": "Lifecycle intent used by host release eligibility checks."
+        },
+        "listen_address": { "type": "string", "minLength": 1 },
+        "public_exposure": { "type": "boolean", "default": false },
+        "domain": { "type": ["string", "null"], "minLength": 1 }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["install", "config", "state", "logs", "runtime"],
+      "properties": {
+        "install": { "$ref": "#/$defs/absolutePath" },
+        "config": { "$ref": "#/$defs/absolutePath" },
+        "state": { "$ref": "#/$defs/absolutePath" },
+        "logs": { "$ref": "#/$defs/absolutePath" },
+        "runtime": { "$ref": "#/$defs/absolutePath" }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default_template", "default_vcpus", "default_memory_mib",
+        "default_disk_mib", "default_timeout_seconds", "default_ttl_seconds",
+        "max_processes", "max_output_bytes"
+      ],
+      "properties": {
+        "default_template": { "enum": ["base", "coding", "browser", "desktop"] },
+        "default_vcpus": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "default_memory_mib": { "type": "integer", "minimum": 256 },
+        "default_disk_mib": { "type": "integer", "minimum": 1024 },
+        "default_timeout_seconds": { "type": "integer", "minimum": 1 },
+        "default_ttl_seconds": { "type": "integer", "minimum": 60 },
+        "max_processes": { "type": "integer", "minimum": 16 },
+        "max_output_bytes": { "type": "integer", "minimum": 1024 }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ipv4_cidr", "ipv6_enabled", "dns_resolvers", "allow_http_egress",
+        "allow_private_egress", "private_egress_allowlist", "sandbox_to_sandbox"
+      ],
+      "properties": {
+        "ipv4_cidr": { "type": "string", "minLength": 1 },
+        "ipv6_enabled": { "type": "boolean", "default": false },
+        "dns_resolvers": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "allow_http_egress": { "type": "boolean" },
+        "allow_private_egress": { "type": "boolean", "default": false },
+        "private_egress_allowlist": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "sandbox_to_sandbox": { "const": false }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observability", "persistence", "backups", "browser_template", "desktop_template"
+      ],
+      "properties": {
+        "observability": { "type": "boolean" },
+        "persistence": { "type": "boolean" },
+        "backups": { "type": "boolean" },
+        "browser_template": { "type": "boolean" },
+        "desktop_template": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "absolutePath": {
+      "type": "string",
+      "pattern": "^/[^\\u0000]*$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "deployment": {
+            "properties": { "public_exposure": { "const": true } },
+            "required": ["public_exposure"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "deployment": {
+            "properties": { "domain": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    }
+  ]
+}

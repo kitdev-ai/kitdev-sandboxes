@@ -1,0 +1,3 @@
+# Bootstrap and deployment requirements belong here once their versions are
+# selected and verified. Generate requirements.lock with hashes; never edit the
+# generated lock by hand.
