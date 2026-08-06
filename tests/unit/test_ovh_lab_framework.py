@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -22,11 +25,22 @@ class OvhLabFrameworkTests(unittest.TestCase):
         self.ssh_config = Path(self.private_directory.name) / "ssh-config"
         self.ssh_config.write_text("Host reviewed-alias\n  BatchMode yes\n", encoding="utf-8")
         self.ssh_config.chmod(0o600)
+        self.known_hosts = Path(self.private_directory.name) / "known-hosts"
+        self.known_hosts.write_text(
+            "reviewed-alias ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestOnly\n",
+            encoding="utf-8",
+        )
+        self.known_hosts.chmod(0o644)
 
-    def approval_environment(self, config: Path | str | None = None) -> dict[str, str]:
+    def approval_environment(
+        self,
+        config: Path | str | None = None,
+        known_hosts: Path | str | None = None,
+    ) -> dict[str, str]:
         return {
             "OVH_LAB_TARGET": "reviewed-alias",
             "OVH_LAB_SSH_CONFIG": str(self.ssh_config if config is None else config),
+            "OVH_LAB_KNOWN_HOSTS": str(self.known_hosts if known_hosts is None else known_hosts),
             "PATH": "/usr/bin:/bin",
         }
 
@@ -291,6 +305,12 @@ lab_service_state docker.service
         self.assertIn("OVH_LAB_KNOWN_HOSTS", text)
         self.assertIn("OVH_LAB_SSH_CONFIG", text)
         self.assertIn('-F "$SSH_CONFIG_SNAPSHOT"', text)
+        self.assertIn('-o "UserKnownHostsFile=$KNOWN_HOSTS_SNAPSHOT"', text)
+        self.assertNotIn('-o "UserKnownHostsFile=$KNOWN_HOSTS"', text)
+        self.assertIn("GlobalKnownHostsFile=/dev/null", text)
+        self.assertIn("KnownHostsCommand=none", text)
+        self.assertIn("UpdateHostKeys=no", text)
+        self.assertIn("VerifyHostKeyDNS=no", text)
         self.assertIn('ARTIFACTS_ROOT="$SCRIPT_DIR/../../artifacts"', text)
         self.assertIn('RUN_ROOT="$ARTIFACTS_ROOT/ovh-lab"', text)
         self.assertIn("redact()", text)
@@ -312,7 +332,7 @@ lab_service_state docker.service
         )
         self.assertRegex(
             result.stdout.strip(),
-            r"^DISPOSABLE_OVH_LAB:00:execute:reviewed-alias:[0-9a-f]{64}:[0-9a-f]{64}$",
+            r"^DISPOSABLE_OVH_LAB:00:execute:reviewed-alias:[0-9a-f]{64}:[0-9a-f]{64}:[0-9a-f]{64}$",
         )
 
     def test_ssh_config_rejects_relative_symlink_directory_open_mode_oversize_and_include(self) -> None:
@@ -352,22 +372,194 @@ lab_service_state docker.service
 
     def test_ssh_config_validation_checks_current_uid_and_no_follow_descriptor(self) -> None:
         text = (LAB / "run-stage.sh").read_text(encoding="utf-8")
-        self.assertIn("before.st_uid != os.geteuid()", text)
-        self.assertIn("opened_before.st_uid != os.geteuid()", text)
+        self.assertIn("metadata.st_uid != os.geteuid()", text)
         self.assertIn('hasattr(os, "O_NOFOLLOW")', text)
         self.assertIn("os.O_NOFOLLOW", text)
-        self.assertIn("stat.S_IMODE(opened_before.st_mode) & 0o077", text)
+        self.assertIn('input_kind == "ssh_config"', text)
+        self.assertIn("mode & 0o077", text)
         self.assertIn("1048577 - len(content)", text)
         self.assertIn('re.match(br"(?i:include)', text)
 
-    def test_execution_uses_one_private_config_snapshot(self) -> None:
+    def test_execution_uses_distinct_private_input_snapshots(self) -> None:
         text = (LAB / "run-stage.sh").read_text(encoding="utf-8")
         run_remote = text.split("run_remote()", maxsplit=1)[1]
         self.assertIn('SSH_CONFIG_SNAPSHOT="$RUN_DIR/private-ssh-config"', text)
+        self.assertIn('KNOWN_HOSTS_SNAPSHOT="$RUN_DIR/private-known-hosts"', text)
         self.assertIn("os.O_EXCL | os.O_NOFOLLOW", text)
         self.assertIn("stat.S_IMODE(snapshot_stat.st_mode) != 0o600", text)
+        self.assertIn("guarded input snapshots must be distinct files", text)
+        self.assertIn('rm -f -- "$SSH_CONFIG_SNAPSHOT" "$KNOWN_HOSTS_SNAPSHOT"', text)
         self.assertIn('-F "$SSH_CONFIG_SNAPSHOT"', run_remote)
+        self.assertIn('-o "UserKnownHostsFile=$KNOWN_HOSTS_SNAPSHOT"', run_remote)
         self.assertNotIn('-F "$SSH_CONFIG"', run_remote)
+        self.assertNotIn('UserKnownHostsFile=$KNOWN_HOSTS"', run_remote)
+
+    def test_known_hosts_is_required_and_rejects_unsafe_sources(self) -> None:
+        symlink = Path(self.private_directory.name) / "known-hosts-link"
+        symlink.symlink_to(self.known_hosts)
+        directory = Path(self.private_directory.name) / "known-hosts-directory"
+        directory.mkdir()
+        group_writable = Path(self.private_directory.name) / "known-hosts-group-writable"
+        group_writable.write_text("test host key\n", encoding="utf-8")
+        group_writable.chmod(0o664)
+        executable = Path(self.private_directory.name) / "known-hosts-executable"
+        executable.write_text("test host key\n", encoding="utf-8")
+        executable.chmod(0o744)
+        special_mode = Path(self.private_directory.name) / "known-hosts-special-mode"
+        special_mode.write_text("test host key\n", encoding="utf-8")
+        special_mode.chmod(0o4644)
+        oversized = Path(self.private_directory.name) / "known-hosts-oversized"
+        oversized.write_bytes(b"x" * 1048577)
+        oversized.chmod(0o600)
+        cases: tuple[Path | str, ...] = (
+            "",
+            self.known_hosts.name,
+            symlink,
+            directory,
+            group_writable,
+            executable,
+            special_mode,
+            oversized,
+        )
+        for known_hosts in cases:
+            result = subprocess.run(
+                [str(LAB / "run-stage.sh"), "00", "approval"],
+                cwd=self.private_directory.name,
+                env=self.approval_environment(known_hosts=known_hosts),
+                capture_output=True,
+                text=True,
+            )
+            with self.subTest(known_hosts=known_hosts):
+                self.assertEqual(result.returncode, 64)
+                self.assertIn("OVH_LAB_KNOWN_HOSTS must be stable", result.stderr)
+                self.assertEqual(result.stdout, "")
+
+    def test_known_hosts_allows_read_only_group_and_other_permissions(self) -> None:
+        for mode in (0o400, 0o440, 0o444, 0o600, 0o640, 0o644):
+            self.known_hosts.chmod(mode)
+            result = subprocess.run(
+                [str(LAB / "run-stage.sh"), "00", "approval"],
+                env=self.approval_environment(),
+                capture_output=True,
+                text=True,
+            )
+            with self.subTest(mode=oct(mode)):
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_config_and_known_hosts_sources_cannot_alias(self) -> None:
+        result = subprocess.run(
+            [str(LAB / "run-stage.sh"), "00", "approval"],
+            env=self.approval_environment(known_hosts=self.ssh_config),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 64)
+        self.assertIn("SSH config and known_hosts must be distinct files", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_known_hosts_path_and_content_are_not_logged(self) -> None:
+        result = subprocess.run(
+            [str(LAB / "run-stage.sh"), "00", "approval"],
+            env=self.approval_environment(),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        combined = result.stdout + result.stderr
+        self.assertNotIn(str(self.known_hosts), combined)
+        self.assertNotIn("AAAAC3NzaC1lZDI1NTE5AAAAITestOnly", combined)
+
+    def test_execution_uses_stable_snapshots_and_cleans_them(self) -> None:
+        fake_bin = Path(self.private_directory.name) / "bin"
+        fake_bin.mkdir()
+        record = Path(self.private_directory.name) / "ssh-record"
+        fake_ssh = fake_bin / "ssh"
+        fake_ssh.write_text(
+            """#!/usr/bin/python3
+import os
+import stat
+import sys
+
+config = None
+known_hosts = None
+options = set()
+arguments = iter(sys.argv[1:])
+for argument in arguments:
+    if argument == "-F":
+        config = next(arguments, None)
+    elif argument == "-o":
+        option = next(arguments, "")
+        options.add(option)
+        if option.startswith("UserKnownHostsFile="):
+            known_hosts = option.split("=", 1)[1]
+if not config or not known_hosts or config == known_hosts:
+    raise SystemExit(91)
+required_options = {
+    "GlobalKnownHostsFile=/dev/null",
+    "KnownHostsCommand=none",
+    "StrictHostKeyChecking=yes",
+    "UpdateHostKeys=no",
+    "VerifyHostKeyDNS=no",
+}
+if not required_options.issubset(options):
+    raise SystemExit(95)
+for path in (config, known_hosts):
+    metadata = os.stat(path, follow_symlinks=False)
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
+        raise SystemExit(92)
+if open(config, "rb").read() != os.environ["EXPECTED_CONFIG"].encode():
+    raise SystemExit(93)
+if open(known_hosts, "rb").read() != os.environ["EXPECTED_KNOWN_HOSTS"].encode():
+    raise SystemExit(94)
+with open(os.environ["SSH_RECORD"], "a", encoding="utf-8") as handle:
+    handle.write(config + "\\t" + known_hosts + "\\n")
+sys.stdin.buffer.read()
+""",
+            encoding="utf-8",
+        )
+        fake_ssh.chmod(0o700)
+        approval = subprocess.run(
+            [str(LAB / "run-stage.sh"), "00", "approval"],
+            env=self.approval_environment(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        environment = self.approval_environment()
+        environment.update(
+            {
+                "DISPOSABLE_OVH_LAB": approval,
+                "EXPECTED_CONFIG": self.ssh_config.read_text(encoding="utf-8"),
+                "EXPECTED_KNOWN_HOSTS": self.known_hosts.read_text(encoding="utf-8"),
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "SSH_RECORD": str(record),
+            }
+        )
+        result = subprocess.run(
+            [str(LAB / "run-stage.sh"), "00", "execute"],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        invocations = [line.split("\t") for line in record.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(invocations), 4)
+        self.assertTrue(all(paths == invocations[0] for paths in invocations))
+        config_snapshot, known_hosts_snapshot = map(Path, invocations[0])
+        self.assertNotEqual(config_snapshot, known_hosts_snapshot)
+        self.assertFalse(config_snapshot.exists())
+        self.assertFalse(known_hosts_snapshot.exists())
+        run_directory = config_snapshot.parent
+        self.assertEqual(stat.S_IMODE(run_directory.stat().st_mode), 0o700)
+        summary = (run_directory / "summary.txt").read_text(encoding="utf-8")
+        evidence = (run_directory / "evidence.log").read_text(encoding="utf-8")
+        expected_known_hosts_hash = hashlib.sha256(self.known_hosts.read_bytes()).hexdigest()
+        self.assertIn(f"known_hosts_sha256={expected_known_hosts_hash}\n", summary)
+        retained_output = summary + evidence
+        self.assertNotIn(str(self.ssh_config), retained_output)
+        self.assertNotIn(str(self.known_hosts), retained_output)
+        self.assertNotIn("AAAAC3NzaC1lZDI1NTE5AAAAITestOnly", retained_output)
+        shutil.rmtree(run_directory)
 
     def test_ssh_config_change_invalidates_prior_approval(self) -> None:
         first = subprocess.run(
@@ -379,6 +571,28 @@ lab_service_state docker.service
         ).stdout
         self.ssh_config.write_text("Host reviewed-alias\n  BatchMode yes\n  Compression no\n", encoding="utf-8")
         self.ssh_config.chmod(0o600)
+        second = subprocess.run(
+            [str(LAB / "run-stage.sh"), "00", "approval"],
+            env=self.approval_environment(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.assertNotEqual(first, second)
+
+    def test_known_hosts_change_invalidates_prior_approval(self) -> None:
+        first = subprocess.run(
+            [str(LAB / "run-stage.sh"), "00", "approval"],
+            env=self.approval_environment(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        self.known_hosts.write_text(
+            "reviewed-alias ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIChanged\n",
+            encoding="utf-8",
+        )
+        self.known_hosts.chmod(0o644)
         second = subprocess.run(
             [str(LAB / "run-stage.sh"), "00", "approval"],
             env=self.approval_environment(),

@@ -641,3 +641,31 @@ untracked, and must never be quoted into tracked documentation.
   corrected read-only stage is reviewed, committed, rerun, and reconciled with
   private inventory.
 - **Commit:** Pending in this change set.
+
+## 2026-08-06 - Approval-bound OVH known-hosts snapshot
+
+- **Intent:** Close the gap where an approved lab run still read a live
+  operator `known_hosts` file during SSH execution.
+- **Delegated LUNA agents:** LUNA lab-framework implementation agent and an
+  independent LUNA safety-review agent under project-lead supervision.
+- **Safe activity summary:** Required `OVH_LAB_KNOWN_HOSTS` during approval and
+  execution, added stable bounded `O_NOFOLLOW` validation, bound its SHA-256
+  into the approval, and made every SSH phase consume one distinct exclusive
+  mode-0600 run-local snapshot. Source/snapshot inode aliasing is rejected and
+  both private snapshots are removed on exit. Global known-host files,
+  `KnownHostsCommand`, DNS host-key verification, and host-key updates are
+  disabled on the SSH command line so no unbound trust source can authorize or
+  rewrite the approved snapshot.
+- **Result:** Twenty-seven focused tests and the complete 185-test suite passed,
+  including a hermetic fake-SSH four-phase execution test. Bash syntax and
+  whitespace checks passed. Independent LUNA review found an initial unbound
+  OpenSSH trust-source/update gap; after the command-line isolation fix, it
+  reproduced the focused suite and approved the gate with no remaining
+  findings.
+- **Mutation status:** Repository edits and hermetic local tests only. No SSH,
+  endpoint discovery, upload, remote command, or server mutation.
+- **Limitations / next gate:** Group/other read access is accepted for public
+  host-key verification material; execute, special, and group/other write bits
+  are rejected. An uncatchable process kill can leave mode-0600 copies only in
+  the ignored mode-0700 run directory. No server action is authorized here.
+- **Commit:** Pending in this change set.

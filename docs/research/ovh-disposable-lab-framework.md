@@ -19,18 +19,22 @@ repository. Runtime evidence defaults to the ignored local
 
 - A machine-readable manifest fixes the eleven stages and distinguishes
   read-only, plan-only, mutation, executable, and blocked status.
-- The local runner accepts only an operator-managed SSH alias, requires a
-  regular non-symlink verified `known_hosts` file, and requires an absolute,
-  regular, non-symlink SSH config owned by the invoking user with no group or
-  other permissions. The config is limited to one MiB and its path is bounded
-  and control-free. `Include` directives are rejected. The runner creates one
-  transient mode-0600 snapshot in the guarded local run directory and passes
-  only that immutable snapshot through every `ssh -F` call. It enables strict
-  host-key checking, disables connection sharing, and streams the selected
-  script to `sudo bash` without copying it to the host. The snapshot is removed
-  on ordinary exit and is never written to tracked evidence.
+- The local runner accepts only an operator-managed SSH alias. Both the SSH
+  config and verified `known_hosts` input must be absolute, bounded to one MiB,
+  current-user-owned regular non-symlink files read through stable
+  `O_NOFOLLOW` descriptors. The SSH config permits no group/other bits and
+  rejects `Include`; verified public host keys may be group/other readable but
+  may not have execute, special, or group/other write bits. The inputs cannot
+  share an inode. Execution creates distinct exclusive mode-0600 snapshots in
+  the guarded local run directory and passes only those snapshots to every SSH
+  phase. Command-line policy disables global known-host files,
+  `KnownHostsCommand`, SSH host-key updates, DNS host-key verification, and
+  connection sharing while requiring strict host-key checking. It streams the
+  selected script to `sudo bash` without copying it to the host. Both snapshots
+  are removed on ordinary exit and are never written to tracked evidence.
 - The manifest selects the stage, and the local approval binds its operation,
-  SSH alias, private SSH-config hash, and exact streamed bundle hash. Every
+  SSH alias, private SSH-config hash, verified-known-hosts hash, and exact
+  streamed bundle hash. Every
   stage uses Bash strict mode, verifies Ubuntu
   26.04/x86-64/systemd/cgroup-v2, refuses known production/install markers,
   emits bounded normalized observations, and implements before, after,
@@ -74,13 +78,15 @@ second, undocumented installer.
 
 ## Verification
 
-Twenty-one focused repository tests passed. The complete unit suite passed 170/170
+Twenty-seven focused repository tests passed. The complete unit suite passed 185/185
 with bytecode disabled. The static coverage verifies the full manifest sequence,
 Bash syntax, strict mode, acknowledgement and production gates, postcondition/rollback
-surfaces, blocked-stage absence of guessed mutation commands, verified-host-key
-runner options, local evidence location, and absence of literal endpoints or
-private keys. ShellCheck was unavailable in the local environment and is not a
-locked project dependency yet. Independent review rejected the initial mutable
-marker stage; this revision removed that mutation. External termination can
-still interrupt after/postcondition collection, which is acceptable only while
-all executable stages remain read-only.
+surfaces, blocked-stage absence of guessed mutation commands, guarded SSH input
+validation, approval hash invalidation, distinct snapshot identity, exact
+snapshot contents and modes across a hermetic four-phase fake-SSH run, cleanup,
+local evidence location, and absence of literal endpoints or private keys.
+ShellCheck was unavailable in the local environment and is not a locked project
+dependency yet. Independent review rejected the initial mutable marker stage;
+this revision removed that mutation. External termination can still interrupt
+after/postcondition collection, which is acceptable only while all executable
+stages remain read-only.

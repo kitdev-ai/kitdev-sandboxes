@@ -9,7 +9,7 @@ readonly REMOTE_TIMEOUT_SECONDS=90
 readonly EVIDENCE_MAX_BYTES=1048576
 
 usage() {
-  printf 'usage: OVH_LAB_TARGET=<ssh-alias> OVH_LAB_SSH_CONFIG=<private-absolute-path> %s <stage-id> approval|approval-rollback|execute|rollback\n' "$0" >&2
+  printf 'usage: OVH_LAB_TARGET=<ssh-alias> OVH_LAB_SSH_CONFIG=<private-absolute-path> OVH_LAB_KNOWN_HOSTS=<guarded-absolute-path> %s <stage-id> approval|approval-rollback|execute|rollback\n' "$0" >&2
   exit 64
 }
 
@@ -64,8 +64,8 @@ bundle_stage() {
 [[ "$STAGE_KIND" == read-only || "$STAGE_KIND" == plan-only ]] ||
   die 'mutable stages are disabled in this revision' 20
 
-validate_ssh_config() {
-  python3 - "$SSH_CONFIG" "${1:-}" <<'PY'
+validate_guarded_input() {
+  python3 - "$1" "$2" "$3" <<'PY'
 import hashlib
 import os
 import re
@@ -74,6 +74,9 @@ import sys
 
 path = sys.argv[1]
 snapshot_path = sys.argv[2]
+input_kind = sys.argv[3]
+if input_kind not in {"ssh_config", "known_hosts"}:
+    raise SystemExit(64)
 encoded_path = os.fsencode(path)
 if (
     not path
@@ -88,7 +91,16 @@ except OSError:
     raise SystemExit(64)
 if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode):
     raise SystemExit(64)
-if before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) & 0o077:
+
+def mode_is_unsafe(metadata):
+    mode = stat.S_IMODE(metadata.st_mode)
+    if metadata.st_uid != os.geteuid() or not mode & stat.S_IRUSR:
+        return True
+    if input_kind == "ssh_config":
+        return bool(mode & 0o077)
+    return bool(mode & 0o7133)
+
+if mode_is_unsafe(before):
     raise SystemExit(64)
 if not hasattr(os, "O_NOFOLLOW"):
     raise SystemExit(64)
@@ -103,7 +115,7 @@ try:
         raise SystemExit(64)
     if not stat.S_ISREG(opened_before.st_mode):
         raise SystemExit(64)
-    if opened_before.st_uid != os.geteuid() or stat.S_IMODE(opened_before.st_mode) & 0o077:
+    if mode_is_unsafe(opened_before):
         raise SystemExit(64)
     content = bytearray()
     while True:
@@ -120,13 +132,15 @@ try:
 finally:
     os.close(descriptor)
 
-for line in bytes(content).splitlines():
-    stripped = line.lstrip(b" \t")
-    if not stripped or stripped.startswith(b"#"):
-        continue
-    if re.match(br"(?i:include)(?:[ \t]|=|$)", stripped):
-        raise SystemExit(64)
+if input_kind == "ssh_config":
+    for line in bytes(content).splitlines():
+        stripped = line.lstrip(b" \t")
+        if not stripped or stripped.startswith(b"#"):
+            continue
+        if re.match(br"(?i:include)(?:[ \t]|=|$)", stripped):
+            raise SystemExit(64)
 
+snapshot_identity = ("-", "-")
 if snapshot_path:
     snapshot_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
     try:
@@ -145,11 +159,33 @@ if snapshot_path:
         snapshot_stat = os.fstat(snapshot)
         if snapshot_stat.st_uid != os.geteuid() or stat.S_IMODE(snapshot_stat.st_mode) != 0o600:
             raise SystemExit(64)
+        snapshot_identity = (str(snapshot_stat.st_dev), str(snapshot_stat.st_ino))
     finally:
         os.close(snapshot)
 
-print(hashlib.sha256(content).hexdigest())
+print("\t".join((
+    hashlib.sha256(content).hexdigest(),
+    str(opened_after.st_dev),
+    str(opened_after.st_ino),
+    *snapshot_identity,
+)))
 PY
+}
+
+load_guarded_inputs() {
+  local config_record known_hosts_record
+  config_record="$(validate_guarded_input "$SSH_CONFIG" "$1" ssh_config)" ||
+    die 'OVH_LAB_SSH_CONFIG must be a stable, bounded, private single-file config' 64
+  known_hosts_record="$(validate_guarded_input "$KNOWN_HOSTS" "$2" known_hosts)" ||
+    die 'OVH_LAB_KNOWN_HOSTS must be stable, bounded, current-user-owned, and not writable by group or other' 64
+  IFS=$'\t' read -r SSH_CONFIG_SHA256 SSH_CONFIG_DEV SSH_CONFIG_INO SSH_CONFIG_SNAPSHOT_DEV SSH_CONFIG_SNAPSHOT_INO <<<"$config_record"
+  IFS=$'\t' read -r KNOWN_HOSTS_SHA256 KNOWN_HOSTS_DEV KNOWN_HOSTS_INO KNOWN_HOSTS_SNAPSHOT_DEV KNOWN_HOSTS_SNAPSHOT_INO <<<"$known_hosts_record"
+  [[ "$SSH_CONFIG_DEV:$SSH_CONFIG_INO" != "$KNOWN_HOSTS_DEV:$KNOWN_HOSTS_INO" ]] ||
+    die 'SSH config and known_hosts must be distinct files' 64
+  if [[ -n "$1" && -n "$2" ]]; then
+    [[ "$SSH_CONFIG_SNAPSHOT_DEV:$SSH_CONFIG_SNAPSHOT_INO" != "$KNOWN_HOSTS_SNAPSHOT_DEV:$KNOWN_HOSTS_SNAPSHOT_INO" ]] ||
+      die 'guarded input snapshots must be distinct files' 64
+  fi
 }
 
 BUNDLE_CONTENT="$(bundle_stage)"
@@ -161,14 +197,12 @@ APPROVAL_OPERATION="$OPERATION"
 [[ "$OPERATION" == approval-rollback ]] && APPROVAL_OPERATION=rollback
 readonly APPROVAL_OPERATION
 if [[ "$OPERATION" == approval || "$OPERATION" == approval-rollback ]]; then
-  SSH_CONFIG_SHA256="$(validate_ssh_config)" ||
-    die 'OVH_LAB_SSH_CONFIG must be a stable, bounded, private single-file config' 64
-  readonly SSH_CONFIG_SHA256
-  readonly APPROVAL_EXPECTED="$ACK_EXPECTED:$STAGE_ID:$APPROVAL_OPERATION:$TARGET:$BUNDLE_SHA256:$SSH_CONFIG_SHA256"
+  load_guarded_inputs '' ''
+  readonly SSH_CONFIG_SHA256 KNOWN_HOSTS_SHA256
+  readonly APPROVAL_EXPECTED="$ACK_EXPECTED:$STAGE_ID:$APPROVAL_OPERATION:$TARGET:$BUNDLE_SHA256:$SSH_CONFIG_SHA256:$KNOWN_HOSTS_SHA256"
   printf '%s\n' "$APPROVAL_EXPECTED"
   exit 0
 fi
-[[ -f "$KNOWN_HOSTS" && ! -L "$KNOWN_HOSTS" ]] || die 'OVH_LAB_KNOWN_HOSTS must be a regular non-symlink file' 64
 
 umask 077
 readonly ARTIFACTS_ROOT="$SCRIPT_DIR/../../artifacts"
@@ -179,16 +213,16 @@ readonly RUN_DIR="$(mktemp -d "$RUN_ROOT/run-${STAGE_ID}-XXXXXXXX")"
 readonly LOG_FILE="$RUN_DIR/evidence.log"
 readonly SUMMARY_FILE="$RUN_DIR/summary.txt"
 readonly SSH_CONFIG_SNAPSHOT="$RUN_DIR/private-ssh-config"
+readonly KNOWN_HOSTS_SNAPSHOT="$RUN_DIR/private-known-hosts"
 
-cleanup_private_snapshot() {
-  rm -f -- "$SSH_CONFIG_SNAPSHOT"
+cleanup_private_snapshots() {
+  rm -f -- "$SSH_CONFIG_SNAPSHOT" "$KNOWN_HOSTS_SNAPSHOT"
 }
-trap cleanup_private_snapshot EXIT
-SSH_CONFIG_SHA256="$(validate_ssh_config "$SSH_CONFIG_SNAPSHOT")" ||
-  die 'OVH_LAB_SSH_CONFIG must be a stable, bounded, private single-file config' 64
-readonly SSH_CONFIG_SHA256
-readonly APPROVAL_EXPECTED="$ACK_EXPECTED:$STAGE_ID:$APPROVAL_OPERATION:$TARGET:$BUNDLE_SHA256:$SSH_CONFIG_SHA256"
-[[ "$ACK" == "$APPROVAL_EXPECTED" ]] || die 'stage/operation/target/config/bundle-bound disposable approval required' 64
+trap cleanup_private_snapshots EXIT
+load_guarded_inputs "$SSH_CONFIG_SNAPSHOT" "$KNOWN_HOSTS_SNAPSHOT"
+readonly SSH_CONFIG_SHA256 KNOWN_HOSTS_SHA256
+readonly APPROVAL_EXPECTED="$ACK_EXPECTED:$STAGE_ID:$APPROVAL_OPERATION:$TARGET:$BUNDLE_SHA256:$SSH_CONFIG_SHA256:$KNOWN_HOSTS_SHA256"
+[[ "$ACK" == "$APPROVAL_EXPECTED" ]] || die 'stage/operation/target/config/host-key/bundle-bound disposable approval required' 64
 
 redact() {
   sed -E \
@@ -215,10 +249,14 @@ run_remote() {
     -o ConnectTimeout=10 \
     -o ConnectionAttempts=1 \
     -o ControlMaster=no \
+    -o GlobalKnownHostsFile=/dev/null \
+    -o KnownHostsCommand=none \
     -o ServerAliveCountMax=3 \
     -o ServerAliveInterval=5 \
     -o StrictHostKeyChecking=yes \
-    -o "UserKnownHostsFile=$KNOWN_HOSTS" \
+    -o UpdateHostKeys=no \
+    -o "UserKnownHostsFile=$KNOWN_HOSTS_SNAPSHOT" \
+    -o VerifyHostKeyDNS=no \
     -- "$TARGET" /usr/bin/sudo -n /usr/bin/timeout --signal=TERM --kill-after=5s \
     "80s" /bin/bash -s -- "$mode" "$ACK_EXPECTED" "$BUNDLE_SHA256" \
     2>&1 | head -c "$EVIDENCE_MAX_BYTES" | redact | head -c "$EVIDENCE_MAX_BYTES" | tee -a "$LOG_FILE"
@@ -233,8 +271,8 @@ run_remote() {
   return "$rc"
 }
 
-printf 'schema=1\nstage=%s\noperation=%s\nmanifest_status=%s\nkind=%s\nbundle_sha256=%s\nssh_config_sha256=%s\n' \
-  "$STAGE_ID" "$OPERATION" "$STAGE_STATUS" "$STAGE_KIND" "$BUNDLE_SHA256" "$SSH_CONFIG_SHA256" >"$SUMMARY_FILE"
+printf 'schema=1\nstage=%s\noperation=%s\nmanifest_status=%s\nkind=%s\nbundle_sha256=%s\nssh_config_sha256=%s\nknown_hosts_sha256=%s\n' \
+  "$STAGE_ID" "$OPERATION" "$STAGE_STATUS" "$STAGE_KIND" "$BUNDLE_SHA256" "$SSH_CONFIG_SHA256" "$KNOWN_HOSTS_SHA256" >"$SUMMARY_FILE"
 printf 'event=run_start stage=%s operation=%s\n' "$STAGE_ID" "$OPERATION" | tee -a "$LOG_FILE"
 
 run_remote before || die "before snapshot failed; evidence: $RUN_DIR" 70
