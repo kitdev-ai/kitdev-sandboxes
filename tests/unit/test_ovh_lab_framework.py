@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -7,6 +8,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -55,6 +57,13 @@ class OvhLabFrameworkTests(unittest.TestCase):
             script = LAB / stage["script"]
             self.assertTrue(script.is_file())
             self.assertTrue(os.access(script, os.X_OK))
+
+        executable_mutations = [
+            stage["id"]
+            for stage in stages
+            if stage["kind"] == "mutation" and stage["status"] == "executable"
+        ]
+        self.assertEqual(executable_mutations, ["05"])
 
     def test_all_shell_files_parse_and_use_strict_mode(self) -> None:
         shell_files = [LAB / "run-stage.sh", LAB / "lib" / "common.sh", *self.stage_files]
@@ -262,7 +271,11 @@ lab_service_state docker.service
                 text = path.read_text(encoding="utf-8")
                 self.assertEqual(text.count("# OVH_LAB_STAGE_BODY"), 1)
                 self.assertIn('lab_require_ack "$@"', text)
-                self.assertIn("lab_refuse_production", text)
+                if path.name.startswith("05-"):
+                    self.assertIn("Stage05Reconciler", (ROOT / "src" / "kitdev_sandboxes" / "stage05.py").read_text(encoding="utf-8"))
+                    self.assertIn("refuse_production", (ROOT / "src" / "kitdev_sandboxes" / "stage05.py").read_text(encoding="utf-8"))
+                else:
+                    self.assertIn("lab_refuse_production", text)
                 self.assertIn("lab_require_supported_platform", text)
                 self.assertIn("postconditions", text)
                 self.assertIn("rollback", text)
@@ -334,6 +347,170 @@ lab_service_state docker.service
             result.stdout.strip(),
             r"^DISPOSABLE_OVH_LAB:00:execute:reviewed-alias:[0-9a-f]{64}:[0-9a-f]{64}:[0-9a-f]{64}$",
         )
+
+    def test_stage05_bundle_is_deterministic_and_embeds_exact_reviewed_modules(self) -> None:
+        from kitdev_sandboxes.stage05 import build_plan
+
+        approvals = [
+            subprocess.run(
+                [str(LAB / "run-stage.sh"), "05", "approval"],
+                env=self.approval_environment(),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            for _ in range(2)
+        ]
+        self.assertEqual(approvals[0], approvals[1])
+        bundle_digest = approvals[0].split(":")[4]
+        plan_hash = build_plan(bundle_digest).plan_hash
+
+        fake_bin = Path(self.private_directory.name) / "stage05-bin"
+        fake_bin.mkdir()
+        captured = Path(self.private_directory.name) / "stage05-bundle"
+        fake_ssh = fake_bin / "ssh"
+        fake_ssh.write_text(
+            """#!/usr/bin/python3
+import os
+import sys
+
+content = sys.stdin.buffer.read()
+capture = os.environ["CAPTURED_BUNDLE"]
+if os.path.exists(capture):
+    if open(capture, "rb").read() != content:
+        raise SystemExit(96)
+else:
+    with open(capture, "xb") as handle:
+        handle.write(content)
+print("stage=05 operation=fake status=pass plan_sha256=" + os.environ["EXPECTED_PLAN"])
+""",
+            encoding="utf-8",
+        )
+        fake_ssh.chmod(0o700)
+        environment = self.approval_environment()
+        environment.update(
+            {
+                "CAPTURED_BUNDLE": str(captured),
+                "DISPOSABLE_OVH_LAB": approvals[0],
+                "EXPECTED_PLAN": plan_hash,
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+            }
+        )
+        result = subprocess.run(
+            [str(LAB / "run-stage.sh"), "05", "execute"],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bundle = captured.read_text(encoding="utf-8")
+        for label, source in (
+            ("JOURNAL", ROOT / "src" / "kitdev_sandboxes" / "journal.py"),
+            ("RECONCILER", ROOT / "src" / "kitdev_sandboxes" / "stage05.py"),
+        ):
+            digest = re.search(rf"readonly STAGE05_{label}_SHA256='([0-9a-f]{{64}})'", bundle)
+            payload = re.search(rf"readonly STAGE05_{label}_B64='([A-Za-z0-9+/=]+)'", bundle)
+            self.assertIsNotNone(digest)
+            self.assertIsNotNone(payload)
+            decoded = base64.b64decode(payload.group(1), validate=True)
+            self.assertEqual(decoded, source.read_bytes())
+            self.assertEqual(hashlib.sha256(decoded).hexdigest(), digest.group(1))
+        self.assertNotIn("__STAGE05_", bundle)
+
+        loader_probe = bundle.rsplit('\nmain "$@"', maxsplit=1)[0]
+        loader_probe = loader_probe.replace("/usr/bin/python3 -I", f"{sys.executable} -I", 1)
+        loader_probe += f'\nstage05_python before WRONG {bundle_digest}\n'
+        loaded = subprocess.run(
+            ["bash", "-s"],
+            input=loader_probe,
+            env={"PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(loaded.returncode, 64)
+        self.assertEqual(loaded.stdout, "")
+        self.assertEqual(loaded.stderr, "status=error reason=acknowledgement_required\n")
+
+        journal_digest = re.search(r"readonly STAGE05_JOURNAL_SHA256='([0-9a-f]{64})'", loader_probe)
+        self.assertIsNotNone(journal_digest)
+        corrupt_probe = loader_probe.replace(journal_digest.group(1), "0" * 64, 1)
+        corrupt_probe += f'\nstage05_python before DISPOSABLE_OVH_LAB {bundle_digest}\n'
+        corrupt = subprocess.run(
+            ["bash", "-s"],
+            input=corrupt_probe,
+            env={"PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(corrupt.returncode, 70)
+        self.assertEqual(corrupt.stdout, "")
+        self.assertEqual(corrupt.stderr, "status=error reason=embedded_module_invalid\n")
+
+        run_directories = {
+            Path(line.rsplit(" ", 1)[-1])
+            for line in result.stdout.splitlines()
+            if line.startswith("ovh-lab: stage passed; redacted evidence: ")
+        }
+        self.assertEqual(len(run_directories), 1)
+        run_directory = run_directories.pop()
+        summary = (run_directory / "summary.txt").read_text(encoding="utf-8")
+        self.assertIn(f"stage05_plan_sha256={plan_hash}\n", summary)
+        shutil.rmtree(run_directory)
+
+    def test_stage05_execute_ssh_interruption_preserves_failure_and_collects_evidence(self) -> None:
+        from kitdev_sandboxes.stage05 import build_plan
+
+        approval = subprocess.run(
+            [str(LAB / "run-stage.sh"), "05", "approval"],
+            env=self.approval_environment(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        bundle_digest = approval.split(":")[4]
+        plan_hash = build_plan(bundle_digest).plan_hash
+        fake_bin = Path(self.private_directory.name) / "interrupt-bin"
+        fake_bin.mkdir()
+        record = Path(self.private_directory.name) / "interrupt-record"
+        fake_ssh = fake_bin / "ssh"
+        fake_ssh.write_text(
+            """#!/usr/bin/python3
+import os
+import sys
+
+sys.stdin.buffer.read()
+mode = sys.argv[-3]
+with open(os.environ["INTERRUPT_RECORD"], "a", encoding="ascii") as handle:
+    handle.write(mode + "\\n")
+if mode == "execute":
+    raise SystemExit(143)
+print("stage=05 operation=" + mode + " status=pass plan_sha256=" + os.environ["EXPECTED_PLAN"])
+""",
+            encoding="utf-8",
+        )
+        fake_ssh.chmod(0o700)
+        environment = self.approval_environment()
+        environment.update(
+            {
+                "DISPOSABLE_OVH_LAB": approval,
+                "EXPECTED_PLAN": plan_hash,
+                "INTERRUPT_RECORD": str(record),
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+            }
+        )
+        result = subprocess.run(
+            [str(LAB / "run-stage.sh"), "05", "execute"],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 143)
+        self.assertEqual(record.read_text(encoding="ascii").splitlines(), ["before", "execute", "after", "postconditions"])
+        run_directory = Path(result.stderr.rstrip().rsplit("evidence: ", 1)[1])
+        summary = (run_directory / "summary.txt").read_text(encoding="utf-8")
+        self.assertIn("operation_rc=143\nafter_rc=0\npostconditions_rc=0\n", summary)
+        self.assertNotIn("stage05_plan_sha256=", summary)
+        shutil.rmtree(run_directory)
 
     def test_ssh_config_rejects_relative_symlink_directory_open_mode_oversize_and_include(self) -> None:
         symlink = Path(self.private_directory.name) / "ssh-config-link"

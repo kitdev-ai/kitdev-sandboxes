@@ -301,10 +301,33 @@ class JournalTests(unittest.TestCase):
         with self.store.locked(exclusive=False) as session:
             with self.assertRaises(JournalSecurityError):
                 session.load("install-001")
+            self.assertEqual(session.load_inflight("install-001"), record())
         self.assertTrue(residue.exists())
 
         self.assertEqual(self.store.load("install-001"), record())
         self.assertFalse(residue.exists())
+
+    def test_shared_session_validates_unpublished_and_rejects_unrelated_temp(self) -> None:
+        payload = (
+            json.dumps(record().as_dict(), sort_keys=True, separators=(",", ":"))
+            + "\n"
+        ).encode("ascii")
+        residue = self.root / (".install-001.journal.json.tmp." + "5" * 32)
+        residue.write_bytes(payload)
+        residue.chmod(0o600)
+        with self.store.locked(exclusive=False) as session:
+            self.assertEqual(session.load_unpublished("install-001"), record())
+        self.assertTrue(residue.exists())
+
+        residue.unlink()
+        self.store.create(record())
+        unrelated = self.root / (".install-001.journal.json.tmp." + "6" * 32)
+        unrelated.write_bytes(payload)
+        unrelated.chmod(0o600)
+        with self.store.locked(exclusive=False) as session:
+            with self.assertRaises(JournalSecurityError):
+                session.load_inflight("install-001")
+        self.assertTrue(unrelated.exists())
 
     def test_session_lock_excludes_processes_and_is_released_on_process_exit(self) -> None:
         context = multiprocessing.get_context("fork")

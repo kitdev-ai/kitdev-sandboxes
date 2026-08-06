@@ -5,7 +5,7 @@
   "final_acceptance": "reinstall-then-kitdev-ansible",
   "stages": [
     {"id": "00", "name": "read-only-baseline", "script": "stages/00-read-only-baseline.sh", "kind": "read-only", "status": "executable"},
-    {"id": "05", "name": "lab-marker-workspace", "script": "stages/05-lab-marker-workspace.sh", "kind": "mutation", "status": "blocked"},
+    {"id": "05", "name": "lab-marker-workspace", "script": "stages/05-lab-marker-workspace.sh", "kind": "mutation", "status": "executable"},
     {"id": "10", "name": "package-tool-prerequisites", "script": "stages/10-package-tool-prerequisites.sh", "kind": "mutation", "status": "blocked"},
     {"id": "20", "name": "identity-kvm-access", "script": "stages/20-identity-kvm-access.sh", "kind": "mutation", "status": "blocked"},
     {"id": "30", "name": "raw-data-storage-plan", "script": "stages/30-raw-data-storage-plan.sh", "kind": "plan-only", "status": "executable"},

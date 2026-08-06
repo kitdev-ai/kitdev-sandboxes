@@ -43,16 +43,20 @@ repository. Runtime evidence defaults to the ignored local
   Stage authors must still avoid emitting sensitive data because pattern-based
   redaction cannot establish secrecy. Each invocation is bounded to 90 seconds
   and one MiB of redacted output.
-- No mutation is executable. Independent review rejected the marker/workspace
-  transition because it lacked durable provenance, crash recovery, no-follow
-  ancestry enforcement, and retry-safe rollback. It now fails closed.
+- Stage 05 is the only executable mutation. Its typed Python reconciler uses
+  the existing `JournalStore` state machine through one operation-wide locked
+  session, fixed no-follow paths, exact canonical marker/plan bytes,
+  write-ahead transitions, bounded observations, and idempotent reconciliation
+  and rollback. The approved bundle contains the exact reviewed journal and
+  reconciler bytes and streams them through an anonymous pipe to isolated
+  `/usr/bin/python3`; it installs no remote source.
 
 ## Executable versus blocked
 
 | Stage | Current behavior | Reason |
 | --- | --- | --- |
 | `00` | Read-only baseline | Fixed normalized platform, KVM, capacity, storage, service, firewall-fingerprint, and route-count evidence. |
-| `05` | Blocked | Crash-consistent provenance and retry-safe rollback are not implemented. |
+| `05` | Executable mutation | Journaled marker/workspace apply and exact rollback; local independent review approved, while separately approved disposable-host qualification remains required. |
 | `10` | Blocked | Pinned Ubuntu package bootstrap and checksums are not approved. |
 | `20` | Blocked | The identity plan was rejected pending write-ahead journaling and Ansible convergence. |
 | `30` | Discovery/plan only | Reports anonymous raw-disk counts and sizes; formatting and mounting are forbidden. |
@@ -65,10 +69,13 @@ repository. Runtime evidence defaults to the ignored local
 
 ## Recovery and promotion
 
-No lab rollback runs in this revision because no mutation runs. Once a future
-approved experiment changes packages, accounts, kernel state, storage, network,
-firewall, containers, or services, the authoritative lab recovery is an OVH OS
-reinstall. Manual success is useful discovery evidence only.
+Stage 05 can roll back only the exact marker and empty workspace directory
+prefix it created, while retaining its journal. It removes the marker first
+and refuses foreign or downstream content. Once a future approved experiment
+changes packages, accounts, kernel state, storage, network, firewall,
+containers, or services, that stage needs its own journal and rollback; the
+authoritative lab recovery remains an OVH OS reinstall. Manual success is
+useful discovery evidence only.
 
 Promotion requires typed collectors, deterministic dry-run actions, dependency
 pins and hashes, a crash-consistent manifest/journal, Ansible convergence and
@@ -78,15 +85,16 @@ second, undocumented installer.
 
 ## Verification
 
-Twenty-seven focused repository tests passed. The complete unit suite passed 185/185
-with bytecode disabled. The static coverage verifies the full manifest sequence,
-Bash syntax, strict mode, acknowledgement and production gates, postcondition/rollback
-surfaces, blocked-stage absence of guessed mutation commands, guarded SSH input
-validation, approval hash invalidation, distinct snapshot identity, exact
-snapshot contents and modes across a hermetic four-phase fake-SSH run, cleanup,
-local evidence location, and absence of literal endpoints or private keys.
-ShellCheck was unavailable in the local environment and is not a locked project
-dependency yet. Independent review rejected the initial mutable marker stage;
-this revision removed that mutation. External termination can still interrupt
-after/postcondition collection, which is acceptable only while all executable
-stages remain read-only.
+The final Stage 05, journal, and lab-framework focused suite passes 99/99
+with bytecode disabled. It verifies canonical bytes, deterministic embedded
+sources, strict loader isolation, approval integrity, production refusal,
+pristine and idempotent apply/rollback, all enumerated forward and reverse
+crash points, suspicious residue, mount/link/symlink/ownership/mode/ACL/xattr
+conflicts, durability-barrier replay, terminal-residue preservation, legal
+cross-operation recovery, and same-process and multi-process lock behavior.
+The complete suite passes 225/225. Independent LUNA review initially found
+seven recovery defects plus one terminal-residue ambiguity during re-review;
+all were corrected, independently reproduced, and approved with no blockers.
+ShellCheck is unavailable in the local environment and is not a locked project
+dependency. No SSH or remote mutation occurred during implementation and local
+qualification.

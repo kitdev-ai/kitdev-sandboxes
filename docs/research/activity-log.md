@@ -669,3 +669,50 @@ untracked, and must never be quoted into tracked documentation.
   are rejected. An uncatchable process kill can leave mode-0600 copies only in
   the ignored mode-0700 run directory. No server action is authorized here.
 - **Commit:** Pending in this change set.
+
+## 2026-08-06 - Stage 05 journaled lab authorization and workspace
+
+- **Intent:** Enable only the minimum reversible mutation needed to mark the
+  disposable lab and allocate its empty experiment workspace, without creating
+  a second journal algorithm or installing remote implementation source.
+- **Delegated LUNA agents:** LUNA Stage 05 contract-mapping and bundle-design
+  agents, followed by an independent LUNA code and safety reviewer under
+  project-lead supervision.
+- **Safe activity summary:** Extended the committed `JournalStore` foundation
+  with one locked-session transaction boundary and read-only in-flight record
+  inspection. Added a typed Stage 05 reconciler for canonical plan/marker
+  bytes, fixed descriptor-relative paths, production refusal, exact
+  root/mode/ownership/mount/link/xattr policy, write-ahead apply, crash resume,
+  strict rollback, and bounded evidence. The runner embeds exact component
+  bytes and digests and streams them through an anonymous pipe to isolated
+  Python; it does not install or leave source on the server.
+- **Contract amendment:** A retry may adopt only the exact root-owned,
+  link-count-two, empty `0700` provisional directory at the legal crash prefix
+  before its required final `0755` mode. It verifies descriptor identity,
+  mount, ACL, xattrs and capabilities, performs one `fchmod` plus `fsync`, and
+  revalidates. Read-only observation never repairs it. Every other existing
+  wrong-mode directory remains a conflict.
+- **Files and evidence:** [Stage 05 contract](ovh-stage05-marker-contract.md),
+  [lab framework](ovh-disposable-lab-framework.md), the experiment README,
+  typed journal/reconciler modules, and hermetic unit tests. Existing corrected
+  Stage 00/30 off-host artifacts were summarized without opening SSH.
+- **Result:** The focused journal, Stage 05, and lab-framework suite passes
+  99/99 with bytecode disabled, and the complete suite passes 225/225. Coverage
+  includes exact byte fixtures, apply/apply,
+  rollback/rollback, all enumerated forward and reverse crash points,
+  provisional and linked residue, symlink/mount/ownership/mode/ACL/xattr/
+  capability conflicts, plan mismatch, durability replay through a second
+  recovery crash, terminal-residue preservation, legal cross-operation journal
+  recovery, and process-lock tests. Independent review found seven initial
+  recovery defects and one later terminal-residue ambiguity; all were corrected
+  and independently reproduced. Re-review approved the local gate with no
+  remaining blockers.
+- **Mutation status:** Repository edits and hermetic temporary-directory tests
+  only. No SSH, endpoint discovery, upload, remote command, or server mutation
+  occurred in this implementation task. Stage 05 is the sole manifest-enabled
+  mutation, but this change does not itself authorize a remote invocation.
+- **Limitations / next gate:** A separately approved disposable-host
+  apply/apply/rollback/rollback exercise. Later mutations remain blocked, and
+  final acceptance still requires reinstalling Ubuntu 26.04 and qualifying
+  clean automation. `shellcheck` was unavailable locally; Bash parsing passed.
+- **Commit:** Pending in this change set.

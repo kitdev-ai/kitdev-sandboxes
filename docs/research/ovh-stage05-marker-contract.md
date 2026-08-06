@@ -1,7 +1,7 @@
 # Stage 05 disposable-lab marker and workspace contract
 
 Date: 2026-08-06
-Status: proposed safety contract; Stage 05 remains blocked
+Status: independently approved for local qualification; disposable-host execution pending
 
 ## Purpose and boundary
 
@@ -17,9 +17,11 @@ because ordinary `mkdir`/file creation followed by best-effort cleanup would
 not provide durable provenance, no-follow ancestry enforcement, or a
 retry-safe answer after interruption.
 
-This document specifies the next implementation. It does not change the Stage
-05 manifest status, implement an apply path, or authorize SSH. No host was
-contacted while preparing it.
+This document specifies and records the implemented Stage 05 contract. Stage
+05 is the only executable mutation in the experiment manifest; every later
+mutation remains blocked. Implementation and hermetic testing did not contact
+the host or authorize a remote run. A separately generated bundle-bound
+approval is still required for disposable-host execution.
 
 ## Existing primitives and required extension
 
@@ -37,9 +39,9 @@ It deliberately does not inspect or reconcile host resources. Stage 05 needs a
 new typed reconciler around that API. The existing shell script must not
 reimplement journal encoding, filesystem traversal, or recovery logic.
 
-The existing directory lock covers one `create()` or `transition()` call, not
-the resource mutations between journal transitions. The implementation must
-also add a `JournalStore` transaction/session API that opens and exclusively
+The original directory lock covered one `create()` or `transition()` call, not
+the resource mutations between journal transitions. The implementation adds a
+`JournalStore` transaction/session API that opens and exclusively
 locks the validated journal-root descriptor once, exposes load/create/transition
 operations on that already-locked descriptor, and holds the lock through
 collection, mutation, reconciliation and terminal journal publication. It must
@@ -53,10 +55,15 @@ published journal file, and stable descriptor reads. It captures type, mode,
 UID, GID, link count, size, device, inode, `mtime_ns` and `ctime_ns` before and
 after each bounded read and rejects any change. Create/replace then reopens the
 published name through the same locked root descriptor and repeats the checks.
-The sole temporary exception is canonical crash residue where the final
-journal and its one valid temp name resolve to the same inode with link count 2;
-locked recovery removes the temp, `fsync`s the directory, and requires link
-count 1 before returning the published record.
+The sole linked temporary exception is initial `planned` journal publication
+where the final journal and its one valid temp name resolve to the same inode
+with link count 2. Locked recovery removes the temp, `fsync`s the directory,
+and requires link count 1 before returning the published record. A later
+transition may leave one separate link-count-one temp only when it is the exact
+canonical legal outbound record from the current final state; locked recovery
+may remove it before either a forward or rollback decision. Separate residue
+beside a terminal final, an impossible linked terminal residue, or any other
+content is preserved and blocks.
 
 There is one unavoidable bootstrap boundary: `JournalStore` requires its
 trusted root to exist, while Stage 05 is the first project-state mutation. The
@@ -117,9 +124,21 @@ attributes that alter access, multiple hard links, different ownership, a
 different type, or a mount boundary are conflicts. Extra entries are conflicts
 during initial Stage 05 validation and Stage 05 rollback; after initial
 validation they require downstream journal ownership as described next. Stage
-05 must not repair, empty, rename, replace, or adopt them. The only permission
-change allowed is `fchmod` on a directory descriptor that this exact locked
-transaction has just created and has not yet published as complete.
+05 must not repair, empty, rename, replace, or adopt them.
+
+One explicit crash-prefix amendment was approved during implementation. A
+retry may finish the `0700 -> 0755` permission transition only for the exact
+descriptor-opened provisional directory at the next legal operation prefix:
+the state root before journal creation, or the config directory when the exact
+same-plan journal proves `applying` with config as its next resource. The
+directory must be root-owned, have link count two, be empty, have no xattrs,
+ACLs or capabilities, remain on the expected mount, and retain the same
+device/inode identity throughout validation. Recovery performs one descriptor
+`fchmod`, `fsync`s it and its parent, then revalidates. A provisional directory
+at any other path or prefix is a conflict. Read-only observation may classify
+this residue but never repairs it. This amendment resolves interruption after
+`mkdirat(0700)` and before the originally specified `fchmod(0755)`; it is not a
+general existing-directory repair rule.
 
 The initial entry policies above prove that Stage 05 starts from an unclaimed
 workspace. They are not permanent claims over future contents. A later reviewed
@@ -286,11 +305,12 @@ The allocator follows the same ancestry rules. If absent, it creates the state
 root at `0700`, opens it, applies the just-created `fchmod(..., 0755)`, verifies
 and `fsync`s it, then `fsync`s `/var/lib`. It creates the `journal` child at
 `0700`, opens, verifies and `fsync`s it, then `fsync`s the state root. A retry
-may adopt only these exact
-prefixes: state root absent; exact empty state root; exact state root containing
-only an empty journal root; or exact roots containing canonical residue for the
-same Stage 05 plan. A state root that lacks the exact journal child but contains
-anything else, or a journal root containing foreign state, fails closed.
+may adopt only these exact prefixes: state root absent; the exact empty `0700`
+provisional state root described by the approved crash-prefix amendment; exact
+empty final-mode state root; exact state root containing only an empty journal
+root; or exact roots containing canonical residue for the same Stage 05 plan.
+A state root that lacks the exact journal child but contains anything else, or
+a journal root containing foreign state, fails closed.
 
 Across a process crash, schema-v1 `JournalRecord` does not persist inode or
 mount IDs and its resource list is immutable. Recovery therefore must not
@@ -538,38 +558,25 @@ Required reason codes include at least:
 - `unexpected_entry`, `marker_content_mismatch`;
 - `illegal_recovery_state`, `rollback_foreign_state`.
 
-## Implementation and review gates
+## Implementation and review status
 
-Stage 05 remains blocked until all of the following exist:
+The working implementation supplies the typed `JournalStore` reconciler, one
+operation-wide lock, descriptor-relative allocation and mutation, exact
+canonical encoders, embedded reviewed Python sources, approval-bound bundle
+construction, and a manifest gate that enables only Stage 05 mutation. The
+hermetic suite covers canonical bytes, pristine and idempotent apply/rollback,
+every injected forward and rollback crash point, exact provisional and linked
+publication residue, symlink/mount/ownership/mode/ACL/xattr/capability
+conflicts, plan mismatch, unexpected content, process-lock contention, and
+abrupt lock-holder exit. Read-only modes do not allocate or repair.
 
-- a typed Python Stage 05 reconciler using `JournalStore`, with a minimal
-  secure state/journal-root allocator and no shell filesystem mutation;
-- one caller-held journal-root session lock across each complete resource
-  transaction, with no nested-flock deadlock;
-- immutable bundle construction that includes the exact reconciler/journal
-  implementation in the approved digest;
-- stable no-follow `known_hosts` snapshotting and approval-digest binding
-  across every remote phase;
-- descriptor-relative collection and mutation, mount/link/ACL checks, bounded
-  enumeration, same-filesystem bind-mount detection, and canonical marker/plan
-  encoders;
-- manifest/runner support for reviewed mutation stages without weakening the
-  default block on every other mutable stage;
-- unit tests for pristine apply, validated apply/apply, rollback/rollback,
-  exact bootstrap residue, every legal journal state, and every conflict above;
-- fault injection before and after each create, write, file `fsync`, publish,
-  unlink, directory `fsync`, journal transition and SSH termination boundary;
-- adversarial tests for ancestor/final symlinks, swaps between observation and
-  operation, wrong type/owner/mode, hard links, mountpoints, ACLs, extra entries,
-  corrupt/noncanonical records, competing processes and plan mismatch;
-- multi-process tests proving same-stage and cross-stage transactions cannot
-  interleave and that abrupt process death releases the lock for reconciliation;
-- tests proving the marker is published last and removed first, and that no
-  later mutation proceeds with an absent, drifted, nonvalidated or rolled-back
-  authorization state;
-- independent code and safety review, full local unit-suite success, then a
-  separately approved disposable-host apply/apply/rollback/rollback exercise
-  with off-host evidence.
+Independent code and safety review initially found seven recovery defects and
+one terminal-residue ambiguity during re-review. All were corrected and the
+same reviewer approved the local repository gate after 99 focused and 225 full
+tests passed. Remote qualification still requires a separately approved
+disposable-host apply/apply/rollback/rollback exercise with off-host evidence.
+Local approval is not remote authorization and does not remove the final clean
+reinstall qualification.
 
 No test may use `/etc/kitdev-sandboxes` or `/var/lib/kitdev-sandboxes` on the
 development PC. Hermetic tests use an explicitly injected temporary trusted
@@ -587,7 +594,9 @@ prefix; only the disposable-host integration test uses fixed production paths.
 ## Repository evidence reviewed
 
 - `src/kitdev_sandboxes/journal.py`
+- `src/kitdev_sandboxes/stage05.py`
 - `tests/unit/test_journal.py`
+- `tests/unit/test_stage05.py`
 - `experiments/ovh-lab/lib/common.sh`
 - `experiments/ovh-lab/run-stage.sh`
 - `experiments/ovh-lab/stages.json`

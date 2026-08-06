@@ -498,6 +498,19 @@ class JournalStore:
         expected: JournalRecord,
         final_metadata: os.stat_result,
     ) -> None:
+        candidate = self._validate_linked_create(
+            root_fd, filename, expected, final_metadata
+        )
+        os.unlink(candidate, dir_fd=root_fd)
+        os.fsync(root_fd)
+
+    def _validate_linked_create(
+        self,
+        root_fd: int,
+        filename: str,
+        expected: JournalRecord,
+        final_metadata: os.stat_result,
+    ) -> str:
         prefix = f".{filename}.tmp."
         entries = self._directory_entries(root_fd)
         candidates = sorted(name for name in entries if name.startswith(prefix))
@@ -514,19 +527,85 @@ class JournalStore:
             or residue_metadata.st_ino != final_metadata.st_ino
         ):
             raise JournalSecurityError("journal hard-link residue is not canonical")
-        os.unlink(candidates[0], dir_fd=root_fd)
-        os.fsync(root_fd)
+        return candidates[0]
+
+    def _inspect_residue_at(
+        self, root_fd: int, filename: str
+    ) -> tuple[JournalRecord, int, tuple[JournalRecord, ...]]:
+        record, metadata = self._read_at(
+            root_fd, filename, allowed_nlinks=frozenset({1, 2})
+        )
+        prefix = f".{filename}.tmp."
+        candidates = sorted(
+            name for name in self._directory_entries(root_fd) if name.startswith(prefix)
+        )
+        if metadata.st_nlink == 2:
+            self._validate_linked_create(root_fd, filename, record, metadata)
+            return record, 2, (record,)
+        if not candidates:
+            return record, 1, ()
+        if len(candidates) != 1 or not re.fullmatch(
+            re.escape(prefix) + r"[0-9a-f]{32}", candidates[0]
+        ):
+            raise JournalSecurityError("journal has unexplained temporary residue")
+        residue, _ = self._read_at(
+            root_fd, candidates[0], allowed_nlinks=frozenset({1})
+        )
+        return record, 1, (residue,)
+
+    def _load_inflight_at(self, root_fd: int, filename: str) -> JournalRecord:
+        record, link_count, residues = self._inspect_residue_at(root_fd, filename)
+        if link_count == 1 and residues:
+            raise JournalSecurityError("journal has unexplained temporary residue")
+        return record
+
+    def _load_unpublished_at(self, root_fd: int, filename: str) -> JournalRecord:
+        try:
+            os.stat(filename, dir_fd=root_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            raise JournalSecurityError("journal final name cannot be classified") from error
+        else:
+            raise JournalSecurityError("journal final name is already published")
+        prefix = f".{filename}.tmp."
+        candidates = sorted(
+            name for name in self._directory_entries(root_fd) if name.startswith(prefix)
+        )
+        if len(candidates) != 1 or not re.fullmatch(
+            re.escape(prefix) + r"[0-9a-f]{32}", candidates[0]
+        ):
+            raise JournalSecurityError("journal unpublished residue is not unique")
+        record, _ = self._read_at(
+            root_fd, candidates[0], allowed_nlinks=frozenset({1})
+        )
+        return record
 
     @staticmethod
     def _directory_entries(root_fd: int) -> list[str]:
+        entries: list[str] = []
+        total_bytes = 0
         try:
-            entries = os.listdir(root_fd)
+            with os.scandir(root_fd) as iterator:
+                for entry in iterator:
+                    name = entry.name
+                    if not _safe_path_component(name):
+                        raise JournalSecurityError(
+                            "journal directory contains an unsafe entry name"
+                        )
+                    total_bytes += len(name.encode("utf-8", errors="strict"))
+                    entries.append(name)
+                    if (
+                        len(entries) > _MAX_DIRECTORY_ENTRIES
+                        or total_bytes > _MAX_JOURNAL_BYTES
+                    ):
+                        raise JournalSecurityError(
+                            "journal directory contains too many entries"
+                        )
         except OSError as error:
             raise JournalSecurityError(
                 "journal directory cannot be enumerated safely"
             ) from error
-        if len(entries) > _MAX_DIRECTORY_ENTRIES:
-            raise JournalSecurityError("journal directory contains too many entries")
         return entries
 
     def _new_temp(self, root_fd: int, filename: str, record: JournalRecord) -> str:
@@ -789,6 +868,49 @@ class JournalSession:
             self._root_fd,
             self._store._filename(install_id),
             recover=self._exclusive,
+        )
+
+    def load_inflight(self, install_id: str) -> JournalRecord:
+        """Read a canonical linked-create residue without mutating it."""
+
+        self._require_open()
+        return self._store._load_inflight_at(
+            self._root_fd,
+            self._store._filename(install_id),
+        )
+
+    def inspect_residue(
+        self, install_id: str
+    ) -> tuple[JournalRecord, int, tuple[JournalRecord, ...]]:
+        """Read the final and one canonical temp without repairing either."""
+
+        self._require_open()
+        return self._store._inspect_residue_at(
+            self._root_fd,
+            self._store._filename(install_id),
+        )
+
+    def load_unpublished(self, install_id: str) -> JournalRecord:
+        """Read one canonical unpublished create residue without mutating it."""
+
+        self._require_open()
+        return self._store._load_unpublished_at(
+            self._root_fd,
+            self._store._filename(install_id),
+        )
+
+    def cleanup_temps(
+        self, install_id: str, expected: tuple[JournalRecord, ...]
+    ) -> None:
+        """Remove only canonical residue matching caller-approved journal states."""
+
+        self._require_exclusive()
+        if expected.__class__ is not tuple or not expected:
+            raise TypeError("expected must be a nonempty tuple")
+        self._store._cleanup_stale_temps(
+            self._root_fd,
+            self._store._filename(install_id),
+            expected,
         )
 
     def resume(

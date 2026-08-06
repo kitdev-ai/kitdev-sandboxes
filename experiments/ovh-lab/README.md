@@ -68,24 +68,45 @@ OVH_LAB_KNOWN_HOSTS=/operator/private/verified-known-hosts \
 ./experiments/ovh-lab/run-stage.sh 00 execute
 ```
 
-Only `00` and `30` are currently executable, and both are read-only. Every
-mutation stage, the lab marker, and final acceptance intentionally return status
-`20` because an exact crash-consistent transition does not yet exist.
-`stages.json` is authoritative for stage selection and status.
+Stages `00` and `30` are executable read-only/discovery stages. Stage `05` is
+the sole executable mutation: it creates only the canonical disposable-lab
+authorization marker and empty workspace under an operation-wide journal lock.
+Stages `10`, `20`, and `40` through `90` remain blocked. `stages.json` is
+authoritative for stage selection and status.
+
+The Stage 05 bundle deterministically embeds the exact reviewed
+`journal.py` and `stage05.py` bytes and their component digests. Bash streams
+framed source records through an anonymous pipe to fixed `/usr/bin/python3`
+running isolated with `-I -B -S`; no Python source is installed, named in an
+argument or environment variable, or left in a temporary file. The loader
+rejects unsupported Python versions, malformed framing, size overruns, digest
+mismatch, and a changed approved bundle before the reconciler can mutate.
+
+Stage 05 refuses known or uncertain production state twice, traverses fixed
+paths with no-follow descriptors, enforces exact root ownership, modes, mount
+identity, link counts, ACL/xattr/capability absence, and publishes the marker
+last. Retry requires the original approved bundle and reconciles only an exact
+journaled operation prefix. Rollback removes the marker first, refuses foreign
+or downstream content, restores only Stage 05-owned resources to absent, and
+retains its journal as provenance. The authoritative whole-lab reset remains
+an OVH operating-system reinstall.
 
 ## Stage lifecycle
 
 The runner calls each selected script four times: `before`, `execute` (or an
 explicit `rollback`), `after`, and `postconditions`. Normal failures get an
 after snapshot and postcondition attempt. External termination can interrupt
-that evidence sequence; no mutation is executable while this limitation
-remains. Stage output is normalized
+that evidence sequence; Stage 05 recovery therefore relies only on its durable
+host-local journal and exact resource state, never completion of the outer SSH
+sequence. Stage output is normalized
 key/value evidence; raw firewall rules, addresses, serials, hostnames, account
 names, environment, and configuration contents must never be printed.
 
-Rollback is not implemented because all mutable stages are blocked. Once a
-future reviewed stage changes storage, network, firewall, kernel, or workloads,
-the authoritative whole-lab rollback is an OVH operating-system reinstall.
+Stage 05 implements exact, idempotent rollback for only its marker and empty
+workspace directories. Any later storage, network, firewall, kernel, package,
+identity, container, or workload experiment still requires its own reviewed
+journal and rollback; the authoritative whole-lab recovery is an OVH
+operating-system reinstall.
 
 ## Promotion rule
 

@@ -7,6 +7,8 @@ readonly COMMON="$SCRIPT_DIR/lib/common.sh"
 readonly ACK_EXPECTED="DISPOSABLE_OVH_LAB"
 readonly REMOTE_TIMEOUT_SECONDS=90
 readonly EVIDENCE_MAX_BYTES=1048576
+readonly STAGE05_JOURNAL_SOURCE="$SCRIPT_DIR/../../src/kitdev_sandboxes/journal.py"
+readonly STAGE05_RECONCILER_SOURCE="$SCRIPT_DIR/../../src/kitdev_sandboxes/stage05.py"
 
 usage() {
   printf 'usage: OVH_LAB_TARGET=<ssh-alias> OVH_LAB_SSH_CONFIG=<private-absolute-path> OVH_LAB_KNOWN_HOSTS=<guarded-absolute-path> %s <stage-id> approval|approval-rollback|execute|rollback\n' "$0" >&2
@@ -57,11 +59,65 @@ readonly STAGE_SCRIPT
 
 bundle_stage() {
   cat -- "$COMMON"
-  awk 'body { print } /^# OVH_LAB_STAGE_BODY$/ { body=1 }' "$STAGE_SCRIPT"
+  if [[ "$STAGE_ID" == 05 ]]; then
+    python3 - "$STAGE_SCRIPT" "$STAGE05_JOURNAL_SOURCE" "$STAGE05_RECONCILER_SOURCE" <<'PY_STAGE05_BUNDLE'
+import base64
+import hashlib
+import os
+import stat
+import sys
+
+def stable_read(path, limit):
+    before = os.lstat(path)
+    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or not hasattr(os, "O_NOFOLLOW"):
+        raise SystemExit(64)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    try:
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise SystemExit(64)
+        content = bytearray()
+        while True:
+            chunk = os.read(descriptor, min(65_536, limit + 1 - len(content)))
+            if not chunk:
+                break
+            content.extend(chunk)
+            if len(content) > limit:
+                raise SystemExit(64)
+        after = os.fstat(descriptor)
+        fields = ("st_mode", "st_uid", "st_gid", "st_size", "st_dev", "st_ino", "st_mtime_ns", "st_ctime_ns")
+        if any(getattr(opened, field) != getattr(after, field) for field in fields):
+            raise SystemExit(64)
+        return bytes(content)
+    finally:
+        os.close(descriptor)
+
+stage = stable_read(sys.argv[1], 262_144).decode("utf-8", errors="strict")
+body_marker = "# OVH_LAB_STAGE_BODY\n"
+if stage.count(body_marker) != 1:
+    raise SystemExit(64)
+body = stage.split(body_marker, 1)[1]
+journal = stable_read(sys.argv[2], 1_000_000)
+reconciler = stable_read(sys.argv[3], 1_000_000)
+replacements = {
+    "__STAGE05_JOURNAL_SHA256__": hashlib.sha256(journal).hexdigest(),
+    "__STAGE05_JOURNAL_B64__": base64.b64encode(journal).decode("ascii"),
+    "__STAGE05_RECONCILER_SHA256__": hashlib.sha256(reconciler).hexdigest(),
+    "__STAGE05_RECONCILER_B64__": base64.b64encode(reconciler).decode("ascii"),
+}
+for marker, value in replacements.items():
+    if body.count(marker) != 1:
+        raise SystemExit(64)
+    body = body.replace(marker, value)
+sys.stdout.write(body)
+PY_STAGE05_BUNDLE
+  else
+    awk 'body { print } /^# OVH_LAB_STAGE_BODY$/ { body=1 }' "$STAGE_SCRIPT"
+  fi
 }
 
 [[ "$STAGE_STATUS" == executable ]] || die 'stage is blocked by the manifest' 20
-[[ "$STAGE_KIND" == read-only || "$STAGE_KIND" == plan-only ]] ||
+[[ "$STAGE_KIND" == read-only || "$STAGE_KIND" == plan-only || ( "$STAGE_ID" == 05 && "$STAGE_KIND" == mutation ) ]] ||
   die 'mutable stages are disabled in this revision' 20
 
 validate_guarded_input() {
@@ -291,6 +347,24 @@ fi
 
 printf 'operation_rc=%s\nafter_rc=%s\npostconditions_rc=%s\n' \
   "$operation_rc" "$after_rc" "$post_rc" >>"$SUMMARY_FILE"
+if [[ "$STAGE_ID" == 05 && "$operation_rc" == 0 && "$after_rc" == 0 && "$post_rc" == 0 ]]; then
+  STAGE05_PLAN_SHA256="$(python3 - "$LOG_FILE" <<'PY_STAGE05_EVIDENCE'
+import re
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    content = handle.read(4_194_305)
+if len(content) > 4_194_304:
+    raise SystemExit(1)
+matches = re.findall(br"(?:^| )plan_sha256=(sha256:[0-9a-f]{64})(?: |$)", content, re.MULTILINE)
+if not matches or len(set(matches)) != 1:
+    raise SystemExit(1)
+print(matches[0].decode("ascii"))
+PY_STAGE05_EVIDENCE
+)" || die "Stage 05 plan evidence invalid; redacted evidence: $RUN_DIR" 74
+  readonly STAGE05_PLAN_SHA256
+  printf 'stage05_plan_sha256=%s\n' "$STAGE05_PLAN_SHA256" >>"$SUMMARY_FILE"
+fi
 printf 'event=run_end operation_rc=%s after_rc=%s postconditions_rc=%s\n' \
   "$operation_rc" "$after_rc" "$post_rc" | tee -a "$LOG_FILE"
 
