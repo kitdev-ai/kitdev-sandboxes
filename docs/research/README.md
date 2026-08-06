@@ -20,5 +20,7 @@ private keys, secret values, or unnecessary personal/host identifiers.
   nested-virtualization deployment comparison.
 - [`host-discovery.md`](host-discovery.md): read-only `kit@pc` capability and
   coexistence inventory.
+- [`ovh-host-plan.md`](ovh-host-plan.md): Ubuntu-versus-Proxmox decision,
+  OVHcloud purchase choices, provisioning paths, and read-only bring-up plan.
 - [`upstream-e2b.md`](upstream-e2b.md): pinned upstream revisions, contracts,
   architecture, and host requirements.
