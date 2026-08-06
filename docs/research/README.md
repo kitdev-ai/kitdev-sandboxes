@@ -13,3 +13,12 @@ milestone gates remain in their existing documents directly under `docs/`.
 
 Host reports must be redacted before commit. Never record credentials, tokens,
 private keys, secret values, or unnecessary personal/host identifiers.
+
+## Reports
+
+- [`cloud-options.md`](cloud-options.md): GCP, AWS, hosted bare-metal, and local
+  nested-virtualization deployment comparison.
+- [`host-discovery.md`](host-discovery.md): read-only `kit@pc` capability and
+  coexistence inventory.
+- [`upstream-e2b.md`](upstream-e2b.md): pinned upstream revisions, contracts,
+  architecture, and host requirements.
