@@ -8,7 +8,9 @@ source "$SCRIPT_DIR/../lib/common.sh"
 baseline_snapshot() {
   local version_id=unknown
   local architecture=unknown
+  local docker_state
   local firewall_probe=unavailable
+  local ufw_state
   if [[ -r /etc/os-release ]]; then
     # shellcheck disable=SC1091
     source /etc/os-release
@@ -22,6 +24,8 @@ baseline_snapshot() {
       firewall_probe=error
     fi
   fi
+  docker_state="$(lab_service_state docker.service)" || lab_die service_discovery_failed 1
+  ufw_state="$(lab_service_state ufw.service)" || lab_die service_discovery_failed 1
   printf 'platform.version_id=%s\n' "$version_id"
   printf 'platform.architecture=%s\n' "$architecture"
   printf 'platform.systemd=%s\n' "$(lab_bool test "$(cat /proc/1/comm 2>/dev/null || true)" = systemd)"
@@ -35,8 +39,8 @@ baseline_snapshot() {
   printf 'kernel.hugepages_total=%s\n' "$(awk '/^HugePages_Total:/ { print $2; found=1 } END { if (!found) print "unknown" }' /proc/meminfo)"
   printf 'storage.block_devices=%s\n' "$(lsblk -dn -o TYPE 2>/dev/null | awk '$1 == "disk" { n++ } END { print n+0 }')"
   printf 'storage.md_arrays=%s\n' "$(awk '/^md[0-9]+[[:space:]]*:/ { n++ } END { print n+0 }' /proc/mdstat 2>/dev/null)"
-  printf 'services.docker=%s\n' "$(lab_service_state docker.service)"
-  printf 'services.ufw=%s\n' "$(lab_service_state ufw.service)"
+  printf 'services.docker=%s\n' "$docker_state"
+  printf 'services.ufw=%s\n' "$ufw_state"
   printf 'firewall.ruleset_probe=%s\n' "$firewall_probe"
   printf 'network.default_routes=%s\n' "$(ip route show default 2>/dev/null | wc -l | tr -d ' ')"
 }

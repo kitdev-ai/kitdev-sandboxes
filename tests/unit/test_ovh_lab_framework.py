@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -37,7 +38,9 @@ class OvhLabFrameworkTests(unittest.TestCase):
         )
         self.assertEqual(len(stages), len(self.stage_files))
         for stage in stages:
-            self.assertTrue((LAB / stage["script"]).is_file())
+            script = LAB / stage["script"]
+            self.assertTrue(script.is_file())
+            self.assertTrue(os.access(script, os.X_OK))
 
     def test_all_shell_files_parse_and_use_strict_mode(self) -> None:
         shell_files = [LAB / "run-stage.sh", LAB / "lib" / "common.sh", *self.stage_files]
@@ -60,6 +63,184 @@ class OvhLabFrameworkTests(unittest.TestCase):
                     check=True,
                     capture_output=True,
                 )
+
+    def test_storage_fixture_excludes_raid_parents_and_emits_one_anonymous_leaf(self) -> None:
+        stage = (LAB / "stages" / "30-raw-data-storage-plan.sh").read_text(encoding="utf-8")
+        parser = re.search(r"<<'PY_STORAGE'\n(.*?)\nPY_STORAGE", stage, re.DOTALL)
+        self.assertIsNotNone(parser)
+        fixture = ROOT / "tests" / "fixtures" / "ovh-lab" / "lsblk-raid-parents-and-raw-leaf.json"
+        sysfs = Path(self.private_directory.name) / "sysfs"
+        (sysfs / "disk_data_leaf" / "holders").mkdir(parents=True)
+        (sysfs / "disk_data_leaf" / "slaves").mkdir()
+        result = subprocess.run(
+            ["python3", "-c", parser.group(1), str(sysfs)],
+            input=fixture.read_bytes(),
+            capture_output=True,
+            check=True,
+        )
+        output = result.stdout.decode("ascii")
+        self.assertEqual(
+            output,
+            "stage=30 disk_count=3 raw_unmounted_disk_count=1\n"
+            "storage.raw_candidate_size_bytes=4000787030016\n"
+            "storage.plan=discovery-only storage.format=forbidden storage.mount=forbidden\n",
+        )
+        self.assertNotIn("disk_raid", output)
+        self.assertNotIn("disk_data_leaf", output)
+
+    def test_storage_fixture_fails_closed_on_holder_or_md_membership(self) -> None:
+        stage = (LAB / "stages" / "30-raw-data-storage-plan.sh").read_text(encoding="utf-8")
+        parser = re.search(r"<<'PY_STORAGE'\n(.*?)\nPY_STORAGE", stage, re.DOTALL)
+        self.assertIsNotNone(parser)
+        fixture = ROOT / "tests" / "fixtures" / "ovh-lab" / "lsblk-raid-parents-and-raw-leaf.json"
+        sysfs = Path(self.private_directory.name) / "sysfs"
+        holders = sysfs / "disk_data_leaf" / "holders"
+        slaves = sysfs / "disk_data_leaf" / "slaves"
+        holders.mkdir(parents=True)
+        slaves.mkdir()
+
+        (holders / "foreign_holder").touch()
+        held = subprocess.run(
+            ["python3", "-c", parser.group(1), str(sysfs)],
+            input=fixture.read_bytes(),
+            capture_output=True,
+        )
+        self.assertEqual(held.returncode, 2)
+        self.assertEqual(held.stdout, b"")
+        (holders / "foreign_holder").unlink()
+
+        (slaves / "foreign_slave").touch()
+        has_slave = subprocess.run(
+            ["python3", "-c", parser.group(1), str(sysfs)],
+            input=fixture.read_bytes(),
+            capture_output=True,
+        )
+        self.assertEqual(has_slave.returncode, 2)
+        self.assertEqual(has_slave.stdout, b"")
+        (slaves / "foreign_slave").unlink()
+
+        (sysfs / "disk_data_leaf" / "md").mkdir()
+        md_member = subprocess.run(
+            ["python3", "-c", parser.group(1), str(sysfs)],
+            input=fixture.read_bytes(),
+            capture_output=True,
+        )
+        self.assertEqual(md_member.returncode, 2)
+        self.assertEqual(md_member.stdout, b"")
+
+    def test_storage_fixture_requires_leaf_without_fs_mount_or_partition_table(self) -> None:
+        stage = (LAB / "stages" / "30-raw-data-storage-plan.sh").read_text(encoding="utf-8")
+        parser = re.search(r"<<'PY_STORAGE'\n(.*?)\nPY_STORAGE", stage, re.DOTALL)
+        self.assertIsNotNone(parser)
+        fixture = ROOT / "tests" / "fixtures" / "ovh-lab" / "lsblk-raid-parents-and-raw-leaf.json"
+        original = json.loads(fixture.read_text(encoding="utf-8"))
+        sysfs = Path(self.private_directory.name) / "sysfs"
+        (sysfs / "disk_data_leaf" / "holders").mkdir(parents=True)
+        (sysfs / "disk_data_leaf" / "slaves").mkdir()
+
+        mutations = {
+            "child": ("children", [original["blockdevices"][0]["children"][0]]),
+            "filesystem": ("fstype", "ext4"),
+            "mount": ("mountpoints", ["/data"]),
+            "partition_table": ("pttype", "gpt"),
+        }
+        for label, (field, value) in mutations.items():
+            document = json.loads(json.dumps(original))
+            document["blockdevices"][2][field] = value
+            result = subprocess.run(
+                ["python3", "-c", parser.group(1), str(sysfs)],
+                input=json.dumps(document).encode("utf-8"),
+                capture_output=True,
+            )
+            with self.subTest(label=label):
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, b"")
+
+    def test_storage_parser_rejects_dot_components_and_deep_topology(self) -> None:
+        stage = (LAB / "stages" / "30-raw-data-storage-plan.sh").read_text(encoding="utf-8")
+        parser = re.search(r"<<'PY_STORAGE'\n(.*?)\nPY_STORAGE", stage, re.DOTALL)
+        self.assertIsNotNone(parser)
+        fixture = ROOT / "tests" / "fixtures" / "ovh-lab" / "lsblk-raid-parents-and-raw-leaf.json"
+        original = json.loads(fixture.read_text(encoding="utf-8"))
+        sysfs = Path(self.private_directory.name) / "sysfs"
+        sysfs.mkdir()
+
+        for name in (".", ".."):
+            document = {"blockdevices": [dict(original["blockdevices"][2], name=name)]}
+            result = subprocess.run(
+                ["python3", "-c", parser.group(1), str(sysfs)],
+                input=json.dumps(document).encode("utf-8"),
+                capture_output=True,
+            )
+            with self.subTest(name=name):
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, b"")
+                self.assertEqual(result.stderr, b"")
+
+        leaf = dict(original["blockdevices"][2])
+        for depth in range(70):
+            leaf = dict(leaf, name=f"nested_{depth}", type="part", tran=None, children=[leaf])
+        deep = subprocess.run(
+            ["python3", "-c", parser.group(1), str(sysfs)],
+            input=json.dumps({"blockdevices": [leaf]}).encode("utf-8"),
+            capture_output=True,
+        )
+        self.assertEqual(deep.returncode, 2)
+        self.assertEqual(deep.stdout, b"")
+        self.assertEqual(deep.stderr, b"")
+
+    def test_service_state_distinguishes_absent_inactive_active_and_errors(self) -> None:
+        common = LAB / "lib" / "common.sh"
+        probe = f"""
+source {common!s}
+systemctl() {{
+  if [[ "$1" == show ]]; then
+    case "$SERVICE_CASE" in
+      absent) printf 'not-found\\n'; return 0 ;;
+      active|inactive|active_error) printf 'loaded\\n'; return 0 ;;
+      manager_error) return 1 ;;
+      malformed) printf 'unexpected\\n'; return 0 ;;
+    esac
+  fi
+  if [[ "$1" == is-active ]]; then
+    case "$SERVICE_CASE" in
+      active) printf 'active\\n'; return 0 ;;
+      inactive) printf 'inactive\\n'; return 3 ;;
+      active_error) return 1 ;;
+    esac
+  fi
+  return 1
+}}
+lab_service_state docker.service
+"""
+        cases = {
+            "absent": (0, "absent"),
+            "active": (0, "active"),
+            "inactive": (0, "inactive"),
+            "active_error": (1, "error"),
+            "manager_error": (1, "error"),
+            "malformed": (1, "error"),
+        }
+        for service_case, expected in cases.items():
+            result = subprocess.run(
+                ["bash", "-c", probe],
+                env={"SERVICE_CASE": service_case, "PATH": "/usr/bin:/bin"},
+                capture_output=True,
+                text=True,
+            )
+            with self.subTest(service_case=service_case):
+                self.assertEqual((result.returncode, result.stdout), expected)
+
+    def test_baseline_propagates_service_discovery_errors(self) -> None:
+        stage = (LAB / "stages" / "00-read-only-baseline.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            'docker_state="$(lab_service_state docker.service)" || lab_die service_discovery_failed 1',
+            stage,
+        )
+        self.assertIn(
+            'ufw_state="$(lab_service_state ufw.service)" || lab_die service_discovery_failed 1',
+            stage,
+        )
 
     def test_each_stage_has_remote_bundle_boundary_and_ack_gate(self) -> None:
         for path in self.stage_files:

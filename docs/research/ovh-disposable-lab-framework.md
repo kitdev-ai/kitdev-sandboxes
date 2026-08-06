@@ -74,7 +74,7 @@ second, undocumented installer.
 
 ## Verification
 
-Fifteen focused repository tests passed. The complete unit suite passed 164/164
+Twenty-one focused repository tests passed. The complete unit suite passed 170/170
 with bytecode disabled. The static coverage verifies the full manifest sequence,
 Bash syntax, strict mode, acknowledgement and production gates, postcondition/rollback
 surfaces, blocked-stage absence of guessed mutation commands, verified-host-key

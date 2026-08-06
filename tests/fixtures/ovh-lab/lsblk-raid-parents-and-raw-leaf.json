@@ -1,0 +1,75 @@
+{
+  "blockdevices": [
+    {
+      "name": "disk_raid_a",
+      "type": "disk",
+      "size": 450098159616,
+      "fstype": null,
+      "mountpoints": [null],
+      "pttype": "gpt",
+      "tran": "nvme",
+      "children": [
+        {
+          "name": "disk_raid_a_part1",
+          "type": "part",
+          "size": 1073741824,
+          "fstype": "linux_raid_member",
+          "mountpoints": [null],
+          "pttype": null,
+          "tran": null,
+          "children": [
+            {
+              "name": "system_raid",
+              "type": "raid1",
+              "size": 1072693248,
+              "fstype": "ext4",
+              "mountpoints": ["/boot"],
+              "pttype": null,
+              "tran": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "disk_raid_b",
+      "type": "disk",
+      "size": 450098159616,
+      "fstype": null,
+      "mountpoints": [null],
+      "pttype": "gpt",
+      "tran": "nvme",
+      "children": [
+        {
+          "name": "disk_raid_b_part1",
+          "type": "part",
+          "size": 1073741824,
+          "fstype": "linux_raid_member",
+          "mountpoints": [null],
+          "pttype": null,
+          "tran": null,
+          "children": [
+            {
+              "name": "system_raid",
+              "type": "raid1",
+              "size": 1072693248,
+              "fstype": "ext4",
+              "mountpoints": ["/boot"],
+              "pttype": null,
+              "tran": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "disk_data_leaf",
+      "type": "disk",
+      "size": 4000787030016,
+      "fstype": null,
+      "mountpoints": [null],
+      "pttype": null,
+      "tran": "sata"
+    }
+  ]
+}

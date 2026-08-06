@@ -81,16 +81,34 @@ lab_command_state() {
 
 lab_service_state() {
   local unit="$1"
+  local active_state
+  local load_state
   if ! command -v systemctl >/dev/null 2>&1; then
     printf 'systemctl-absent'
-  elif systemctl is-active --quiet "$unit" 2>/dev/null; then
-    printf 'active'
-  elif systemctl list-unit-files -- "$unit" 2>/dev/null | grep -Fq -- "$unit"; then
-    printf 'inactive'
-  elif ! systemctl list-unit-files -- "$unit" >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! load_state="$(systemctl show --no-pager --property=LoadState --value -- "$unit" 2>/dev/null)"; then
     printf 'error'
     return 1
-  else
-    printf 'absent'
   fi
+  case "$load_state" in
+    not-found)
+      printf 'absent'
+      return 0
+      ;;
+    loaded|masked|merged|stub) ;;
+    *)
+      printf 'error'
+      return 1
+      ;;
+  esac
+  active_state="$(systemctl is-active "$unit" 2>/dev/null)" || true
+  case "$active_state" in
+    active) printf 'active' ;;
+    activating|deactivating|failed|inactive|reloading) printf 'inactive' ;;
+    *)
+      printf 'error'
+      return 1
+      ;;
+  esac
 }

@@ -613,3 +613,31 @@ untracked, and must never be quoted into tracked documentation.
   resolve exact Docker/toolchain versions into locks, then implement only the
   next approved journaled stage with before/after and rollback evidence.
 - **Commit:** Not committed.
+
+## 2026-08-06 - OVH lab stages 00/30 run and collector corrections
+
+- **Intent:** Record the first approved read-only disposable-lab baseline and
+  storage-discovery run, then correct two conservative interpretation defects
+  without authorizing storage mutation.
+- **Delegated LUNA agents:** LUNA lab-framework implementation agent and an
+  independent LUNA safety-review agent under project-lead supervision.
+- **Safe activity summary:** Stages `00` and `30` completed remotely through the
+  guarded runner with no intentional host mutation. Review found that the
+  missing Docker unit was rendered as `error` and both partitioned NVMe RAID
+  parents were misclassified as raw disks. Locally, stage `30` was changed to
+  parse bounded structured `lsblk` JSON plus holders/slaves/MD topology, and
+  systemd service-state interpretation was made outcome-aware.
+- **Files and evidence:** [Stages 00/30 first run](ovh-lab-stages-00-30-first-run.md),
+  a generic RAID-parent/raw-leaf fixture, and focused lab-framework tests.
+- **Result:** Twenty-one focused tests and the complete 170-test suite pass.
+  Review found and correction closed exact dot-component traversal and a lost
+  executable-mode bit; topology depth/node bounds and normalized recursion
+  failure were added. Independent re-review approved the result and reproduced
+  both suites, Bash syntax, and whitespace checks.
+- **Mutation status:** The recorded remote stages were read-only; current work
+  is repository code, fixtures, tests, and redacted documentation only. No
+  storage or other host mutation occurred.
+- **Limitations / next gate:** All storage mutation is blocked until the
+  corrected read-only stage is reviewed, committed, rerun, and reconciled with
+  private inventory.
+- **Commit:** Pending in this change set.
