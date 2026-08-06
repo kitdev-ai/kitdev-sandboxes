@@ -9,8 +9,10 @@ stage-owned automation and rollback qualification pending
 This report preserves the later mutation-first work performed by the project
 lead after Docker Engine bootstrap. It records only public-safe versions,
 digests, counts, loopback ports, and fixed project paths. Lab database
-credentials, host endpoints, device names, and private bind-root paths are
-intentionally omitted. No SSH was used while preparing this tracked report.
+credentials, public/management endpoints, unrelated device names, and private
+bind-root paths are intentionally omitted. Normalized project-network topology
+needed to explain the lab result is retained. No SSH was used while preparing
+this tracked report.
 
 These observations do not enable blocked stages. Host identity and KVM access
 belong to Stage 20, hugepages to Stage 40, firewall policy to Stage 60, source
@@ -157,27 +159,53 @@ disposable writable source copy. It must not assume `go run` is source-read-only
 
 Redis was recreated without a published host port on Docker network
 `kitdev-core`. Loki `3.4.1` was started digest-pinned on that network with no
-host port; its persistent directory is owned by container UID `10001`, and its
-ready check passed. The exact Loki digest was not included in the normalized
-facts supplied for this report and remains a required evidence item.
+host port; its persistent directory was owned by container UID `10001` during
+final verification, and its ready check passed. The exact Loki digest was not
+included in the normalized facts supplied for this report and remains a
+required evidence item.
 
 The project lead created `/etc/kitdev-sandboxes/e2b-lab.env` as root-owned mode
-`0600`. It contains freshly generated lab-only sandbox-hash and admin-token
-values with 32 random bytes represented as hex. Their values were never output
-and are not tracked.
+`0600`. At creation it contained freshly generated lab-only sandbox-hash and
+admin-token values with 32 random bytes represented as hex. Their values were
+never output and are not tracked.
 
-The API now runs pinned commit `882a3b4` on `kitdev-core`, publishing only
-`127.0.0.1:3000`. It connects to the verified PostgreSQL migration state,
-Redis, Loki, and ClickHouse, uses explicit fresh lab secrets, and sets
-`VOLUME_TOKEN_ENABLED=false`. The process runs, but `/health` returns `503`
-solely because the required host orchestrator endpoint at
-`host.docker.internal:5008` is not running.
+The orchestrator and `clean-nfs-cache` outputs were installed into the managed
+`runtime/orchestrator` area. Docker network `kitdev-core` used subnet
+`172.18.0.0/16` and bridge `br-10f4c6294b40`; this did not overlap the default
+E2B `10.11` and `10.12` address ranges. UFW received one scoped rule:
+allow source `172.18.0.0/16` on that bridge to destination `172.18.0.1` at
+TCP port `5008`. The rule granted no access from a public interface.
 
-The client proxy runs the same pinned commit and publishes only
-`127.0.0.1:3002` and `127.0.0.1:3003`; its `/health` returns `200`. PostgreSQL
-and ClickHouse remain loopback-published for lab diagnostics, while Redis and
-Loki are internal-only. Final API/client-proxy image digests were not supplied
-with the normalized observations and must be captured before qualification.
+A transient systemd unit named `kitdev-orchestrator-lab` started the combined
+orchestrator/template-manager with the reviewed explicit environment,
+`ENVIRONMENT=prod`, local namespace/storage settings, 16 NBD devices, and the
+locked artifacts. At the final captured point it ran as root, which is accepted
+only for this disposable exercise and remains a Stage 70/80 production blocker.
+The unit was active, had created `/sys/fs/cgroup/e2b` and 32 network namespaces,
+and its host `/health` endpoint returned `200` during final verification.
+
+The API ran pinned commit `882a3b4` on `kitdev-core`, publishing only
+`127.0.0.1:3000`. It connected to the verified PostgreSQL migration state,
+Redis, Loki, and ClickHouse, used explicit fresh lab secrets, and set
+`VOLUME_TOKEN_ENABLED=false`. Docker's `host-gateway` unexpectedly resolved
+`host.docker.internal` to `172.17.0.1` even though the API was attached to
+`kitdev-core`, so the first orchestrator request timed out. Recreating the API
+with the explicit mapping `host.docker.internal:172.18.0.1` restored
+container-to-orchestrator health. The API `/health` then returned `200` during
+final verification.
+
+The client proxy ran the same pinned commit and published only
+`127.0.0.1:3002` and `127.0.0.1:3003`; its `/health` returned `200` during final
+verification. At that point PostgreSQL and ClickHouse were loopback-published
+for lab diagnostics, while Redis and Loki were internal-only. Final
+API/client-proxy image digests were not supplied with the normalized
+observations and must be captured before qualification.
+
+Automation must discover and verify the selected Docker network, bridge,
+gateway, and non-overlap state instead of assuming `host-gateway` selects the
+gateway of the attached user-defined network. Its firewall rule must remain
+bound to the verified bridge/source/destination tuple and be journaled with an
+exact reverse operation.
 
 ## Rollback and automation gates
 

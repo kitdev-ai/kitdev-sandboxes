@@ -208,7 +208,7 @@ class OvhDockerBootstrapTests(unittest.TestCase):
         self.assertIn(envd_digest, report)
         activity = (ROOT / "docs/research/activity-log.md").read_text(encoding="utf-8")
         self.assertIn(envd_digest, activity)
-        self.assertIn("credentials, host endpoints", report)
+        self.assertIn("credentials, public/management endpoints", report)
         self.assertIn("intentionally omitted", report)
 
     def test_package_query_distinguishes_absent_broken_and_error_state(self) -> None:

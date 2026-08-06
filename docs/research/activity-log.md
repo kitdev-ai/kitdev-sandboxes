@@ -842,7 +842,7 @@ untracked, and must never be quoted into tracked documentation.
   `bash -n` and `git diff --check` passed. Independent LUNA re-review approved
   the normalized invocation and complete component-ancestry trust boundary
   with no remaining blocker.
-- **Commit:** Pending in this change set.
+- **Commit:** `67fc006` (`Document reproducible OVH Docker bootstrap`).
 
 ## 2026-08-06 - Live-lab firewall, hugepage, build, and database mutations
 
@@ -856,10 +856,21 @@ untracked, and must never be quoted into tracked documentation.
   pinned PostgreSQL/ClickHouse migrations and local development seed completed.
 - **Control plane:** Redis and digest-pinned Loki were moved to the internal
   Docker network without host ports. Root-only fresh lab secrets were created
-  without output. The pinned API is loopback-only and runs but reports `503`
-  because the host orchestrator is not yet running; the loopback-only pinned
-  client proxy reports healthy. Missing final application image digests remain
-  an evidence blocker.
+  without output. The built orchestrator/template-manager was installed into
+  the managed runtime area and started as a transient root systemd service. It
+  created its cgroup and 32 network namespaces and reported healthy. A scoped
+  UFW rule allowed only the verified `kitdev-core` bridge subnet to the bridge
+  gateway's TCP/5008 listener. During final verification, the host orchestrator
+  and loopback-only API and client proxy health endpoints each returned `200`.
+  Root execution, transient service ownership, and missing final application
+  image digests remain production blockers.
+- **Network finding:** `kitdev-core` used non-overlapping subnet
+  `172.18.0.0/16` on bridge `br-10f4c6294b40`, but Docker's `host-gateway`
+  mapped the API hostname to the default bridge gateway `172.17.0.1`. The
+  request timed out until the API was recreated with explicit mapping to the
+  verified `kitdev-core` gateway `172.18.0.1`. Automation must discover,
+  verify, and journal this topology rather than assuming `host-gateway` follows
+  a container's attached network.
 - **Guest artifact:** A direct Go build produced the root-owned, group-readable
   `envd` 0.6.13 artifact at pinned commit `882a3b4`: 12,927,102 bytes with
   SHA-256 `530d84dfbfd82c05181e0dc61ca842f3caaa349b0cc2f3f52d2d8eb9478aa67e`.
@@ -879,4 +890,5 @@ untracked, and must never be quoted into tracked documentation.
 - **Automation / rollback:** Stages 20/40/60/70/80 remain blocked and must own
   their respective identity, hugepage, firewall, build, and service changes.
   No complete reverse plan exists; reinstall remains the authoritative reset.
-- **Commit:** Pending in this change set.
+- **Commit:** Initial record in `67fc006`; control-plane follow-up pending in
+  this change set.
