@@ -16,15 +16,30 @@ private keys, secret values, or unnecessary personal/host identifiers.
 
 ## Reports
 
+- [`activity-log.md`](activity-log.md): append-only, redacted project activity
+  ledger updated before each commit and review or deployment gate.
 - [`cloud-options.md`](cloud-options.md): GCP, AWS, hosted bare-metal, and local
   nested-virtualization deployment comparison.
 - [`host-discovery.md`](host-discovery.md): read-only `kit@pc` capability and
   coexistence inventory.
 - [`milestone-1-pc-doctor.md`](milestone-1-pc-doctor.md): temporary read-only
   execution of the first Milestone 1 doctor slice on the shared development PC.
+- [`milestone-1-read-only-integration.md`](milestone-1-read-only-integration.md):
+  implementation, limitations, safety properties, verification, and rollback
+  for composed doctor and `install --dry-run`.
 - [`milestone-1-safety-review.md`](milestone-1-safety-review.md): release-gate
   checklist for non-mutating configuration, doctor, process execution,
   redaction, lifecycle policy, JSON contracts, and shared-host testing.
+- [`ovh-26-04-intake.md`](ovh-26-04-intake.md): zero-intentional-mutation
+  first-login qualification and redacted evidence procedure for the direct
+  Ubuntu 26.04 OVH host.
+- [`ovh-26-04-first-intake.md`](ovh-26-04-first-intake.md): redacted results,
+  blockers, and next gates from the first command-by-command OVH inventory.
+- [`ovh-26-04-identity-access-plan.md`](ovh-26-04-identity-access-plan.md):
+  rejected first review of the automation-only operator recovery and
+  least-privilege identity plan; it authorizes no host change.
+- [`ovh-26-04-lxd-inventory.md`](ovh-26-04-lxd-inventory.md): bounded read-only
+  evidence for LXD non-use and the remaining installer-shim boundary.
 - [`ovh-host-plan.md`](ovh-host-plan.md): Ubuntu-versus-Proxmox decision,
   OVHcloud purchase choices, provisioning paths, and read-only bring-up plan.
 - [`upstream-e2b.md`](upstream-e2b.md): pinned upstream revisions, contracts,
