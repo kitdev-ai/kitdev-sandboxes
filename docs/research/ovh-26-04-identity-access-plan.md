@@ -106,9 +106,19 @@ The group is not a substitute for narrow access to `/dev/kvm`.
 
 ## Desired identity model
 
-Names are stable resource identities; numeric UID/GID values are allocated from
-the host's system range after collision checks and recorded in the installation
-manifest. Fixed numeric IDs are not portable and must not be guessed.
+Names are stable resource identities. The project reserves UID and GID values
+`61000-61999` for its host service accounts and selects the first free values
+in each namespace after a complete local and NSS collision scan. Container
+runtime identities `101`, `999`, and `10001` are excluded explicitly even
+though they are outside that band, so the host identity contract cannot drift
+onto the PostgreSQL, ClickHouse, or Loki ownership boundary.
+
+The exact name-to-UID/GID mapping is part of the authenticated installation
+manifest and the plan hash. A fresh plan chooses the first free values and must
+persist that complete mapping before its first account mutation. A later plan
+must reuse an existing complete mapping exactly. It never reallocates around a
+collision: partial, duplicated, out-of-band, occupied, or observed-identity
+mismatch blocks the complete phase before mutation.
 
 | Identity | Login | Primary group | Supplementary groups | Intended access |
 | --- | --- | --- | --- | --- |
@@ -205,6 +215,11 @@ The role must use fully-qualified built-in modules and fixed values:
   group, `system: true`, `create_home: false`, `home: /nonexistent`,
   `shell: /usr/sbin/nologin`, and `password_lock: true`;
 - only `kitdev-worker` has desired supplementary groups `[kvm]`;
+- the normalized dry-run allocates only from `61000-61999`, excludes container
+  IDs `101`, `999`, and `10001`, and emits the exact manifest mapping in every
+  account/group action;
+- a prior authenticated manifest mapping is authoritative: automation reuses
+  it exactly or fails without proposing any mutation;
 - an explicitly guarded `ansible.builtin.command` invokes
   `/usr/bin/gpasswd --delete <configured-operator> lxd` only when preflight
   proved current membership, LXD absence/non-use, and exact operator identity;
@@ -257,6 +272,9 @@ whole phase if any item fails; do not apply a partial subset.
    `0660 root:kvm`.
 6. Each proposed service user/group name is absent or authenticated by the
    exact kitdev installation ID and manifest. Any foreign collision blocks.
+   Every new numeric ID is the first free value in the reserved `61000-61999`
+   UID/GID band. Every prior manifest ID must remain in that band, remain bound
+   to the same service name, and match the observed account and primary group.
 7. The explicit operator is a local non-root account, retains `sudo`, has the
    approved SSH key path, and is the only operator account changed.
 8. LXD packages/snaps, units, sockets, instances, projects, storage pools,

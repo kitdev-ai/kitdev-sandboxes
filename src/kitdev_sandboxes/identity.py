@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import stat
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable
-
 from kitdev_sandboxes import __version__
 from kitdev_sandboxes.collectors import CollectionStatus, lstat_owned_path
 from kitdev_sandboxes.config import Configuration, LifecycleMode
@@ -20,6 +17,9 @@ from kitdev_sandboxes.runner import Command, CommandOutcome, CommandResult, Comm
 
 
 SERVICE_NAMES = ("kitdev-e2b", "kitdev-proxy", "kitdev-worker")
+SERVICE_ID_MIN = 61_000
+SERVICE_ID_MAX = 61_999
+CONTAINER_RUNTIME_IDS = (101, 999, 10_001)
 _ACCOUNT_RE = re.compile(r"[a-z_][a-z0-9_-]{0,30}")
 _MAX_DATABASE_BYTES = 262_144
 _MAX_REPORT_BYTES = 1_048_576
@@ -301,52 +301,6 @@ def _database_ids(runner: CommandRunner, database: str) -> tuple[FactStatus, tup
     return FactStatus.OK, tuple(sorted(set(values)))
 
 
-def _read_regular(path: Path, maximum: int = 65_536) -> str | None:
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-        try:
-            metadata = os.fstat(descriptor)
-            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > maximum:
-                return None
-            data = os.read(descriptor, maximum + 1)
-        finally:
-            os.close(descriptor)
-    except OSError:
-        return None
-    if len(data) > maximum:
-        return None
-    try:
-        return data.decode("utf-8", errors="strict")
-    except UnicodeDecodeError:
-        return None
-
-
-def _allocation_range(read: Callable[[Path], str | None] = _read_regular) -> AllocationRange:
-    text = read(Path("/etc/adduser.conf"))
-    if text is None:
-        return AllocationRange(FactStatus.UNKNOWN)
-    values: dict[str, int] = {}
-    for line in text.splitlines():
-        clean = line.split("#", 1)[0].strip()
-        match = re.fullmatch(r"(FIRST_SYSTEM_UID|LAST_SYSTEM_UID|FIRST_SYSTEM_GID|LAST_SYSTEM_GID)\s*=\s*([0-9]+)", clean)
-        if match:
-            values[match.group(1)] = int(match.group(2))
-    required = {"FIRST_SYSTEM_UID", "LAST_SYSTEM_UID", "FIRST_SYSTEM_GID", "LAST_SYSTEM_GID"}
-    if values.keys() < required:
-        return AllocationRange(FactStatus.UNKNOWN)
-    result = AllocationRange(
-        FactStatus.OK,
-        values["FIRST_SYSTEM_UID"],
-        values["LAST_SYSTEM_UID"],
-        values["FIRST_SYSTEM_GID"],
-        values["LAST_SYSTEM_GID"],
-    )
-    if not (0 < result.uid_min <= result.uid_max < 2**31 and 0 < result.gid_min <= result.gid_max < 2**31):
-        return AllocationRange(FactStatus.UNKNOWN)
-    return result
-
-
 def _path_fact(path: Path) -> PathFact:
     observed = lstat_owned_path(path)
     if observed.status is CollectionStatus.ABSENT:
@@ -379,7 +333,13 @@ def collect_identity_facts(config: Configuration, *, runner: CommandRunner | Non
     groups = tuple(sorted((_group(active_runner, name) for name in group_names), key=lambda item: item.name))
     uid_status, uids = _database_ids(active_runner, "passwd")
     gid_status, gids = _database_ids(active_runner, "group")
-    allocation = _allocation_range()
+    allocation = AllocationRange(
+        FactStatus.OK,
+        SERVICE_ID_MIN,
+        SERVICE_ID_MAX,
+        SERVICE_ID_MIN,
+        SERVICE_ID_MAX,
+    )
     if uid_status is not FactStatus.OK or gid_status is not FactStatus.OK:
         allocation = AllocationRange(FactStatus.UNKNOWN)
     return IdentityFacts(
@@ -402,6 +362,52 @@ def _allocate(first: int, last: int, occupied: set[int], count: int) -> tuple[in
             if len(available) == count:
                 return tuple(available)
     return None
+
+
+def _manifest_mapping(
+    value: tuple[IdentityAllocation, ...] | None,
+) -> tuple[tuple[IdentityAllocation, ...] | None, IdentityIssue | None]:
+    if value is None:
+        return None, None
+    if value.__class__ is not tuple or len(value) != len(SERVICE_NAMES):
+        return None, IdentityIssue(
+            "identity.manifest.mapping",
+            "conflict",
+            "The authenticated manifest identity mapping is incomplete or malformed.",
+        )
+    by_name: dict[str, IdentityAllocation] = {}
+    used_uids: set[int] = set()
+    used_gids: set[int] = set()
+    for item in value:
+        if (
+            item.__class__ is not IdentityAllocation
+            or item.name not in SERVICE_NAMES
+            or item.name in by_name
+            or item.uid.__class__ is not int
+            or item.gid.__class__ is not int
+            or not SERVICE_ID_MIN <= item.uid <= SERVICE_ID_MAX
+            or not SERVICE_ID_MIN <= item.gid <= SERVICE_ID_MAX
+            or item.uid in CONTAINER_RUNTIME_IDS
+            or item.gid in CONTAINER_RUNTIME_IDS
+            or item.uid in used_uids
+            or item.gid in used_gids
+        ):
+            return None, IdentityIssue(
+                "identity.manifest.mapping",
+                "conflict",
+                "The authenticated manifest identity mapping violates the reserved "
+                "project ID contract.",
+            )
+        by_name[item.name] = item
+        used_uids.add(item.uid)
+        used_gids.add(item.gid)
+    if set(by_name) != set(SERVICE_NAMES):
+        return None, IdentityIssue(
+            "identity.manifest.mapping",
+            "conflict",
+            "The authenticated manifest identity mapping does not cover the exact service set.",
+        )
+    return tuple(by_name[name] for name in SERVICE_NAMES), None
 
 
 def _bounded_text(value: object, maximum: int = 512) -> bool:
@@ -505,6 +511,8 @@ def build_identity_plan(
     host: HostFacts,
     facts: IdentityFacts,
     prerequisites: IdentityPrerequisites = IdentityPrerequisites(),
+    *,
+    manifest_allocations: tuple[IdentityAllocation, ...] | None = None,
 ) -> IdentityPlan:
     """Build a pure plan. Any uncertainty suppresses the complete action set."""
 
@@ -512,6 +520,10 @@ def build_identity_plan(
         return _invalid_input_plan(config)
 
     issues: list[IdentityIssue] = []
+    manifest_supplied = manifest_allocations is not None
+    prior_mapping, manifest_issue = _manifest_mapping(manifest_allocations)
+    if manifest_issue is not None:
+        issues.append(manifest_issue)
     if host.os_id != "ubuntu" or host.architecture not in {"x86_64", "amd64"}:
         issues.append(IdentityIssue("identity.platform", "unsupported", "Identity phase requires supported Ubuntu x86-64."))
     if host.os_version_id != "26.04" or config.deployment.lifecycle_mode is not LifecycleMode.PRODUCTION:
@@ -555,6 +567,8 @@ def build_identity_plan(
             groups[item.name] = item
     for name in sorted(duplicate_accounts | duplicate_groups):
         issues.append(IdentityIssue(f"identity.discovery.duplicate.{name}", "unknown", "Duplicate desired identity observations are invalid."))
+    kvm = groups.get("kvm")
+    manifest_by_name = {item.name: item for item in prior_mapping or ()}
     for service in SERVICE_NAMES:
         account = accounts.get(service)
         group = groups.get(service)
@@ -578,11 +592,37 @@ def build_identity_plan(
         ):
             issues.append(IdentityIssue(f"identity.discovery.{service}", "unknown", "A desired identity observation is missing or malformed."))
         elif account.status is FactStatus.OK or group.status is FactStatus.OK:
-            issues.append(IdentityIssue(f"identity.collision.{service}", "conflict", "A desired identity already exists without authenticated manifest ownership."))
+            mapping = manifest_by_name.get(service)
+            expected_gids = None
+            if mapping is not None and kvm is not None and kvm.gid is not None:
+                expected_gids = {mapping.gid}
+                if service == "kitdev-worker":
+                    expected_gids.add(kvm.gid)
+            if (
+                mapping is None
+                or account.status is not FactStatus.OK
+                or group.status is not FactStatus.OK
+                or account.origin is not IdentityOrigin.LOCAL
+                or group.origin is not IdentityOrigin.LOCAL
+                or account.uid != mapping.uid
+                or account.gid != mapping.gid
+                or group.gid != mapping.gid
+                or account.home != "/nonexistent"
+                or account.shell != "/usr/sbin/nologin"
+                or expected_gids is None
+                or set(account.supplementary_gids) != expected_gids
+            ):
+                issues.append(
+                    IdentityIssue(
+                        f"identity.collision.{service}",
+                        "conflict",
+                        "The existing identity does not exactly match authenticated manifest "
+                        "ownership and group policy.",
+                    )
+                )
     operator = accounts.get(config.identity.operator or "")
     sudo = groups.get("sudo")
     lxd = groups.get("lxd")
-    kvm = groups.get("kvm")
     if config.identity.operator is not None:
         if operator is None or operator.status is not FactStatus.OK or operator.origin is not IdentityOrigin.LOCAL or operator.uid == 0:
             issues.append(IdentityIssue("identity.operator.local", "conflict", "The configured operator is not an exact local non-root account."))
@@ -596,15 +636,85 @@ def build_identity_plan(
         issues.append(IdentityIssue("identity.path.nonexistent", "conflict", "The /nonexistent home path must be absent."))
     allocation = facts.allocation_range
     allocations: tuple[IdentityAllocation, ...] = ()
-    if allocation.status is not FactStatus.OK or None in (allocation.uid_min, allocation.uid_max, allocation.gid_min, allocation.gid_max):
-        issues.append(IdentityIssue("identity.allocation.range", "unknown", "The validated host system UID/GID range is unavailable."))
-    else:
-        assert allocation.uid_min is not None and allocation.uid_max is not None
-        assert allocation.gid_min is not None and allocation.gid_max is not None
-        uids = _allocate(allocation.uid_min, allocation.uid_max, set(facts.occupied_uids), len(SERVICE_NAMES))
-        gids = _allocate(allocation.gid_min, allocation.gid_max, set(facts.occupied_gids), len(SERVICE_NAMES))
+    expected_range = (
+        SERVICE_ID_MIN,
+        SERVICE_ID_MAX,
+        SERVICE_ID_MIN,
+        SERVICE_ID_MAX,
+    )
+    observed_range = (
+        allocation.uid_min,
+        allocation.uid_max,
+        allocation.gid_min,
+        allocation.gid_max,
+    )
+    if allocation.status is not FactStatus.OK or None in observed_range:
+        issues.append(
+            IdentityIssue(
+                "identity.allocation.range",
+                "unknown",
+                "Complete UID/GID occupancy evidence for the reserved project band is unavailable.",
+            )
+        )
+    elif observed_range != expected_range:
+        issues.append(
+            IdentityIssue(
+                "identity.allocation.range",
+                "conflict",
+                "The identity facts do not carry the exact reserved project UID/GID band.",
+            )
+        )
+    elif prior_mapping is not None:
+        allocations = prior_mapping
+        for item in allocations:
+            account = accounts.get(item.name)
+            group = groups.get(item.name)
+            if (
+                account is not None
+                and account.status is FactStatus.ABSENT
+                and item.uid in facts.occupied_uids
+            ):
+                issues.append(
+                    IdentityIssue(
+                        f"identity.manifest.uid.{item.name}",
+                        "conflict",
+                        "The manifest UID is occupied while its owned account is absent.",
+                    )
+                )
+            if (
+                group is not None
+                and group.status is FactStatus.ABSENT
+                and item.gid in facts.occupied_gids
+            ):
+                issues.append(
+                    IdentityIssue(
+                        f"identity.manifest.gid.{item.name}",
+                        "conflict",
+                        "The manifest GID is occupied while its owned group is absent.",
+                    )
+                )
+    elif not manifest_supplied:
+        excluded_ids = set(CONTAINER_RUNTIME_IDS)
+        uids = _allocate(
+            SERVICE_ID_MIN,
+            SERVICE_ID_MAX,
+            set(facts.occupied_uids) | excluded_ids,
+            len(SERVICE_NAMES),
+        )
+        gids = _allocate(
+            SERVICE_ID_MIN,
+            SERVICE_ID_MAX,
+            set(facts.occupied_gids) | excluded_ids,
+            len(SERVICE_NAMES),
+        )
         if uids is None or gids is None:
-            issues.append(IdentityIssue("identity.allocation.exhausted", "conflict", "The validated system UID/GID range cannot satisfy the phase."))
+            issues.append(
+                IdentityIssue(
+                    "identity.allocation.exhausted",
+                    "conflict",
+                    "The reserved project UID/GID band cannot satisfy the phase.",
+                )
+            )
         else:
             allocations = tuple(IdentityAllocation(name, uid, gid) for name, uid, gid in zip(SERVICE_NAMES, uids, gids, strict=True))
 
@@ -613,9 +723,29 @@ def build_identity_plan(
     if not blocking:
         built: list[IdentityAction] = []
         for item in allocations:
-            built.append(IdentityAction(f"identity.group.{item.name}", "account_group", item.name, f"system group gid={item.gid}", "root", "delete only when journal-owned and unused"))
-            supplementary = "kvm only" if item.name == "kitdev-worker" else "none"
-            built.append(IdentityAction(f"identity.user.{item.name}", "account", item.name, f"locked nologin uid={item.uid} gid={item.gid}; supplementary={supplementary}", "root", "delete only when journal-owned and unused"))
+            manifest_mapping = f"{item.name}:{item.uid}:{item.gid}"
+            built.append(
+                IdentityAction(
+                    f"identity.group.{item.name}",
+                    "account_group",
+                    item.name,
+                    f"system group gid={item.gid}; manifest-mapping={manifest_mapping}",
+                    "root",
+                    "restore prior manifest state from write-ahead journal",
+                )
+            )
+            supplementary = "kvm" if item.name == "kitdev-worker" else "none"
+            built.append(
+                IdentityAction(
+                    f"identity.user.{item.name}",
+                    "account",
+                    item.name,
+                    f"locked nologin uid={item.uid} gid={item.gid}; "
+                    f"supplementary={supplementary}; manifest-mapping={manifest_mapping}",
+                    "root",
+                    "restore prior manifest state from write-ahead journal",
+                )
+            )
         assert config.identity.operator is not None
         assert operator is not None and lxd is not None
         if lxd.status is FactStatus.OK and lxd.gid in operator.supplementary_gids:
@@ -627,11 +757,27 @@ def build_identity_plan(
         "phase": "identity-access",
         "lifecycle": config.deployment.lifecycle_mode.value,
         "operator": config.identity.operator,
+        "allocation_contract": {
+            "source": (
+                "authenticated-manifest"
+                if prior_mapping is not None
+                else "invalid-manifest"
+                if manifest_supplied
+                else "first-free"
+            ),
+            "uid_min": SERVICE_ID_MIN,
+            "uid_max": SERVICE_ID_MAX,
+            "gid_min": SERVICE_ID_MIN,
+            "gid_max": SERVICE_ID_MAX,
+            "excluded_container_ids": list(CONTAINER_RUNTIME_IDS),
+        },
         "allocations": [item.as_dict() for item in allocations],
         "actions": [item.as_dict() for item in actions],
         "issues": [item.as_dict() for item in issues_tuple],
         "preconditions": [
             "revalidate exact UID/GID vacancies immediately before mutation",
+            "persist the exact name/UID/GID mapping in the authenticated manifest before mutation",
+            "reuse an existing manifest mapping exactly or fail the complete phase",
             "acquire exclusive installation lock",
             "write and fsync prior state before each mutation",
             "refuse partial apply when plan hash or observed state changes",

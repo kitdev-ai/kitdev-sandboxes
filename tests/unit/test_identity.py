@@ -13,14 +13,18 @@ from kitdev_sandboxes.cli import main
 from kitdev_sandboxes.identity import (
     AccountFact,
     AllocationRange,
+    CONTAINER_RUNTIME_IDS,
     FactStatus,
     GateState,
     GroupFact,
     IdentityFacts,
+    IdentityAllocation,
     IdentityOrigin,
     IdentityPrerequisites,
     LxdPrerequisite,
     PathFact,
+    SERVICE_ID_MAX,
+    SERVICE_ID_MIN,
     SERVICE_NAMES,
     _lxd_prerequisite,
     _path_fact,
@@ -63,7 +67,13 @@ def discovered(*, accounts=None, groups=None, lxd=GateState.VERIFIED) -> Identit
         groups=groups or base_groups,
         occupied_uids=(0, 100, 101, 1000),
         occupied_gids=(0, 100, 102, 1000),
-        allocation_range=AllocationRange(FactStatus.OK, 100, 999, 100, 999),
+        allocation_range=AllocationRange(
+            FactStatus.OK,
+            SERVICE_ID_MIN,
+            SERVICE_ID_MAX,
+            SERVICE_ID_MIN,
+            SERVICE_ID_MAX,
+        ),
         nologin=PathFact("/usr/sbin/nologin", FactStatus.OK, "regular"),
         nonexistent=PathFact("/nonexistent", FactStatus.ABSENT),
         lxd=LxdPrerequisite(lxd, "fixture"),
@@ -98,9 +108,9 @@ class IdentityPlanningTests(unittest.TestCase):
 
         self.assertFalse(plan.blocking)
         self.assertEqual([(item.name, item.uid, item.gid) for item in plan.allocations], [
-            ("kitdev-e2b", 102, 101),
-            ("kitdev-proxy", 103, 103),
-            ("kitdev-worker", 104, 104),
+            ("kitdev-e2b", 61000, 61000),
+            ("kitdev-proxy", 61001, 61001),
+            ("kitdev-worker", 61002, 61002),
         ])
         user_states = {
             action.target: action.desired_state
@@ -108,11 +118,171 @@ class IdentityPlanningTests(unittest.TestCase):
             if action.category == "account"
         }
         self.assertEqual(set(user_states), set(SERVICE_NAMES))
-        self.assertIn("kvm only", user_states["kitdev-worker"])
+        self.assertIn("supplementary=kvm;", user_states["kitdev-worker"])
         self.assertTrue(all("supplementary=none" in user_states[name] for name in SERVICE_NAMES[:2]))
+        self.assertNotIn("datastore", user_states["kitdev-worker"])
+        self.assertNotIn("supplementary=kitdev", user_states["kitdev-worker"])
         self.assertIn("identity.operator.lxd", {action.action_id for action in plan.actions})
         self.assertEqual(plan.to_json(), plan.to_json())
         self.assertRegex(plan.plan_hash, r"^sha256:[0-9a-f]{64}$")
+
+    def test_first_free_project_ids_skip_occupied_values_deterministically(self) -> None:
+        facts = replace(
+            discovered(),
+            occupied_uids=(0, 101, 999, 10_001, 61_000, 61_002),
+            occupied_gids=(0, 101, 999, 10_001, 61_000, 61_001),
+        )
+
+        plan = build_identity_plan(configured(), host_facts(), facts, verified())
+
+        self.assertEqual(
+            [(item.uid, item.gid) for item in plan.allocations],
+            [(61_001, 61_002), (61_003, 61_003), (61_004, 61_004)],
+        )
+        self.assertTrue(
+            all(
+                SERVICE_ID_MIN <= value <= SERVICE_ID_MAX
+                and value not in CONTAINER_RUNTIME_IDS
+                for item in plan.allocations
+                for value in (item.uid, item.gid)
+            )
+        )
+
+    def test_authenticated_manifest_mapping_is_normalized_and_honored(self) -> None:
+        mapping = (
+            IdentityAllocation("kitdev-worker", 61_112, 61_212),
+            IdentityAllocation("kitdev-e2b", 61_110, 61_210),
+            IdentityAllocation("kitdev-proxy", 61_111, 61_211),
+        )
+
+        plan = build_identity_plan(
+            configured(),
+            host_facts(),
+            discovered(),
+            verified(),
+            manifest_allocations=mapping,
+        )
+
+        self.assertFalse(plan.blocking)
+        self.assertEqual(
+            [(item.name, item.uid, item.gid) for item in plan.allocations],
+            [
+                ("kitdev-e2b", 61_110, 61_210),
+                ("kitdev-proxy", 61_111, 61_211),
+                ("kitdev-worker", 61_112, 61_212),
+            ],
+        )
+        self.assertTrue(
+            all(
+                f"manifest-mapping={item.name}:{item.uid}:{item.gid}" in action.desired_state
+                for item in plan.allocations
+                for action in plan.actions
+                if action.target == item.name
+            )
+        )
+
+    def test_invalid_or_occupied_manifest_mapping_blocks_the_whole_phase(self) -> None:
+        valid = tuple(
+            IdentityAllocation(name, 61_100 + index, 61_200 + index)
+            for index, name in enumerate(SERVICE_NAMES)
+        )
+        cases = {
+            "partial": valid[:2],
+            "out-of-band": (
+                IdentityAllocation("kitdev-e2b", 101, 61_200),
+                *valid[1:],
+            ),
+            "occupied": valid,
+        }
+        for name, mapping in cases.items():
+            facts = discovered()
+            if name == "occupied":
+                facts = replace(facts, occupied_uids=facts.occupied_uids + (61_100,))
+            with self.subTest(name=name):
+                plan = build_identity_plan(
+                    configured(),
+                    host_facts(),
+                    facts,
+                    verified(),
+                    manifest_allocations=mapping,
+                )
+                self.assertTrue(plan.blocking)
+                self.assertEqual(plan.actions, ())
+                if name != "occupied":
+                    self.assertEqual(plan.allocations, ())
+                self.assertTrue(
+                    any(issue.issue_id.startswith("identity.manifest.") for issue in plan.issues)
+                )
+
+    def test_manifest_owned_worker_must_have_exactly_kvm_supplementary_group(self) -> None:
+        mapping = tuple(
+            IdentityAllocation(name, 61_100 + index, 61_100 + index)
+            for index, name in enumerate(SERVICE_NAMES)
+        )
+        service_accounts = tuple(
+            AccountFact(
+                item.name,
+                FactStatus.OK,
+                IdentityOrigin.LOCAL,
+                item.uid,
+                item.gid,
+                "/nonexistent",
+                "/usr/sbin/nologin",
+                (item.gid, 108) if item.name == "kitdev-worker" else (item.gid,),
+            )
+            for item in mapping
+        )
+        operator = next(item for item in discovered().accounts if item.name == "ubuntu")
+        service_groups = tuple(
+            GroupFact(item.name, FactStatus.OK, IdentityOrigin.LOCAL, item.gid)
+            for item in mapping
+        )
+        base = discovered(
+            accounts=service_accounts + (operator,),
+            groups=service_groups
+            + (
+                GroupFact("kvm", FactStatus.OK, IdentityOrigin.LOCAL, 108, ("kitdev-worker",)),
+                GroupFact("sudo", FactStatus.OK, IdentityOrigin.LOCAL, 27, ("ubuntu",)),
+                GroupFact("lxd", FactStatus.OK, IdentityOrigin.LOCAL, 110, ("ubuntu",)),
+            ),
+        )
+        base = replace(
+            base,
+            occupied_uids=tuple(item.uid for item in mapping) + (1000,),
+            occupied_gids=tuple(item.gid for item in mapping) + (27, 108, 110, 1000),
+        )
+
+        accepted = build_identity_plan(
+            configured(),
+            host_facts(),
+            base,
+            verified(),
+            manifest_allocations=mapping,
+        )
+        self.assertFalse(accepted.blocking)
+
+        extra_group = replace(
+            base,
+            accounts=tuple(
+                replace(item, supplementary_gids=item.supplementary_gids + (999,))
+                if item.name == "kitdev-worker"
+                else item
+                for item in base.accounts
+            ),
+        )
+        rejected = build_identity_plan(
+            configured(),
+            host_facts(),
+            extra_group,
+            verified(),
+            manifest_allocations=mapping,
+        )
+        self.assertTrue(rejected.blocking)
+        self.assertEqual(rejected.actions, ())
+        self.assertIn(
+            "identity.collision.kitdev-worker",
+            {item.issue_id for item in rejected.issues},
+        )
 
     def test_permutation_does_not_change_plan_or_hash(self) -> None:
         facts = discovered()

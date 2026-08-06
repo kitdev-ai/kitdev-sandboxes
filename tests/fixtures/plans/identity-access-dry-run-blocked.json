@@ -1,9 +1,9 @@
 {
   "actions": [],
   "allocations": [
-    { "gid": 101, "name": "kitdev-e2b", "uid": 102 },
-    { "gid": 103, "name": "kitdev-proxy", "uid": 103 },
-    { "gid": 104, "name": "kitdev-worker", "uid": 104 }
+    { "gid": 61000, "name": "kitdev-e2b", "uid": 61000 },
+    { "gid": 61001, "name": "kitdev-proxy", "uid": 61001 },
+    { "gid": 61002, "name": "kitdev-worker", "uid": 61002 }
   ],
   "blocking": true,
   "command_mode": "install-dry-run",
@@ -19,7 +19,7 @@
   ],
   "lifecycle_mode": "production",
   "phase": "identity-access",
-  "plan_hash": "sha256:e61fe5e947ae07b1866d9bf8af0efa40ef5e4499671d8d74ef6764a8642f9fb3",
+  "plan_hash": "sha256:0e99fe2c99847e3c1ec67a1dbd76617904af8ef3d63ed8ee047afe27549e2013",
   "project_release": "0.0.0",
   "schema_version": 1,
   "summary": { "actions": 0, "allocations": 3, "issues": 7 }
