@@ -15,12 +15,12 @@ The live test used the clean pinned E2B infrastructure source at commit:
 882a3b4786755db9e94be3297de6827f9100ce5e
 ```
 
-The source-build chain produced an incremental snapshot from base build
-`6dfbb2b8-62a2-4a2b-a62a-cf94ffcdb5e5`. The tested incremental build ID and
-generated template ID are intentionally omitted from this report because they
-are runtime state, not configuration. The host supports Ubuntu 26.04 for
-production and Ubuntu 25.04 for development or migration. Ubuntu 24.04 is not
-supported.
+The source-build chain produced incremental build
+`2d9a8389-f5f5-4449-b0eb-e1d364ee98ae` from base build
+`6dfbb2b8-62a2-4a2b-a62a-cf94ffcdb5e5`. These are content-locked artifact
+identities, not credentials. The randomly generated template and sandbox IDs
+are omitted. The host supports Ubuntu 26.04 for production and Ubuntu 25.04
+for development or migration. Ubuntu 24.04 is not supported.
 
 This milestone exercised the full local path:
 
@@ -123,6 +123,86 @@ The target build contained these six direct files:
 The command copied 11 files in total because the incremental headers referenced
 five ancestor `rootfs.ext4` blobs. A verifier must follow and validate this
 chain; checking only the six direct files is insufficient.
+
+The exact relative file set was:
+
+```text
+2d9a8389-f5f5-4449-b0eb-e1d364ee98ae/memfile
+2d9a8389-f5f5-4449-b0eb-e1d364ee98ae/memfile.header
+2d9a8389-f5f5-4449-b0eb-e1d364ee98ae/metadata.json
+2d9a8389-f5f5-4449-b0eb-e1d364ee98ae/rootfs.ext4
+2d9a8389-f5f5-4449-b0eb-e1d364ee98ae/rootfs.ext4.header
+2d9a8389-f5f5-4449-b0eb-e1d364ee98ae/snapfile
+5f25449a-464b-4e10-83ba-e021db8b9b8e/rootfs.ext4
+6be65ea2-c917-43f5-8a56-fc8daa66fca4/rootfs.ext4
+6dfbb2b8-62a2-4a2b-a62a-cf94ffcdb5e5/rootfs.ext4
+b2e8d4fb-f5ea-4e24-aec8-9af4fbe77c50/rootfs.ext4
+d757f43f-4871-4828-9d16-a54da5291f00/rootfs.ext4
+```
+
+### Header traversal contract
+
+The pinned `copy-build` implementation obtains the dependency set from the
+binary header sidecars, not from `metadata.json`. It deserializes each header
+with the upstream `storage/header` package, iterates every mapping, deduplicates
+the non-nil build UUIDs, and selects the data path for each UUID using the
+header's per-build compression type. The path rule is:
+
+```text
+<referenced-build-uuid>/<data-name><compression-suffix>
+```
+
+The data name is `memfile` for `memfile.header` and `rootfs.ext4` for
+`rootfs.ext4.header`. Compression suffix is empty for none, `.lz4` for LZ4,
+or `.zstd` for Zstandard. For a memory-bearing snapshot the complete copy set
+is the memory header, every memory data reference, `snapfile`, the rootfs
+header, every rootfs data reference, and `metadata.json`. Filesystem-only
+metadata intentionally omits the memory header, memory data, and `snapfile`.
+
+Both observed headers were format version 3, whose wire shape is metadata
+followed by V3 mappings. V3 has no serialized per-build frame table, so every
+observed data reference was uncompressed and suffixless. A verifier built from
+the same pinned package called `Mapping.Validate(metadata.Size, 4096)` before
+using the references and obtained these exact results:
+
+| Header | Virtual bytes | Block bytes | Generation | Mappings | Base build | References |
+|---|---:|---:|---:|---:|---|---|
+| `memfile.header` | 1073741824 | 2097152 | 1 | 7 | `d757f43f-4871-4828-9d16-a54da5291f00` | target build only, 169869312 mapped bytes |
+| `rootfs.ext4.header` | 3902799872 | 4096 | 6 | 1182 | `6be65ea2-c917-43f5-8a56-fc8daa66fca4` | target plus five ancestors below |
+
+The rootfs mapping attributed bytes as follows. Stored files can be larger than
+the bytes still mapped from that layer, so mapped bytes and file bytes are
+separate checks.
+
+| Build ID | Mapped bytes | Stored bytes | SHA-256 |
+|---|---:|---:|---|
+| target build | 5992448 | 5992448 | `b06ca653990f1dc842bbb3488957878aff9e4d2e55d67d6db7f4343908ca6e4e` |
+| `5f25449a-464b-4e10-83ba-e021db8b9b8e` | 13148160 | 16023552 | `ec9c4ac7e1cd01eeacec3e50597e7bf7de09a92fd038a7fed1530e7796497add` |
+| `6be65ea2-c917-43f5-8a56-fc8daa66fca4` | 1404743680 | 1423519744 | `155b8acd5a6318136884acae6777364ddc3c687986283da05b70851686356baa` |
+| `6dfbb2b8-62a2-4a2b-a62a-cf94ffcdb5e5` | 798720 | 6467584 | `3fb9e84587adb78c0fcbe6a4dd41e7d402eb68e45c7279627c52839ab159977b` |
+| `b2e8d4fb-f5ea-4e24-aec8-9af4fbe77c50` | 204800 | 1462272 | `e206cf1e356ea1a0eb36718f24503bd34c583f6eaf1a0b4a90c98b0f14aa2996` |
+| `d757f43f-4871-4828-9d16-a54da5291f00` | 1998848 | 2531328 | `eab0cb327228384ec58ca3e087e3f6df2c605d623c23e22e0cc9610a6e5e8b9c` |
+
+All six direct files and five ancestor data files were regular, one-link,
+root-owned files in group `kitdev` with mode 0644. Their leaf build directories
+were root-owned, group `kitdev`, setgid mode 2700. The remaining direct file
+hashes were:
+
+| Relative name | SHA-256 |
+|---|---|
+| `memfile` | `6d885842a01e5edce27a8d2072eaafc9177b28e7fae41de6b989015ec9206081` |
+| `memfile.header` | `26ce713cd4203889c60a03341b0e7772821c6b60c65c5a5feb96ca44d0952ff7` |
+| `metadata.json` | `8e1c4f750700d3c15333ef1898659cde5f56e96ab563b40e24bf14cf6337c90e` |
+| `rootfs.ext4.header` | `81664b9101c98b99ac41f79193a71c701383a37263c1602ea9470d9c15492bd6` |
+| `snapfile` | `2f59dcc9a0c9eae469faf1233c27f66cca66f3962080daf0d4bddac1bb60834e` |
+
+A pinned-build verifier may exact-lock this 11-file set and both header hashes.
+A general verifier must instead deserialize the headers, validate full mapping
+coverage and alignment, derive compression-aware paths, reject malformed
+UUIDs, exclude the intentional nil build ID used by empty mappings from the
+file set, and then verify every derived file before database mutation.
+It must not recursively assume that each referenced data build has another
+header: the current header already contains the complete composed mapping.
 
 The version-2 metadata identified the incremental build, its base build,
 kernel `vmlinux-6.1.158`, Firecracker `v1.14.1_431f1fc`, and guest user `user`.

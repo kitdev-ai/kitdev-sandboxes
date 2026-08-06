@@ -937,6 +937,11 @@ untracked, and must never be quoted into tracked documentation.
   `882a3b4` with the digest-pinned Go builder, exact sizes/hashes, online module
   prefetch, and a network-disabled final build. No credential or management
   endpoint is retained in the repository.
+- **Chain evidence:** Both version-3 binary headers were decoded with the
+  pinned upstream package. Their mappings validated full virtual-size coverage
+  and selected the exact 11-file, suffixless snapshot tree: six direct files
+  and five ancestor rootfs layers, all now recorded with byte sizes, hashes,
+  ownership, and modes.
 - **Evidence:** See
   [`ovh-api-client-proxy-e2e.md`](ovh-api-client-proxy-e2e.md). Fresh Ubuntu
   26.04 replay and reinstall qualification remain open; Ubuntu 25.04 is
