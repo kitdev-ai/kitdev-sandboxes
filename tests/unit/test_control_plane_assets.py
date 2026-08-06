@@ -267,8 +267,17 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn("verify_migrations", replay)
         self.assertIn("'exited 0'", replay)
         self.assertIn("verify_runtime_contract", replay)
-        self.assertIn('container["HostConfig"].get("PortBindings")', replay)
+        self.assertIn('host.get("PortBindings")', replay)
         self.assertIn('container["Config"].get("Image")', replay)
+        self.assertIn('host.get("ReadonlyRootfs")', replay)
+        self.assertIn('host.get("PublishAllPorts")', replay)
+        self.assertIn('host.get("CapDrop")', replay)
+        self.assertIn('host.get("SecurityOpt")', replay)
+        self.assertIn('environment_map(config.get("Env"))', replay)
+        self.assertIn('container.get("Mounts", [])', replay)
+        self.assertIn('config.get("User", "")', replay)
+        self.assertIn('container["NetworkSettings"].get("Ports")', replay)
+        self.assertIn('extra_hosts_map(host.get("ExtraHosts"))', replay)
         self.assertIn("--wait-timeout 300 api client-proxy", replay)
 
         preflight = (SCRIPTS / "preflight-orchestrator.sh").read_text(
@@ -292,6 +301,37 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         )
         self.assertEqual(installer.count("require_exact_file"), 8)
         self.assertIn("orchestrator.env.expected", installer)
+
+    def test_firewall_audit_rejects_broad_project_interface_rules(self) -> None:
+        firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
+        verifier = firewall.split("<<'PY_VERIFY_UFW'\n", maxsplit=1)[1].split(
+            "\nPY_VERIFY_UFW", maxsplit=1
+        )[0]
+        with TemporaryDirectory(dir=ROOT) as directory:
+            verifier_path = Path(directory) / "verify_ufw.py"
+            verifier_path.write_text(verifier, encoding="ascii")
+            command = (
+                'python3 -I -B -S "$1" 172.18.0.0/16 172.18.0.1 '
+                'br-kitdev eth0 no subset 3<<<"$2"'
+            )
+            for rule in (
+                "ufw allow in on veth+",
+                "ufw allow in on br-kitdev from any to any",
+                "ufw route allow in on veth+ out on eth0",
+            ):
+                with self.subTest(rule=rule):
+                    result = subprocess.run(
+                        ["bash", "-c", command, "_", str(verifier_path), rule],
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+            unrelated = subprocess.run(
+                ["bash", "-c", command, "_", str(verifier_path), "ufw allow 22/tcp"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(unrelated.returncode, 0, unrelated.stderr)
 
     @unittest.skipUnless(
         os.environ.get("KITDEV_VALIDATE_COMPOSE") == "1",

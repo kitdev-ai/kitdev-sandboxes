@@ -148,6 +148,7 @@ if len(ids) != len(expected):
     raise SystemExit(1)
 containers = json.loads(subprocess.check_output(["docker", "inspect", *ids], text=True))
 by_service = {}
+image_configs = {}
 for container in containers:
     labels = container["Config"].get("Labels") or {}
     service = labels.get("com.docker.compose.service")
@@ -161,14 +162,83 @@ for container in containers:
 if set(by_service) != set(expected):
     raise SystemExit(1)
 
+
+def image_config(identifier):
+    if identifier not in image_configs:
+        image_configs[identifier] = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", identifier], text=True,
+        ))[0]["Config"]
+    return image_configs[identifier]
+
+
+def environment_map(entries):
+    values = {}
+    for entry in entries or []:
+        if "=" not in entry:
+            raise SystemExit(1)
+        key, value = entry.split("=", 1)
+        if key in values:
+            raise SystemExit(1)
+        values[key] = value
+    return values
+
+
+def tmpfs_map(entries):
+    values = {}
+    for entry in entries or []:
+        target, separator, options = entry.partition(":")
+        if not target or target in values:
+            raise SystemExit(1)
+        values[target] = frozenset(options.split(",")) if separator else frozenset()
+    return values
+
+
+def extra_hosts_map(entries):
+    if isinstance(entries, dict):
+        return {key: str(value) for key, value in entries.items()}
+    values = {}
+    for entry in entries or []:
+        separator = "=" if "=" in entry else ":"
+        key, found, value = entry.partition(separator)
+        if not found or not key or key in values:
+            raise SystemExit(1)
+        values[key] = value
+    return values
+
+
 for service, contract in expected.items():
     container = by_service[service]
     state = container["State"]
+    host = container["HostConfig"]
+    config = container["Config"]
+    source_image = image_config(container["Image"])
     if container["Config"].get("Image") != contract.get("image"):
         raise SystemExit(1)
     if set(container["NetworkSettings"].get("Networks") or {}) != {"kitdev-core"}:
         raise SystemExit(1)
-    if container["HostConfig"].get("Privileged") is not False:
+    if (
+        host.get("Privileged") is not False
+        or host.get("PublishAllPorts") is not False
+        or host.get("ReadonlyRootfs") is not bool(contract.get("read_only", False))
+        or sorted(host.get("CapAdd") or []) != sorted(contract.get("cap_add") or [])
+        or sorted(host.get("CapDrop") or []) != sorted(contract.get("cap_drop") or [])
+        or sorted(host.get("SecurityOpt") or []) != sorted(contract.get("security_opt") or [])
+        or bool(host.get("Devices"))
+    ):
+        raise SystemExit(1)
+    expected_user = contract.get("user", source_image.get("User") or "")
+    expected_command = contract.get("command", source_image.get("Cmd"))
+    expected_workdir = contract.get("working_dir", source_image.get("WorkingDir") or "")
+    if (
+        config.get("User", "") != expected_user
+        or config.get("Cmd") != expected_command
+        or config.get("Entrypoint") != source_image.get("Entrypoint")
+        or config.get("WorkingDir", "") != expected_workdir
+    ):
+        raise SystemExit(1)
+    expected_environment = environment_map(source_image.get("Env"))
+    expected_environment.update(contract.get("environment") or {})
+    if environment_map(config.get("Env")) != expected_environment:
         raise SystemExit(1)
     expected_ports = {}
     for port in contract.get("ports", []):
@@ -177,8 +247,37 @@ for service, contract in expected.items():
             "HostIp": port["host_ip"],
             "HostPort": str(port["published"]),
         })
-    observed_ports = container["HostConfig"].get("PortBindings") or {}
+    observed_ports = host.get("PortBindings") or {}
     if observed_ports != expected_ports:
+        raise SystemExit(1)
+    effective_ports = {
+        key: value
+        for key, value in (container["NetworkSettings"].get("Ports") or {}).items()
+        if value is not None
+    }
+    if effective_ports != expected_ports:
+        raise SystemExit(1)
+    if extra_hosts_map(host.get("ExtraHosts")) != extra_hosts_map(contract.get("extra_hosts")):
+        raise SystemExit(1)
+    expected_mounts = sorted(
+        (
+            volume["type"], volume["source"], volume["target"],
+            not bool(volume.get("read_only", False)),
+        )
+        for volume in contract.get("volumes", [])
+    )
+    observed_mounts = sorted(
+        (mount["Type"], mount["Source"], mount["Destination"], mount["RW"])
+        for mount in container.get("Mounts", [])
+    )
+    if observed_mounts != expected_mounts:
+        raise SystemExit(1)
+    expected_tmpfs = tmpfs_map(contract.get("tmpfs"))
+    observed_tmpfs = {
+        target: frozenset(options.split(",")) if options else frozenset()
+        for target, options in (host.get("Tmpfs") or {}).items()
+    }
+    if observed_tmpfs != expected_tmpfs:
         raise SystemExit(1)
     if service in {"postgres-migrator", "clickhouse-migrator"}:
         if state.get("Status") != "exited" or state.get("ExitCode") != 0:

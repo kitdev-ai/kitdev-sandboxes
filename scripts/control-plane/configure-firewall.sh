@@ -84,6 +84,10 @@ def guest_source_overlap(tokens):
     return source.overlaps(ipaddress.ip_network("10.11.0.0/16"))
 
 
+def protected_interface(tokens):
+    return "veth+" in tokens or bridge in tokens
+
+
 for line in os.fdopen(3, encoding="utf-8"):
     line = line.strip()
     if not line.startswith("ufw "):
@@ -92,7 +96,12 @@ for line in os.fdopen(3, encoding="utf-8"):
     if "comment" in tokens:
         tokens = tokens[:tokens.index("comment")]
     value = tuple(tokens)
-    if protected.intersection(tokens) or port_overlap(tokens) or guest_source_overlap(tokens):
+    if (
+        protected.intersection(tokens)
+        or port_overlap(tokens)
+        or guest_source_overlap(tokens)
+        or protected_interface(tokens)
+    ):
         observed.add(value)
 if policy == "subset":
     valid = observed <= expected
