@@ -327,3 +327,119 @@ remote qualification environment.
 The next permitted step is the separately approved, read-only Ubuntu 26.04
 qualification followed by an explicit mutation approval. This review does not
 authorize either action by itself.
+
+## Ubuntu usr-merge compatibility re-review - 2026-08-06
+
+### Findings and verdict
+
+No blocking or non-blocking safety finding emerged from this narrow review.
+**The post-`b35ad89` usr-merge compatibility correction is approved for the
+local repository gate.** This verdict does not authorize a remote retry: the
+changed embedded reconciler produces a new bundle digest and requires a new
+exact bundle-bound mutation approval.
+
+The reviewed implementation change removes only `/lib/systemd/system` from
+`_UNIT_ROOTS` (`stage05.py:61-65`). It retains lexical scans of:
+
+- `/etc/systemd/system`;
+- `/usr/lib/systemd/system`;
+- `/etc/systemd/system/multi-user.target.wants`.
+
+The common descriptor-relative `path_state()` traversal still rejects a
+symlink in any retained ancestry, and `refuse_production()` still double-checks
+every known unit path and maps traversal ambiguity to
+`production_state_unknown` (`stage05.py:374-400`, `stage05.py:984-1004`). The
+three fixed service names remain independently classified through systemd
+`LoadState`; `not-found` is the only absent result, while loaded, masked,
+merged, or stub units remain present and malformed or failed queries remain
+unknown (`stage05.py:56-65`, `stage05.py:956-982`).
+
+The regression fixture faithfully models the supported Ubuntu usr-merge shape:
+it replaces the test root's real `/lib` directory with the relative symlink
+`/lib -> usr/lib`, proves an otherwise absent machine passes, then proves a
+symlink in the retained `/usr/lib/systemd` ancestry fails closed
+(`test_stage05.py:860-874`). Independent hermetic probes extended that check to
+all three retained scan roots:
+
+- usr-merge absence: passed;
+- retained scan-root ancestry symlinks: **3/3 blocked** as
+  `production_state_unknown`;
+- named unit files in retained roots: **3/3 blocked** as
+  `production_state_present`;
+- absent service callback sequence: all three exact unit names queried;
+- each named service reported present: **3/3 blocked** as
+  `production_state_present`.
+
+There is no loss of production detection on the supported Ubuntu usr-merge
+layout: `/lib/systemd/system` and `/usr/lib/systemd/system` resolve to the same
+tree, the canonical `/usr` tree remains scanned, and systemd still classifies
+each known unit independently. A non-usr-merged `/lib` tree is not a second
+lexical scan root, but that is outside the target Ubuntu 26.04 layout; known
+services there would still be caught by `LoadState` when systemd recognizes
+them.
+
+### Failed-run evidence review
+
+The checked off-host artifacts for `run-05-GRF4C5bu` contain exactly a
+`run_start` record followed by `status=error reason=production_state_unknown`.
+The summary contains only immutable run
+metadata and no operation, after, postcondition, or plan result. The runner
+stops when `run_remote before` fails and does not invoke the requested
+operation (`run-stage.sh:330-337`). Stage 05's pre-dispatch
+`production-check` performs only identity validation and
+`refuse_production()` (`05-lab-marker-workspace.sh:74-82`,
+`stage05.py:1621-1626`), before journal allocation or any managed-resource
+operation.
+
+Accordingly, the documentation accurately classifies the failed run as
+precheck-only with zero Stage 05 mutation. The artifacts establish the stop
+point and reason. The activity log correctly attributes the more specific
+environmental facts - all three `LoadState` results were `not-found`,
+`/usr/lib/systemd/system` was the real unit directory, and `/lib` was the
+usr-merge symlink - to the project lead's separate read-only diagnosis rather
+than claiming those details came from the bounded artifacts themselves.
+
+### Bundle binding
+
+Exact source binding remains automatic and unchanged. `bundle_stage()`
+stable-reads the current `src/kitdev_sandboxes/stage05.py`, embeds its exact
+bytes and SHA-256, and the runner hashes the resulting immutable bundle
+(`run-stage.sh:60-113`, `run-stage.sh:247-250`). The bundle regression passed
+and compared the decoded reconciler byte-for-byte with the reviewed source.
+Therefore this one-line source correction necessarily invalidates the prior
+approval and is covered by the next approval digest.
+
+### Verification
+
+All verification was local in `/Users/kit/projects/kitdev/sandboxes`. This
+review used no SSH, network access, or server mutation and made no
+implementation or test edits.
+
+1. `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest tests.unit.test_stage05 tests.unit.test_ovh_lab_framework -v`
+   - Result: **66 tests passed** in 15.414 seconds.
+2. `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m unittest discover -s tests/unit -v`
+   - Result: **226 tests passed** in 18.515 seconds.
+3. Independent bytecode-disabled hermetic usr-merge, retained-ancestry,
+   visible-unit, and service-state probe described above.
+   - Result: all checks passed.
+4. `bash -n experiments/ovh-lab/run-stage.sh experiments/ovh-lab/lib/common.sh experiments/ovh-lab/stages/*.sh`
+   - Result: passed.
+5. Bytecode-disabled Python AST parsing of `stage05.py` and its changed unit
+   test, plus JSON parsing of `experiments/ovh-lab/stages.json`.
+   - Result: passed.
+6. `git diff --check`
+   - Result: passed.
+7. Search beneath `src`, `tests`, `experiments`, and `docs` for
+   `__pycache__`, `*.pyc`, and `*.pyo`.
+   - Result: no artifacts found.
+
+`shellcheck` was unavailable in the local environment. Bash syntax and the
+shell/framework unit coverage passed, but pinned shell lint remains part of
+the remote qualification gate.
+
+### Remaining remote gate
+
+Before any retry, generate and review the new target/config/known-hosts/bundle
+bound approval. The remote run must begin again with the read-only `before`
+qualification on Ubuntu 26.04. Only that separately approved run may proceed
+to Stage 05 mutation.

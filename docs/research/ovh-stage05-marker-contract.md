@@ -334,12 +334,17 @@ during the check:
 - `/etc/kitdev-sandboxes/install-manifest.json`;
 - `/opt/kitdev-sandboxes`;
 - any known production API, client-proxy, or orchestrator service unit in
-  `/etc/systemd/system`, `/usr/lib/systemd/system`, `/lib/systemd/system`, or
+  `/etc/systemd/system`, `/usr/lib/systemd/system`, or
   `/etc/systemd/system/multi-user.target.wants`;
 - any of those named units whose systemd `LoadState` is not `not-found`, even
   when no unit file is visible at the known paths.
 
 An unavailable or malformed systemd query is `unknown` and blocks execution.
+Ubuntu's usr-merge layout normally makes `/lib` a symlink to `/usr/lib`.
+Therefore `/lib/systemd/system` is not scanned as a second lexical path: the
+canonical `/usr/lib/systemd/system` tree is scanned once, and every known unit
+is also queried through systemd `LoadState`. Symlinks in the retained scanned
+ancestries remain `unknown` and fail closed.
 The refusal runs before state-root allocation and is repeated immediately
 before `planned -> applying`. If production evidence appears after a partial
 Stage 05 apply, both forward progress and automated rollback are forbidden;

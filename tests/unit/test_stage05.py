@@ -857,6 +857,22 @@ class Stage05Tests(unittest.TestCase):
             with self.assertRaisesRegex(Stage05Error, "production_state_unknown"):
                 reconciler.observe("before")
 
+    def test_usrmerge_lib_symlink_is_ignored_but_retained_ancestry_symlink_blocks(self) -> None:
+        lib = self.root / "lib"
+        (lib / "systemd/system").rmdir()
+        (lib / "systemd").rmdir()
+        lib.rmdir()
+        lib.symlink_to("usr/lib", target_is_directory=True)
+
+        self.assertEqual(self.reconciler().observe("before").journal_root, "absent")
+
+        systemd = self.root / "usr/lib/systemd"
+        moved = self.root / "usr/lib/systemd-real"
+        systemd.rename(moved)
+        systemd.symlink_to(moved.name, target_is_directory=True)
+        with self.assertRaisesRegex(Stage05Error, "production_state_unknown"):
+            self.reconciler().observe("before")
+
     def test_suspicious_marker_residue_is_preserved_and_blocks(self) -> None:
         def crash(point: str) -> None:
             if point == "before_write_marker":

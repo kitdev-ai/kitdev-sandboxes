@@ -61,7 +61,6 @@ _UNIT_NAMES = (
 _UNIT_ROOTS = (
     Path("/etc/systemd/system"),
     Path("/usr/lib/systemd/system"),
-    Path("/lib/systemd/system"),
     Path("/etc/systemd/system/multi-user.target.wants"),
 )
 _DANGEROUS_ANCESTOR_XATTRS = {

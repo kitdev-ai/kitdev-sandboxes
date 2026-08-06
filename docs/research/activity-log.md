@@ -716,3 +716,35 @@ untracked, and must never be quoted into tracked documentation.
   final acceptance still requires reinstalling Ubuntu 26.04 and qualifying
   clean automation. `shellcheck` was unavailable locally; Bash parsing passed.
 - **Commit:** Pending in this change set.
+
+## 2026-08-06 - Stage 05 Ubuntu usr-merge precheck correction
+
+- **Intent:** Diagnose the first remotely approved Stage 05 precheck failure
+  and correct only the redundant lexical production-unit scan that made the
+  standard Ubuntu 26.04 usr-merge layout unclassifiable.
+- **Delegated LUNA agent:** LUNA lab-framework implementation agent followed by
+  independent LUNA safety re-review under project-lead supervision.
+- **Safe activity summary:** Off-host run `run-05-GRF4C5bu` contains only the
+  Stage 05 run-start record and fixed reason `production_state_unknown`. A
+  project-lead read-only diagnosis established that all three bounded systemd
+  `LoadState` queries returned `not-found`, `/usr/lib/systemd/system` is the
+  real unit directory, and `/lib` is the standard usr-merge symlink. The
+  redundant `/lib/systemd/system` lexical scan correctly rejected that symlink
+  under its no-follow policy, so the operation stopped before Stage 05 execute.
+- **Correction:** Removed only `/lib/systemd/system` from direct path scans.
+  Direct scans of `/etc/systemd/system`, `/usr/lib/systemd/system`, and the
+  multi-user wants directory remain, as do `LoadState` queries for every known
+  production unit. A standard `/lib -> usr/lib` fixture now passes absence;
+  a symlink in any retained scanned ancestry still fails closed.
+- **Mutation status:** The failed remote precheck made zero Stage 05 mutation:
+  no journal/root allocation, marker, or workspace operation began. This
+  correction and its tests used no SSH, network access, or server mutation.
+- **Result:** The 100-test focused journal/Stage 05/framework suite and complete
+  226-test suite pass. Independent re-review additionally exercised all three
+  retained ancestries, present unit files, and exact service queries, then
+  approved the local gate with no findings. Bash, AST, JSON, whitespace, and
+  bytecode-artifact checks passed; `shellcheck` was unavailable.
+- **Limitations / next gate:** Generate a new exact bundle-bound approval before
+  any remote retry; the source correction invalidates the failed run's prior
+  approval digest.
+- **Commit:** Pending in this change set.
