@@ -75,13 +75,14 @@ if any(not re.fullmatch(r"sha256:[0-9a-f]{64}", value) for value in source_refs)
 for name in ("postgres", "redis", "clickhouse", "loki"):
     if not re.fullmatch(r"[^@]+@sha256:[0-9a-f]{64}", services[name].get("image", "")):
         raise SystemExit(1)
-extra_hosts = services["api"].get("extra_hosts", {})
-if isinstance(extra_hosts, list):
-    mappings = dict(item.replace("=", ":", 1).split(":", 1) for item in extra_hosts)
-else:
-    mappings = extra_hosts
-if set(mappings) != {"host.docker.internal"} or mappings["host.docker.internal"] == "host-gateway":
-    raise SystemExit(1)
+for name in ("api", "client-proxy"):
+    extra_hosts = services[name].get("extra_hosts", {})
+    if isinstance(extra_hosts, list):
+        mappings = dict(item.replace("=", ":", 1).split(":", 1) for item in extra_hosts)
+    else:
+        mappings = extra_hosts
+    if set(mappings) != {"host.docker.internal"} or mappings["host.docker.internal"] == "host-gateway":
+        raise SystemExit(1)
 networks = document.get("networks", {})
 core = networks.get("core", {})
 if core.get("name") != "kitdev-core" or core.get("external") is not True:

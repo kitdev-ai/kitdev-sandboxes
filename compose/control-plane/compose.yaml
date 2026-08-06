@@ -235,6 +235,8 @@ services:
       ENVIRONMENT: local
       NODE_ID: kitdev-client-proxy-01
       REDIS_URL: redis:6379
+    extra_hosts:
+      - host.docker.internal:${KITDEV_CORE_GATEWAY:?required}
     depends_on:
       api:
         condition: service_healthy

@@ -917,3 +917,28 @@ untracked, and must never be quoted into tracked documentation.
   reinstall, restore, and concurrent-sandbox qualification remain required.
   Ubuntu 25.04 remains development/migration-only; Ubuntu 24.04 is unsupported.
 - **Commit:** Pending in this change set.
+
+## 2026-08-06 - Live snapshot-to-API-to-envd milestone
+
+- **Intent:** Prove the pinned local template can traverse the complete API,
+  orchestrator, Firecracker, client-proxy, and envd command path, then retain a
+  normalized record and reproducible helper-build/network contracts.
+- **Result:** Direct command-bearing resumes passed for both the base and
+  incremental snapshots. The copied incremental template was transactionally
+  seeded, API create returned `201`, the pinned ConnectRPC client received the
+  exact command sentinel with exit code zero, active delete returned `204`,
+  and final API, Firecracker, and Redis cleanup assertions passed.
+- **Corrections:** Local template storage requires the appended `templates/`
+  directory. Both API and client-proxy require the exact derived project-bridge
+  gateway mapping; Docker's generic host gateway resolved to the wrong bridge.
+  UFW must separately permit only project-bridge traffic to host TCP 5007 and
+  5008.
+- **Artifacts:** `copy-build` and `resume-build` are rebuilt from pinned commit
+  `882a3b4` with the digest-pinned Go builder, exact sizes/hashes, online module
+  prefetch, and a network-disabled final build. No credential or management
+  endpoint is retained in the repository.
+- **Evidence:** See
+  [`ovh-api-client-proxy-e2e.md`](ovh-api-client-proxy-e2e.md). Fresh Ubuntu
+  26.04 replay and reinstall qualification remain open; Ubuntu 25.04 is
+  development/migration-only and Ubuntu 24.04 is unsupported.
+- **Commit:** Pending in this change set.

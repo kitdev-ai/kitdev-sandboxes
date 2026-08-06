@@ -71,5 +71,8 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`ovh-live-lab-services-first-run.md`](ovh-live-lab-services-first-run.md):
   normalized firewall, hugepage, pinned build, persistent database, migration,
   and seed results with stage ownership and rollback blockers.
+- [`ovh-api-client-proxy-e2e.md`](ovh-api-client-proxy-e2e.md): live pinned
+  snapshot-to-API-to-client-proxy command assertion, discovered storage,
+  discovery, Docker gateway, and firewall requirements, plus verified cleanup.
 - [`upstream-e2b.md`](upstream-e2b.md): pinned upstream revisions, contracts,
   architecture, and host requirements.

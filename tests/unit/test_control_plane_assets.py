@@ -124,9 +124,10 @@ class ControlPlaneAssetTests(unittest.TestCase):
         self.assertNotIn("OTEL_COLLECTOR_GRPC_ENDPOINT", self.compose)
 
     def test_compose_topology_uses_generated_core_gateway(self) -> None:
-        api = service_block(self.compose, "api")
-        self.assertIn("host.docker.internal:${KITDEV_CORE_GATEWAY:?required}", api)
-        self.assertNotIn("host-gateway", api)
+        for service in ("api", "client-proxy"):
+            block = service_block(self.compose, service)
+            self.assertIn("host.docker.internal:${KITDEV_CORE_GATEWAY:?required}", block)
+            self.assertNotIn("host-gateway", block)
         network = self.compose.split("\nnetworks:\n", maxsplit=1)[1]
         self.assertIn("name: kitdev-core", network)
         self.assertIn("external: true", network)
@@ -262,6 +263,33 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn("-trimpath -buildvcs=false -a", envd)
         self.assertIn("-buildid=", envd)
 
+        tools = (SCRIPTS / "build-snapshot-tools.sh").read_text(encoding="ascii")
+        self.assertIn("./packages/orchestrator/cmd/copy-build", tools)
+        self.assertIn("./packages/orchestrator/cmd/resume-build", tools)
+        self.assertIn("CGO_ENABLED=0 GOOS=linux GOARCH=amd64", tools)
+        self.assertIn("CGO_ENABLED=1 GOOS=linux GOARCH=amd64", tools)
+        self.assertIn("go mod download golang.org/x/term@v0.44.0", tools)
+        self.assertIn("go mod download\n", tools)
+        self.assertIn("--network none", tools)
+        self.assertIn("--pull never", tools)
+        self.assertNotIn("snapshot_tools_partial_state_conflict", tools)
+        self.assertLess(
+            tools.index("copy_build_runtime_conflict"),
+            tools.index('publish_exact_file "$stage/out/copy-build"'),
+        )
+        self.assertLess(
+            tools.index("resume_build_runtime_conflict"),
+            tools.index('publish_exact_file "$stage/out/copy-build"'),
+        )
+        self.assertIn("-trimpath -buildvcs=false", tools)
+        self.assertEqual(tools.count('-buildid="'), 2)
+        for digest in (
+            "aaf516f7157c70be3be35b552d94fdf1dbd3b9739a8d03a0c978f96d03c45406",
+            "d294e961a478f3ffa84ab9d10b10bb8fed723f844c5c49e891e70b7019df2ca9",
+        ):
+            self.assertIn(digest, tools)
+            self.assertIn(digest, self.versions_lock)
+
     def test_runtime_replay_verifies_migrations_containers_and_installed_bytes(self) -> None:
         replay = (SCRIPTS / "replay-compose.sh").read_text(encoding="ascii")
         self.assertIn("verify_migrations", replay)
@@ -301,9 +329,19 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         )
         self.assertEqual(installer.count("require_exact_file"), 8)
         self.assertIn("orchestrator.env.expected", installer)
+        environment = (ROOT / "systemd" / "orchestrator.env.template").read_text(
+            encoding="ascii"
+        )
+        self.assertIn(
+            "TEMPLATE_STORAGE_URL=file:///var/lib/kitdev-sandboxes/data/runtime/"
+            "orchestrator/template-storage/templates",
+            environment,
+        )
 
     def test_firewall_audit_rejects_broad_project_interface_rules(self) -> None:
         firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
+        self.assertIn('"port", "5007", "proto", "tcp"', firewall)
+        self.assertIn("port 5007 proto tcp comment 'kitdev core to sandbox proxy'", firewall)
         verifier = firewall.split("<<'PY_VERIFY_UFW'\n", maxsplit=1)[1].split(
             "\nPY_VERIFY_UFW", maxsplit=1
         )[0]

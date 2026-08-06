@@ -106,6 +106,8 @@ guest ingress boundary.
 The persistent rule contract is:
 
 ```text
+allow in on <derived-core-bridge> from <derived-core-subnet> to <derived-core-gateway> port 5007 proto tcp
+allow in on <derived-core-bridge> from <derived-core-subnet> to <derived-core-gateway> port 5008 proto tcp
 route allow in on veth+ out on <derived-default-interface> from 10.11.0.0/16 to any
 allow in on veth+ from 10.11.0.0/16 to any port 5010:5012 proto tcp
 allow in on veth+ from 10.11.0.0/16 to any port 5016:5018 proto tcp

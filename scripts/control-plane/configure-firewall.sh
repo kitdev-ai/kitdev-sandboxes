@@ -45,6 +45,7 @@ import sys
 
 subnet, gateway, bridge, outbound, include_build, policy = sys.argv[1:]
 expected = {
+    ("ufw", "allow", "in", "on", bridge, "from", subnet, "to", gateway, "port", "5007", "proto", "tcp"),
     ("ufw", "allow", "in", "on", bridge, "from", subnet, "to", gateway, "port", "5008", "proto", "tcp"),
     ("ufw", "allow", "in", "on", "veth+", "from", "10.11.0.0/16", "to", "any", "port", "5010:5012", "proto", "tcp"),
     ("ufw", "allow", "in", "on", "veth+", "from", "10.11.0.0/16", "to", "any", "port", "5016:5018", "proto", "tcp"),
@@ -53,7 +54,7 @@ expected = {
 build = ("ufw", "allow", "in", "on", "veth+", "from", "10.11.0.0/16", "to", "any", "port", "5516:5518", "proto", "tcp")
 if include_build == "yes":
     expected.add(build)
-protected = {"5008", "5010:5012", "5016:5018", "5516:5518", "10.11.0.0/16"}
+protected = {"5007", "5008", "5010:5012", "5016:5018", "5516:5518", "10.11.0.0/16"}
 observed = set()
 
 
@@ -144,6 +145,8 @@ main() {
   case "$mode" in
     apply)
       verify_rules no subset || control_plane_die ufw_rule_conflict 65
+      ufw allow in on "$core_bridge" from "$core_subnet" to "$core_gateway" \
+        port 5007 proto tcp comment 'kitdev core to sandbox proxy'
       ufw allow in on "$core_bridge" from "$core_subnet" to "$core_gateway" \
         port 5008 proto tcp comment 'kitdev core to orchestrator'
       ufw allow in on veth+ from 10.11.0.0/16 to any \

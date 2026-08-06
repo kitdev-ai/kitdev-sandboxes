@@ -171,6 +171,20 @@ artifacts:
     selection: Artifact used by the successful live create-build and resume smoke.
     status: live-validated-candidate
 
+  copy_build_infra_amd64:
+    source_commit: 882a3b4786755db9e94be3297de6827f9100ce5e
+    sha256: aaf516f7157c70be3be35b552d94fdf1dbd3b9739a8d03a0c978f96d03c45406
+    size_bytes: 37908606
+    selection: Pinned source build used for the live local snapshot copy and SQL emission.
+    status: live-validated-candidate
+
+  resume_build_infra_amd64:
+    source_commit: 882a3b4786755db9e94be3297de6827f9100ce5e
+    sha256: d294e961a478f3ffa84ab9d10b10bb8fed723f844c5c49e891e70b7019df2ca9
+    size_bytes: 62084336
+    selection: Pinned source build used for the live command-bearing snapshot resume.
+    status: live-validated-candidate
+
 container_images:
   note: >-
     These are the selected infra commit's local-development datastore versions,
