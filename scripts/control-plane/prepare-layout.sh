@@ -31,6 +31,7 @@ main() {
   ensure_directory "$KITDEV_RUNTIME_ROOT/envd" root kitdev 750
   ensure_directory "$KITDEV_RUNTIME_ROOT/orchestrator" root root 700
   ensure_directory "$KITDEV_RUNTIME_ROOT/orchestrator/template-storage" root root 700
+  ensure_directory "$KITDEV_RUNTIME_ROOT/orchestrator/template-storage/templates" root kitdev 2700
   ensure_directory "$KITDEV_RUNTIME_ROOT/orchestrator/build-cache" root root 700
   ensure_directory "$KITDEV_RUNTIME_ROOT/sandbox-vms" root root 700
   ensure_directory "$KITDEV_RUNTIME_ROOT/snapshot-cache" root root 700
