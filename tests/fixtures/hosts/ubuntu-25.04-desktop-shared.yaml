@@ -1,0 +1,198 @@
+fixture_schema_version: 1
+
+fixture:
+  name: ubuntu-25.04-desktop-shared
+  provenance: redacted-read-only-ssh
+  edition: desktop
+  shared_host: true
+  lifecycle_modes:
+    - development
+    - migration
+
+host_facts:
+  os_id: ubuntu
+  os_name: Ubuntu
+  os_version_id: "25.04"
+  architecture: x86_64
+  kernel_release: 6.14.0-37-generic
+
+  systemd_available: true
+  systemd_version: "257"
+  pid1_comm: systemd
+  default_target: graphical.target
+  cgroup_filesystem: cgroup2fs
+  cgroup_v2: true
+
+  virtualization_environment: none
+  cpu_flags:
+    - svm
+  cpu_virtualization: svm
+  nested_guest_support: true
+  dev_kvm_exists: true
+  dev_kvm_readable: false
+  dev_kvm_writable: false
+  dev_kvm_mode: "0660"
+  dev_kvm_group: kvm
+  kvm_device_exists: true
+  kvm_device_accessible: false
+  kvm_modules:
+    - kvm
+    - kvm_amd
+  intended_worker_kvm_access: unknown
+
+  nbd_loaded: false
+  nbd_device_count: 0
+  hugepage_size_kib: 2048
+  hugepages_total: 0
+  hugepages_free: 0
+  tun_device_exists: true
+  tun_device_mode: "0666"
+  overlay_filesystem_available: true
+
+  cpu_cores: 16
+  cpu_logical: 32
+  numa_nodes: 1
+  memory_total_mib_floor: 61440
+  memory_available_mib_floor: 49152
+  swap_total_mib: 0
+  project_path_filesystems:
+    - path: /opt/kitdev-sandboxes
+      source_mount_role: root
+      fstype: ext4
+      total_mib_floor: 1835008
+      free_mib_floor: 786432
+    - path: /var/lib/kitdev-sandboxes
+      source_mount_role: root
+      fstype: ext4
+      total_mib_floor: 1835008
+      free_mib_floor: 786432
+
+  docker_present: true
+  docker_running: true
+  docker_version: 29.2.1
+  compose_present: true
+  compose_version: 5.0.2
+  nftables_present: true
+  nftables_version: 1.1.1
+  apparmor_enabled: true
+  time_synchronized: unknown
+
+  display_manager: gdm
+  display_manager_active: true
+  network_manager_active: true
+  sleep_policy: unknown
+
+  ipv4_forwarding: unknown
+  ipv6_forwarding: unknown
+
+listeners:
+  management:
+    present: true
+    protocol: tcp
+    port_policy: nonstandard-redacted
+    ownership: foreign
+  stable:
+    - protocol: tcp
+      bind_scope: wildcard
+      port: 3000
+      owner: foreign-monitoring
+    - protocol: tcp
+      bind_scope: host-address-redacted
+      port: 3131
+      owner: foreign-application
+    - protocol: tcp
+      bind_scope: wildcard
+      port: 4000
+      owner: foreign-api
+    - protocol: tcp
+      bind_scope: loopback
+      port: 5432
+      owner: foreign-datastore
+    - protocol: tcp
+      bind_scope: wildcard
+      port: 8000
+      owner: foreign-model-service
+    - protocol: tcp
+      bind_scope: wildcard
+      port: 9090
+      owner: foreign-monitoring
+    - protocol: tcp
+      bind_scope: wildcard
+      port: 11434
+      owner: foreign-model-service
+    - protocol: tcp
+      bind_scope: loopback
+      port: 15432
+      owner: foreign-datastore
+    - protocol: tcp
+      bind_scope: loopback
+      port: 16379
+      owner: foreign-datastore
+
+foreign_resources:
+  containers:
+    running_count: 6
+    routed_network_count: 3
+    volume_count: 6
+    published_host_ports:
+      - 5432
+      - 15432
+      - 16379
+  units:
+    - semantic_name: foreign-prefix-backup.service
+      state: unknown
+      ownership: foreign
+    - semantic_name: foreign-prefix-firewall.service
+      state: unknown
+      ownership: foreign
+  network:
+    routed_networks:
+      - cidr: 172.18.0.0/16
+        kind: container-bridge
+        ownership: foreign
+        synthetic: true
+      - cidr: 172.19.0.0/16
+        kind: container-bridge
+        ownership: foreign
+        synthetic: true
+      - cidr: 172.20.0.0/16
+        kind: container-bridge
+        ownership: foreign
+        synthetic: true
+      - cidr: 192.0.2.0/24
+        kind: physical-lan
+        ownership: foreign
+        synthetic: true
+      - cidr: 198.51.100.0/24
+        kind: foreign-interface
+        ownership: foreign
+        synthetic: true
+  firewall:
+    host_firewall_active: true
+    host_firewall_enabled: true
+    docker_managed_rules_present: true
+    custom_chain_present: true
+    terminal_forward_drop_present: true
+
+conflicts:
+  foreign_project_prefix_collision: true
+  occupied_candidate_ports:
+    - 3000
+    - 5432
+  occupied_additional_ports:
+    - 4000
+    - 8000
+    - 9090
+    - 11434
+    - 15432
+    - 16379
+  nbd_preparation_status: conditional
+  hugepage_preparation_status: conditional
+  current_login_kvm_access_missing: true
+  desktop_coexistence_review_required: true
+  firewall_coexistence_review_required: true
+
+expected_release_policy:
+  production: fail
+  development: warn
+  migration: warn

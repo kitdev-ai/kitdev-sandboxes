@@ -20,6 +20,11 @@ private keys, secret values, or unnecessary personal/host identifiers.
   nested-virtualization deployment comparison.
 - [`host-discovery.md`](host-discovery.md): read-only `kit@pc` capability and
   coexistence inventory.
+- [`milestone-1-pc-doctor.md`](milestone-1-pc-doctor.md): temporary read-only
+  execution of the first Milestone 1 doctor slice on the shared development PC.
+- [`milestone-1-safety-review.md`](milestone-1-safety-review.md): release-gate
+  checklist for non-mutating configuration, doctor, process execution,
+  redaction, lifecycle policy, JSON contracts, and shared-host testing.
 - [`ovh-host-plan.md`](ovh-host-plan.md): Ubuntu-versus-Proxmox decision,
   OVHcloud purchase choices, provisioning paths, and read-only bring-up plan.
 - [`upstream-e2b.md`](upstream-e2b.md): pinned upstream revisions, contracts,

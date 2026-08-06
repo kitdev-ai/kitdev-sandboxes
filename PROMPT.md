@@ -707,7 +707,8 @@ Support:
 
 ## Doctor command
 
-`kitdev doctor` must check:
+The default `kitdev doctor` command is strictly read-only. It must not acquire
+privileges, prepare the host, or start a microVM. It must check:
 
 * supported Ubuntu release and lifecycle mode (Ubuntu 25.04 development or
   migration only; Ubuntu 26.04 LTS production)
@@ -732,9 +733,13 @@ Support:
 * upstream component versions
 * service health
 * template availability
-* ability to start a minimal Firecracker sandbox
 
 Output a readable report and `--json` output.
+
+The ability to start a minimal Firecracker sandbox belongs to an explicitly
+named post-install or deep smoke test. That test is mutating because it boots a
+microVM, so it is never part of the default `doctor` path. The deep smoke test
+is not implemented in the current Milestone 1 foundation slice.
 
 ## Idempotency requirements
 
@@ -1068,20 +1073,14 @@ Every commit must include:
 * known limitations
 * rollback instructions
 
-## First action
+## Current action
 
-Perform only Milestone 0 now.
+Milestone 0 discovery and architecture are complete. Milestone 1 is proceeding
+in independently reviewed slices. The current foundation slice may implement
+the typed CLI, configuration validation, and strictly read-only `doctor`; it
+must report unimplemented required checks as blocking `unknown` results.
 
-Do not install or modify the host yet.
-
-Inspect the upstream E2B repositories and `kit@pc`, create the repository scaffold, write the architecture documents, version lock file, preflight design and milestone plan, then report:
-
-1. Host compatibility findings.
-2. Port and service conflicts.
-3. Required host changes.
-4. Selected upstream commits.
-5. Proposed architecture.
-6. Risks or blockers.
-7. The exact next milestone.
-
-Stop after Milestone 0 and wait for review before applying host changes.
+Do not install, prepare, or otherwise modify a host until the remaining
+Milestone 1 dry-run, ownership, rollback, and host-preparation behavior is
+implemented and explicitly reviewed. The presence of the foundation CLI does
+not authorize host mutation or claim completion of Milestone 1.

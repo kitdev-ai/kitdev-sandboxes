@@ -8,8 +8,10 @@ and produces both a human report and stable JSON. The same fact/evaluation
 engine powers `kitdev doctor`, install planning, CI host qualification, and
 post-install diagnostics.
 
-This document is a design contract for Milestone 1. No preflight executable is
-implemented in Milestone 0.
+This document is the design contract for Milestone 1. The current foundation
+implements only typed configuration and an initial strictly read-only collector
+subset. Required checks that are not implemented remain blocking `unknown`
+results; the complete preflight and host-preparation exit gate has not passed.
 
 ## Safety contract
 

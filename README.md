@@ -6,8 +6,10 @@ runtime uses Firecracker microVMs and assumes sandbox workloads are hostile.
 
 ## Project status
 
-The project is in **Milestone 0: discovery and architecture**. This repository
-does not yet install or run services. Do not use it on a production host.
+The project is in **Milestone 1: preflight and host preparation (in progress)**.
+The repository provides a dependency-free, strictly read-only `doctor`
+foundation, but it does not yet install, prepare, or run services. Do not use it
+to qualify or operate a production host yet.
 
 Version 0.1 recognizes this host matrix:
 
@@ -21,14 +23,29 @@ Server and desktop editions are capability-qualified. Desktop services such as
 GDM must coexist without port, network-manager, device, or resource conflicts;
 the edition label alone is not a rejection criterion.
 
-The intended operator entrypoint is eventually:
+Run the current read-only checks from the repository root. Ubuntu 25.04 must use
+an explicit development or migration lifecycle mode:
 
 ```console
-sudo ./kitdev install
+./kitdev doctor --lifecycle-mode development
 ```
 
-That entrypoint is intentionally absent until Milestone 1 defines preflight,
-dry-run, and host-change behavior.
+The repository-local `./kitdev` launcher is the only supported entrypoint in
+this slice. An installed package console script will not be provided until its
+configuration assets and installation layout have a complete contract.
+
+Use `--json` for the versioned machine-readable report and `--verbose` to include
+bounded evidence. `--dry-run` is accepted for CLI consistency, but `doctor` is
+always read-only and always proposes zero changes:
+
+```console
+./kitdev doctor --lifecycle-mode development --json --verbose --dry-run
+```
+
+The current first slice reports exit code `5` on an otherwise eligible host
+because required capacity, service, network, kernel-facility, and security
+collectors are still explicitly incomplete. It must not be treated as full host
+qualification. `install`, apply, bootstrap, and all host mutation remain absent.
 
 ## Design priorities
 
@@ -61,9 +78,10 @@ The complete product brief is kept in `PROMPT.md`.
 
 ## Development
 
-Milestone 0 changes are documentation and scaffold only. See
-`CONTRIBUTING.md` before contributing. No command in the repository should be
-assumed safe to run against a host until Milestone 1 is reviewed.
+See `CONTRIBUTING.md` before contributing. Only `kitdev doctor` has a read-only
+safety contract in the current slice; no install or host-preparation command is
+available. The dependency-free unit-test command is documented in
+[`tests/README.md`](tests/README.md).
 
 ## License
 

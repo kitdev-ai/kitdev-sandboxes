@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kitdev-sandboxes:doctor-report:v1",
+  "title": "kitdev doctor report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "timestamp", "project_release", "lifecycle_mode", "command_mode",
+    "dry_run", "host", "summary", "checks", "changes"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "project_release": { "type": "string" },
+    "lifecycle_mode": { "enum": ["production", "development", "migration"] },
+    "command_mode": { "const": "read-only" },
+    "dry_run": { "type": "boolean" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform_fingerprint", "os_id", "os_version_id", "architecture"],
+      "properties": {
+        "platform_fingerprint": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+        "os_id": { "type": ["string", "null"] },
+        "os_version_id": { "type": ["string", "null"] },
+        "architecture": { "type": ["string", "null"] }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "warn", "fail", "unknown", "skipped"],
+      "properties": {
+        "pass": { "type": "integer", "minimum": 0 },
+        "warn": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "unknown": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "status", "severity", "explanation", "remediation",
+          "installer_can_remediate", "failure_category"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_.]+$" },
+          "status": { "enum": ["pass", "warn", "fail", "unknown", "skipped"] },
+          "severity": { "enum": ["info", "warning", "blocking"] },
+          "explanation": { "type": "string" },
+          "remediation": { "type": ["string", "null"] },
+          "installer_can_remediate": { "type": "boolean" },
+          "failure_category": {
+            "type": ["string", "null"],
+            "enum": ["platform", "conflict", "unknown", "unhealthy", null]
+          },
+          "evidence": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "changes": { "type": "array", "maxItems": 0 }
+  }
+}
