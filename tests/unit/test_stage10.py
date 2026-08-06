@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from kitdev_sandboxes.journal import JournalConflict, JournalStore
+from kitdev_sandboxes.runner import CommandOutcome, CommandResult, StreamEvidence
 from kitdev_sandboxes.stage05 import CONFIG_ROOT, MARKER_PATH, Stage05Paths, Stage05Reconciler
 from kitdev_sandboxes.stage10 import (
     DOCKER_CONFLICT_PACKAGES,
@@ -55,6 +56,7 @@ class FakePackages:
             "curl": "8.5.0-2ubuntu10",
         }
         self.holds: tuple[str, ...] = ("unrelated-package",)
+        self.error_states: dict[str, str] = {}
         self.manual: tuple[str, ...] = ("ca-certificates", "curl", "ubuntu-keyring")
         self.automatic: tuple[str, ...] = ()
         self.simulation = (
@@ -94,9 +96,10 @@ class FakePackages:
                 return CommandOutput(1, "", "not installed\n", False)
             status, version, architecture = self.installed[name]
             selection = "install" if status == "installed" else "deinstall"
+            error_state = self.error_states.get(name, "ok")
             return CommandOutput(
                 0,
-                f"{selection}\tok\t{status}\t{version}\t{architecture}\n",
+                f"{selection}\t{error_state}\t{status}\t{version}\t{architecture}\n",
                 "",
                 True,
             )
@@ -382,6 +385,102 @@ class Stage10Tests(unittest.TestCase):
         )
         with self.assertRaisesRegex(Stage10Error, "unsupported_lab_os"):
             self.resolver().resolve("execute")
+
+    def test_dpkg_audit_and_package_status_have_actionable_reason_codes(self) -> None:
+        original = self.packages.__call__
+
+        def dirty_pre_audit(argv: tuple[str, ...]) -> CommandOutput:
+            if argv == ("/usr/bin/dpkg", "--audit"):
+                return CommandOutput(0, "incomplete package\n", "", True)
+            return original(argv)
+
+        with self.assertRaisesRegex(Stage10Error, "^dpkg_audit_dirty_pre$"):
+            self.resolver(command=dirty_pre_audit).resolve("execute")
+
+        def failed_pre_audit(argv: tuple[str, ...]) -> CommandOutput:
+            if argv == ("/usr/bin/dpkg", "--audit"):
+                return CommandOutput(2, "", "", False)
+            return original(argv)
+
+        with self.assertRaisesRegex(Stage10Error, "^dpkg_audit_failed_pre$"):
+            self.resolver(command=failed_pre_audit).resolve("execute")
+
+        def unavailable_pre_audit(argv: tuple[str, ...]) -> CommandOutput:
+            if argv == ("/usr/bin/dpkg", "--audit"):
+                raise RuntimeError("test-only command transport failure")
+            return original(argv)
+
+        with self.assertRaisesRegex(Stage10Error, "^dpkg_audit_unavailable_pre$"):
+            self.resolver(command=unavailable_pre_audit).resolve("execute")
+
+        audit_count = 0
+
+        def dirty_post_audit(argv: tuple[str, ...]) -> CommandOutput:
+            nonlocal audit_count
+            if argv == ("/usr/bin/dpkg", "--audit"):
+                audit_count += 1
+                if audit_count == 2:
+                    return CommandOutput(0, "", "post-audit warning\n", True)
+            return original(argv)
+
+        with self.assertRaisesRegex(Stage10Error, "^dpkg_audit_dirty_post$"):
+            self.resolver(command=dirty_post_audit).resolve("execute")
+
+        audit_count = 0
+
+        def failed_post_audit(argv: tuple[str, ...]) -> CommandOutput:
+            nonlocal audit_count
+            if argv == ("/usr/bin/dpkg", "--audit"):
+                audit_count += 1
+                if audit_count == 2:
+                    return CommandOutput(2, "", "", False)
+            return original(argv)
+
+        with self.assertRaisesRegex(Stage10Error, "^dpkg_audit_failed_post$"):
+            self.resolver(command=failed_post_audit).resolve("execute")
+
+        audit_count = 0
+
+        def unavailable_post_audit(argv: tuple[str, ...]) -> CommandOutput:
+            nonlocal audit_count
+            if argv == ("/usr/bin/dpkg", "--audit"):
+                audit_count += 1
+                if audit_count == 2:
+                    raise RuntimeError("test-only command transport failure")
+            return original(argv)
+
+        with self.assertRaisesRegex(Stage10Error, "^dpkg_audit_unavailable_post$"):
+            self.resolver(command=unavailable_post_audit).resolve("execute")
+
+        self.packages.error_states["ca-certificates"] = "reinstreq"
+        with self.assertRaisesRegex(Stage10Error, "^package_status_error_probe_01$"):
+            self.resolver().resolve("execute")
+
+        self.packages.error_states.clear()
+        self.packages.installed["docker.io"] = ("config-files", "28.0.1", "amd64")
+        self.packages.error_states["docker.io"] = "reinstreq"
+        with self.assertRaisesRegex(Stage10Error, "^package_status_error_probe_08$"):
+            self.resolver().resolve("execute")
+
+    def test_truncated_command_result_maps_to_audit_unavailable(self) -> None:
+        truncated = StreamEvidence("", 0, 1, True)
+        empty = StreamEvidence("", 0, 0, False)
+        result = CommandResult(
+            argv=("/usr/bin/dpkg", "--audit"),
+            outcome=CommandOutcome.SUCCESS,
+            returncode=0,
+            termination_signal=None,
+            timed_out=False,
+            missing_executable=False,
+            permission_denied=False,
+            stdout=truncated,
+            stderr=empty,
+            duration_seconds=0.01,
+        )
+
+        with patch("kitdev_sandboxes.stage10.CommandRunner.run", return_value=result):
+            with self.assertRaisesRegex(Stage10Error, "^dpkg_audit_unavailable_pre$"):
+                self.resolver(command=None).resolve("execute")
 
     def test_real_stage05_validated_state_is_required_and_reused(self) -> None:
         stage05 = Stage05Reconciler(

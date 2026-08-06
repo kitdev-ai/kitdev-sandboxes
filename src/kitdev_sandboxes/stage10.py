@@ -261,7 +261,7 @@ class Stage10Resolver:
             )
         )
         if result.output_truncated or result.io_error or result.cleanup_error:
-            raise Stage10Error("package_inventory_unknown")
+            raise RuntimeError("bounded command result unavailable")
         return CommandOutput(
             result.returncode,
             result.stdout.text,
@@ -481,7 +481,11 @@ class Stage10Resolver:
             raise Stage10Error(reason)
         return result
 
-    def _package_state(self, name: str, *, candidate: bool) -> PackageState:
+    def _package_state(
+        self, name: str, *, candidate: bool, probe_index: int
+    ) -> PackageState:
+        if not 1 <= probe_index <= 99:
+            raise Stage10Error("package_probe_index_invalid")
         _safe_token(_PACKAGE_RE, name, "package_inventory_unknown")
         query = self._invoke(
             (
@@ -510,7 +514,7 @@ class Stage10Resolver:
             )
             architecture = _safe_token(_ARCH_RE, fields[4], "package_inventory_unknown")
             if error_state != "ok":
-                raise Stage10Error("package_inventory_broken")
+                raise Stage10Error(f"package_status_error_probe_{probe_index:02d}")
         elif query.returncode != 1 or query.stdout:
             raise Stage10Error("package_inventory_unknown")
 
@@ -551,10 +555,16 @@ class Stage10Resolver:
             candidate_version,
         )
 
-    def _dpkg_audit(self) -> None:
-        result = self._invoke(("/usr/bin/dpkg", "--audit"), "package_inventory_unknown")
-        if not result.succeeded or result.stdout or result.stderr:
-            raise Stage10Error("package_inventory_broken")
+    def _dpkg_audit(self, phase: str) -> None:
+        if phase not in {"pre", "post"}:
+            raise Stage10Error("dpkg_audit_phase_invalid")
+        result = self._invoke(
+            ("/usr/bin/dpkg", "--audit"), f"dpkg_audit_unavailable_{phase}"
+        )
+        if not result.succeeded:
+            raise Stage10Error(f"dpkg_audit_failed_{phase}")
+        if result.stdout or result.stderr:
+            raise Stage10Error(f"dpkg_audit_dirty_{phase}")
 
     @contextmanager
     def _package_locks(self) -> Iterator[None]:
@@ -776,7 +786,7 @@ class Stage10Resolver:
         ubuntu_archive_keyring = self._state_file_hash(UBUNTU_ARCHIVE_KEYRING_PATH)
         extended_states_hash = self._state_file_hash(APT_EXTENDED_STATES_PATH)
         dpkg_status_hash = self._state_file_hash(DPKG_STATUS_PATH)
-        self._dpkg_audit()
+        self._dpkg_audit("pre")
         architecture = self._invoke(
             ("/usr/bin/dpkg", "--print-architecture"), "package_inventory_unknown"
         )
@@ -784,13 +794,16 @@ class Stage10Resolver:
             raise Stage10Error("unsupported_lab_architecture")
 
         packages = tuple(
-            self._package_state(name, candidate=True) for name in PREREQUISITE_PACKAGES
+            self._package_state(name, candidate=True, probe_index=index)
+            for index, name in enumerate(PREREQUISITE_PACKAGES, start=1)
         )
         conflicts = tuple(
-            self._package_state(name, candidate=False) for name in DOCKER_CONFLICT_PACKAGES
+            self._package_state(name, candidate=False, probe_index=index)
+            for index, name in enumerate(DOCKER_CONFLICT_PACKAGES, start=3)
         )
         trust_packages = tuple(
-            self._package_state(name, candidate=False) for name in TRUST_PACKAGES
+            self._package_state(name, candidate=False, probe_index=index)
+            for index, name in enumerate(TRUST_PACKAGES, start=11)
         )
         holds = self._holds()
         actions = self._simulate(packages)
@@ -817,7 +830,7 @@ class Stage10Resolver:
             != ubuntu_archive_keyring
         ):
             raise Stage10Error("read_only_state_changed")
-        self._dpkg_audit()
+        self._dpkg_audit("post")
         installed_conflicts = tuple(
             package.name for package in conflicts if package.status != "absent"
         )

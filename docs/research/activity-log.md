@@ -777,3 +777,27 @@ untracked, and must never be quoted into tracked documentation.
   and final acceptance still requires a clean Ubuntu reinstall and reusable
   automation qualification.
 - **Commit:** Pending in this documentation change set.
+
+## 2026-08-06 - Stage 10 first-run fail-closed diagnosis
+
+- **Intent:** Record the first Stage 10 host result and make future precheck
+  failures actionable without exposing package names, versions, or command
+  output.
+- **Safe activity summary:** Off-host run `run-10-H2Ynnbd9` stopped before its
+  first snapshot with `package_inventory_broken`. The plan-only stage made zero
+  mutation. A bounded read-only follow-up found `dpkg --audit` clean, all three
+  prerequisite/trust packages in `install/ok/installed` state, and all eight
+  Docker conflict packages absent.
+- **Correction:** Split audit invocation, nonzero, and dirty-output failures by
+  pre/post phase. Dpkg error states now report only a deterministic package
+  probe index. The fixed index ranges identify the contract category without
+  publishing host-derived package or version data.
+- **Files and evidence:** [Stage 10 first-run diagnosis](ovh-stage10-first-run.md),
+  typed resolver tests, and the existing ignored redacted run artifact.
+- **Mutation status:** The remote run and its follow-up diagnostics were
+  read-only. This local change updates code, tests, and documentation only. No
+  SSH or server operation was performed while preparing the correction.
+- **Limitations / next gate:** Independent LUNA re-review and local focused/full
+  tests are required before generating a new exact bundle-bound approval.
+  Stage 10 still cannot apply, and Stage 50 remains blocked.
+- **Commit:** Pending in this change set.

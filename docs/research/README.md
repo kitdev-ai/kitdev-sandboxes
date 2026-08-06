@@ -49,6 +49,12 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`ovh-stage05-first-run.md`](ovh-stage05-first-run.md): normalized Stage 05
   initial apply and idempotent reapply evidence, exact immutable hashes,
   mutation boundary, and remaining rollback/reinstall gates.
+- [`ovh-stage10-official-prerequisites.md`](ovh-stage10-official-prerequisites.md):
+  official Ubuntu and Docker package/repository contract for the two-phase,
+  reproducible Stage 10 plan.
+- [`ovh-stage10-first-run.md`](ovh-stage10-first-run.md): first Stage 10
+  fail-closed result, zero-mutation diagnosis, and actionable reason-code
+  correction.
 - [`ovh-26-04-remote-test.md`](ovh-26-04-remote-test.md): reproducible ephemeral
   Ubuntu 26.04 unit and read-only CLI verification with before/after evidence.
 - [`ovh-host-plan.md`](ovh-host-plan.md): Ubuntu-versus-Proxmox decision,
