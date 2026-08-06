@@ -7,6 +7,8 @@ umask 077
 
 readonly BUILDER='docker.io/library/golang:1.26.5-bookworm@sha256:6c5605ab3a9a9fb3c4eafe5b3d63cdbf3881caf113262b67862547b54a9db599'
 readonly BUILD_ID=2d9a8389-f5f5-4449-b0eb-e1d364ee98ae
+readonly CLIENT_SHA256=2e1e9947a3d553b7e8f92b00304361503a220bbbda9b321c88e4e4886ed35f11
+readonly CLIENT_SIZE=10068094
 readonly API_ROOT=http://127.0.0.1:3000
 readonly ORCHESTRATOR_HEALTH=http://127.0.0.1:5008/health
 readonly EXPECTED_ORCHESTRATOR_ENV="$KITDEV_OPT_ROOT/libexec/control-plane/orchestrator.env.expected"
@@ -83,15 +85,18 @@ curl_create_code() {
 }
 
 build_process_client() {
-  local digest
+  local digest client_source
   mkdir -m 0700 -- "$stage/source" "$stage/out" "$stage/go-mod-cache" "$stage/go-build-cache"
   git -C "$KITDEV_INFRA_ROOT" archive --format=tar "$KITDEV_INFRA_COMMIT" \
     --output "$stage/source.tar"
   tar --extract --file "$stage/source.tar" --directory "$stage/source" \
     --no-same-owner --no-same-permissions
   rm -f -- "$stage/source.tar"
+  client_source="$stage/source/packages/shared/cmd/kitdev-e2e-process/main.go"
+  [[ ! -e "$client_source" && ! -L "$client_source" ]] ||
+    control_plane_die e2e_client_source_conflict 65
   install -D -o root -g root -m 0600 -- "$SCRIPT_DIR/e2e-process-client/main.go" \
-    "$stage/source/.kitdev-e2e/main.go"
+    "$client_source"
   docker run --rm --pull always --platform linux/amd64 --user 0:0 \
     --volume "$stage/source:/src" \
     --volume "$stage/go-mod-cache:/go/pkg/mod" \
@@ -105,12 +110,14 @@ build_process_client() {
     --workdir /src "$BUILDER" \
     bash -Eeuo pipefail -c \
       'CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false \
-       -ldflags "-s -w -buildid=" -o /out/e2e-process-client ./.kitdev-e2e'
+       -ldflags "-s -w -buildid=" -o /out/e2e-process-client \
+       ./packages/shared/cmd/kitdev-e2e-process'
   chmod 0700 -- "$stage/out/e2e-process-client"
-  [[ "$(stat -c '%u:%g:%a:%h' -- "$stage/out/e2e-process-client")" == '0:0:700:1' ]] ||
+  [[ "$(stat -c '%u:%g:%a:%s:%h' -- "$stage/out/e2e-process-client")" == \
+    "0:0:700:$CLIENT_SIZE:1" ]] ||
     control_plane_die e2e_client_metadata_invalid 65
   digest="$(sha256sum -- "$stage/out/e2e-process-client" | awk '{print $1}')"
-  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || control_plane_die e2e_client_hash_invalid 65
+  [[ "$digest" == "$CLIENT_SHA256" ]] || control_plane_die e2e_client_hash_invalid 65
 }
 
 parse_ready_node() {

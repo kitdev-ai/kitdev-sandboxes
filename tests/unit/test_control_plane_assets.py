@@ -338,6 +338,13 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn("--max-time 180", runner)
         self.assertIn("--pull never --platform linux/amd64 --network none", runner)
         self.assertIn('--volume "$stage/source:/src:ro"', runner)
+        self.assertIn("./packages/shared/cmd/kitdev-e2e-process", runner)
+        self.assertNotIn("./.kitdev-e2e", runner)
+        self.assertIn(
+            "2e1e9947a3d553b7e8f92b00304361503a220bbbda9b321c88e4e4886ed35f11",
+            runner,
+        )
+        self.assertIn("readonly CLIENT_SIZE=10068094", runner)
         self.assertLess(runner.index("go mod download"), runner.index("--network none"))
         self.assertIn("require_clean_infra_checkout", runner)
         self.assertIn("flock --nonblock 9", runner)

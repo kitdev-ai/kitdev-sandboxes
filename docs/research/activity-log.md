@@ -959,8 +959,10 @@ untracked, and must never be quoted into tracked documentation.
   and Redis state on success or failure.
 - **Evidence boundary:** The API schema predicates were checked against pinned
   source and a credential-safe live query. Local unit, shell, lint, and static
-  security gates passed; the complete wrapper still requires execution on the
-  Ubuntu x86_64 development host with a caller-supplied API-key file.
+  security gates passed. The pinned ConnectRPC client also compiled as an
+  exact-locked Linux amd64 artifact with the final build network disabled and
+  source mounted read-only. The complete wrapper still requires execution on
+  the Ubuntu x86_64 development host with a caller-supplied API-key file.
 - **Support:** Ubuntu 25.04 remains development/migration-only and Ubuntu 26.04
   is the production target. Ubuntu 24.04 is unsupported.
 - **Commit:** Pending in this change set.

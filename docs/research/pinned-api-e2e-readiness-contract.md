@@ -66,6 +66,22 @@ exactly one expected node reporting `ready`, and the exact API template/build
 predicate above. It must not depend on `cachedBuilds` being populated before
 the first create.
 
+## Offline client build validation
+
+The tracked ConnectRPC command client was built on the development PC from the
+pinned archive using the digest-locked Go 1.26.5 builder. Online execution was
+limited to `go mod download`; the final Linux amd64 compile used no network and
+a read-only source mount. The command must live under the pinned
+`packages/shared` module because the repository `go.work` rejects a command at
+the repository root.
+
+The reproducible output was a stripped, statically linked x86-64 ELF of
+10,068,094 bytes with SHA-256
+`2e1e9947a3d553b7e8f92b00304361503a220bbbda9b321c88e4e4886ed35f11`.
+The verifier exact-locks both values. This proves compilation only; executing
+the complete wrapper against the clean installed node identity remains an OVH
+development-host gate.
+
 ## Primary sources
 
 - [Pinned OpenAPI schema](https://github.com/e2b-dev/infra/blob/882a3b4786755db9e94be3297de6827f9100ce5e/spec/openapi.yml)
