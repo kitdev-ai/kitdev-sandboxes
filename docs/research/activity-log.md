@@ -457,3 +457,107 @@ untracked, and must never be quoted into tracked documentation.
   write-ahead journal, exact UID/GID plan, and complete LXD prerequisite before
   any identity apply can be reviewed.
 - **Commit:** Not committed.
+
+## 2026-08-06 - Disposable OVH lab framework implementation
+
+- **Intent:** Support fast, user-approved learning on the disposable OVH host
+  without creating undocumented manual state or confusing lab success with a
+  reusable production installation.
+- **Delegated LUNA agent:** LUNA lab-framework implementation agent under
+  project-lead supervision.
+- **Safe activity summary:** Added a fixed eleven-stage experiment manifest,
+  local SSH runner, shared acknowledgement/production guards, normalized
+  evidence and redaction rules, stage scripts, static tests, and a promotion
+  rule requiring reinstall followed by `kitdev`/Ansible. Independent review
+  rejected the initial marker mutation; all mutations now fail closed.
+- **Files and evidence:** [Disposable lab framework report](ovh-disposable-lab-framework.md)
+  and `experiments/ovh-lab/`.
+- **Result:** Only the baseline and raw-storage discovery stages are executable,
+  and both are read-only. Marker, package, identity, kernel, Docker,
+  network/firewall, upstream, service, and acceptance stages are blocked. Eleven focused
+  framework tests and the complete 160-test unit suite passed locally;
+  ShellCheck was unavailable.
+- **Mutation status:** Repository edits and local static tests only. No SSH,
+  upload, remote command, privilege operation, package/account/storage/kernel,
+  network/firewall, container/service action, or server mutation was run.
+- **Limitations / next gate:** Complete independent review, authorize exact
+  stage hashes before remote use, promote learned behavior into typed
+  `kitdev`/Ansible automation, reinstall, and qualify the clean reusable path.
+- **Commit:** Not committed.
+
+## 2026-08-06 - Ephemeral Ubuntu 26.04 remote verification
+
+- **Intent:** Stop treating the new bare-metal host as an inferred target and
+  execute the current repository through a reproducible, tightly bounded
+  development harness without enabling persistent host configuration.
+- **Delegated LUNA agent:** LUNA remote-harness implementation and execution
+  agent under project-lead supervision.
+- **Safe activity summary:** Added a deterministic worktree archive and
+  isolated SSH test harness. It pinned the privately supplied prior host-key
+  observation, created one guarded mode-0700 `/tmp` directory, uploaded and
+  extracted the archive, ran the full unit suite and three read-only CLI smoke
+  paths, compared worktree and project-root snapshots, checked for bytecode
+  cache, and removed the temporary tree through a remote EXIT trap. A separate
+  SSH command verified cleanup.
+- **Result:** Ubuntu Python 3.14.4 passed 145 unit tests. Doctor, general install
+  dry-run, and identity-access dry-run returned expected blocking exit 5 with
+  valid JSON. The four fixed project roots were absent before and after; the
+  extracted worktree was unchanged; bytecode cache was absent; cleanup passed.
+- **Mutation status:** Temporary upload/extraction/result files under one unique
+  guarded remote `/tmp` path only, followed by verified removal. Normal SSH/OS
+  session audit records may change. No sudo, packages, services, identities,
+  firewall, network, kernel, disk, mount, reboot, or persistent project path
+  was changed.
+- **Files and evidence:** [Ephemeral remote test report](ovh-26-04-remote-test.md)
+  and `scripts/dev/ovh-remote-test.sh`. Endpoint and fingerprint remain only in
+  ignored private inventory; the fingerprint is still independently unverified.
+- **Verification:** Harness `bash -n` and repository whitespace checks passed.
+  ShellCheck was unavailable locally and was not installed. The workstation's
+  Apple Python 3.9 is below the project language requirement; the authoritative
+  remote Python 3.14.4 suite passed all 145 tests.
+- **Limitations / next gate:** This validates the nonmutating code path, not
+  bootstrap/apply/rollback. Independently verify the host key, then implement
+  the journaled reproducible bootstrap and identity phase before seeking a
+  privileged mutation approval.
+- **Commit:** Not committed.
+
+## 2026-08-06 - Crash-consistent installation journal foundation
+
+- **Intent:** Implement the durable write-ahead state boundary required before
+  any resumable or rollback-capable host mutation can be considered.
+- **Delegated LUNA agents:** LUNA journal/bootstrap implementation agent and an
+  independent LUNA journal review agent under project-lead supervision.
+- **Safe activity summary:** Added the crash-consistent installation journal
+  implementation and focused tests across two files with about 1,100 inserted
+  lines. The final cached diff was clean and the independent review approved
+  the journal foundation.
+- **Result:** The final pre-commit full suite passed 157 tests. The foundation
+  was committed as `7ccf7ea` (`Add crash-consistent installation journal`).
+- **Mutation status:** Repository implementation and hermetic tests only. No
+  server access or host mutation occurred.
+- **Limitations / next gate:** The journal is a prerequisite, not an approved
+  bootstrap or identity apply path. Bind it to reviewed typed actions and
+  Ansible convergence before any persistent server change.
+- **Commit:** `7ccf7ea`
+
+## 2026-08-06 - Ephemeral OVH validation harness commit
+
+- **Intent:** Preserve the bounded remote validation procedure as reusable
+  repository code rather than an operator-only command transcript.
+- **Delegated LUNA agent:** LUNA remote-harness implementation and execution
+  agent under project-lead supervision.
+- **Safe activity summary:** Added the ephemeral OVH validation harness and its
+  redacted research report across two files with about 410 inserted lines. It
+  was executed twice; the final run used OVH Python 3.14.4.
+- **Result:** The final remote run passed 145/145 tests at that revision. All
+  three dry-run paths returned the expected blocking exit `5`; persistent paths,
+  bytecode caches, and worktree content were unchanged; temporary cleanup was
+  verified. The work was committed as `7fcc48a` (`Add ephemeral OVH validation
+  harness`).
+- **Mutation status:** One guarded temporary remote worktree was created and
+  removed by the harness. No persistent project path or host configuration was
+  changed.
+- **Limitations / next gate:** This is nonmutating qualification only. It does
+  not approve bootstrap, identity, package, storage, kernel, network, service,
+  or other persistent apply work.
+- **Commit:** `7fcc48a`

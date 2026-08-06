@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "acknowledgement": "DISPOSABLE_OVH_LAB",
+  "production_automation": false,
+  "final_acceptance": "reinstall-then-kitdev-ansible",
+  "stages": [
+    {"id": "00", "name": "read-only-baseline", "script": "stages/00-read-only-baseline.sh", "kind": "read-only", "status": "executable"},
+    {"id": "05", "name": "lab-marker-workspace", "script": "stages/05-lab-marker-workspace.sh", "kind": "mutation", "status": "blocked"},
+    {"id": "10", "name": "package-tool-prerequisites", "script": "stages/10-package-tool-prerequisites.sh", "kind": "mutation", "status": "blocked"},
+    {"id": "20", "name": "identity-kvm-access", "script": "stages/20-identity-kvm-access.sh", "kind": "mutation", "status": "blocked"},
+    {"id": "30", "name": "raw-data-storage-plan", "script": "stages/30-raw-data-storage-plan.sh", "kind": "plan-only", "status": "executable"},
+    {"id": "40", "name": "kernel-nbd-hugepages", "script": "stages/40-kernel-nbd-hugepages.sh", "kind": "mutation", "status": "blocked"},
+    {"id": "50", "name": "docker-compose", "script": "stages/50-docker-compose.sh", "kind": "mutation", "status": "blocked"},
+    {"id": "60", "name": "network-firewall-plan", "script": "stages/60-network-firewall-plan.sh", "kind": "plan-only", "status": "blocked"},
+    {"id": "70", "name": "e2b-source-artifact-bring-up", "script": "stages/70-e2b-source-artifact-bring-up.sh", "kind": "mutation", "status": "blocked"},
+    {"id": "80", "name": "services", "script": "stages/80-services.sh", "kind": "mutation", "status": "blocked"},
+    {"id": "90", "name": "acceptance-evidence-export", "script": "stages/90-acceptance-evidence-export.sh", "kind": "read-only", "status": "blocked"}
+  ]
+}

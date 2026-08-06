@@ -40,7 +40,12 @@ private keys, secret values, or unnecessary personal/host identifiers.
   least-privilege identity plan; it authorizes no host change.
 - [`ovh-26-04-lxd-inventory.md`](ovh-26-04-lxd-inventory.md): bounded read-only
   evidence for LXD non-use and the remaining installer-shim boundary.
+- [`ovh-26-04-remote-test.md`](ovh-26-04-remote-test.md): reproducible ephemeral
+  Ubuntu 26.04 unit and read-only CLI verification with before/after evidence.
 - [`ovh-host-plan.md`](ovh-host-plan.md): Ubuntu-versus-Proxmox decision,
   OVHcloud purchase choices, provisioning paths, and read-only bring-up plan.
+- [`ovh-disposable-lab-framework.md`](ovh-disposable-lab-framework.md): staged,
+  gated experiment harness, executable/blocked boundary, evidence controls, and
+  reinstall-to-production promotion rule.
 - [`upstream-e2b.md`](upstream-e2b.md): pinned upstream revisions, contracts,
   architecture, and host requirements.
