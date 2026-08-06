@@ -748,3 +748,32 @@ untracked, and must never be quoted into tracked documentation.
   any remote retry; the source correction invalidates the failed run's prior
   approval digest.
 - **Commit:** Pending in this change set.
+
+## 2026-08-06 - Stage 05 remote apply/apply qualification
+
+- **Intent:** Record the first successful journaled disposable-lab mutation and
+  its idempotent second execution from bounded off-host evidence.
+- **Safe activity summary:** Run `run-05-ZgYEf0Rm` began with absent Stage 05
+  state, applied the exact plan, reached `validated` through four transitions,
+  and passed independent after/postcondition collection with an empty workspace
+  and retained provenance. Run `run-05-JTmISBLY` began, executed, and ended in
+  the same exact `validated` four-transition state with identical plan, bundle,
+  and marker hashes. All operation, after, and postcondition return codes were
+  zero for both runs.
+- **Files and evidence:** [Stage 05 apply/apply report](ovh-stage05-first-run.md)
+  summarizes the ignored redacted artifacts and exact public-safe hashes. The
+  private server inventory records the current project-owned host state.
+- **Result:** Remote Stage 05 apply/apply qualification passed. The second run
+  published no new journal transition and preserved the exact empty workspace,
+  marker, and retained journal provenance.
+- **Mutation status:** The first successful run created only the fixed
+  project-owned state/journal roots, Stage 05 journal, config/experiments/
+  workspace directories, and canonical disposable-lab marker. The idempotent
+  second run performed validation only. Neither run contained package,
+  account/group, storage, kernel, Docker/container, network/firewall, systemd
+  service, mount, or reboot actions.
+- **Limitations / next gate:** Rollback/rollback host qualification remains
+  pending under separate exact approvals. Later mutation stages remain blocked,
+  and final acceptance still requires a clean Ubuntu reinstall and reusable
+  automation qualification.
+- **Commit:** Pending in this documentation change set.
