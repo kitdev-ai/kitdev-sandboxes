@@ -9,7 +9,7 @@ readonly REMOTE_TIMEOUT_SECONDS=90
 readonly EVIDENCE_MAX_BYTES=1048576
 
 usage() {
-  printf 'usage: OVH_LAB_TARGET=<ssh-alias> %s <stage-id> approval|approval-rollback|execute|rollback\n' "$0" >&2
+  printf 'usage: OVH_LAB_TARGET=<ssh-alias> OVH_LAB_SSH_CONFIG=<private-absolute-path> %s <stage-id> approval|approval-rollback|execute|rollback\n' "$0" >&2
   exit 64
 }
 
@@ -23,6 +23,7 @@ readonly STAGE_ID="$1"
 readonly OPERATION="${2:-execute}"
 readonly ACK="${DISPOSABLE_OVH_LAB:-}"
 readonly TARGET="${OVH_LAB_TARGET:-}"
+readonly SSH_CONFIG="${OVH_LAB_SSH_CONFIG:-}"
 readonly KNOWN_HOSTS="${OVH_LAB_KNOWN_HOSTS:-}"
 
 [[ "$TARGET" =~ ^[A-Za-z0-9_-]{1,64}$ ]] || die 'OVH_LAB_TARGET must be a configured SSH alias, not an endpoint' 64
@@ -62,6 +63,95 @@ bundle_stage() {
 [[ "$STAGE_STATUS" == executable ]] || die 'stage is blocked by the manifest' 20
 [[ "$STAGE_KIND" == read-only || "$STAGE_KIND" == plan-only ]] ||
   die 'mutable stages are disabled in this revision' 20
+
+validate_ssh_config() {
+  python3 - "$SSH_CONFIG" "${1:-}" <<'PY'
+import hashlib
+import os
+import re
+import stat
+import sys
+
+path = sys.argv[1]
+snapshot_path = sys.argv[2]
+encoded_path = os.fsencode(path)
+if (
+    not path
+    or not os.path.isabs(path)
+    or len(encoded_path) > 4096
+    or any(byte < 32 or byte == 127 for byte in encoded_path)
+):
+    raise SystemExit(64)
+try:
+    before = os.lstat(path)
+except OSError:
+    raise SystemExit(64)
+if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode):
+    raise SystemExit(64)
+if before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) & 0o077:
+    raise SystemExit(64)
+if not hasattr(os, "O_NOFOLLOW"):
+    raise SystemExit(64)
+flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW
+try:
+    descriptor = os.open(path, flags)
+except OSError:
+    raise SystemExit(64)
+try:
+    opened_before = os.fstat(descriptor)
+    if (opened_before.st_dev, opened_before.st_ino) != (before.st_dev, before.st_ino):
+        raise SystemExit(64)
+    if not stat.S_ISREG(opened_before.st_mode):
+        raise SystemExit(64)
+    if opened_before.st_uid != os.geteuid() or stat.S_IMODE(opened_before.st_mode) & 0o077:
+        raise SystemExit(64)
+    content = bytearray()
+    while True:
+        chunk = os.read(descriptor, min(65536, 1048577 - len(content)))
+        if not chunk:
+            break
+        content.extend(chunk)
+        if len(content) > 1048576:
+            raise SystemExit(64)
+    opened_after = os.fstat(descriptor)
+    stable_fields = ("st_dev", "st_ino", "st_size", "st_mode", "st_uid", "st_mtime_ns", "st_ctime_ns")
+    if any(getattr(opened_before, field) != getattr(opened_after, field) for field in stable_fields):
+        raise SystemExit(64)
+finally:
+    os.close(descriptor)
+
+for line in bytes(content).splitlines():
+    stripped = line.lstrip(b" \t")
+    if not stripped or stripped.startswith(b"#"):
+        continue
+    if re.match(br"(?i:include)(?:[ \t]|=|$)", stripped):
+        raise SystemExit(64)
+
+if snapshot_path:
+    snapshot_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    try:
+        snapshot = os.open(snapshot_path, snapshot_flags, 0o600)
+    except OSError:
+        raise SystemExit(64)
+    try:
+        view = memoryview(content)
+        written = 0
+        while written < len(view):
+            count = os.write(snapshot, view[written:])
+            if count <= 0:
+                raise SystemExit(64)
+            written += count
+        os.fsync(snapshot)
+        snapshot_stat = os.fstat(snapshot)
+        if snapshot_stat.st_uid != os.geteuid() or stat.S_IMODE(snapshot_stat.st_mode) != 0o600:
+            raise SystemExit(64)
+    finally:
+        os.close(snapshot)
+
+print(hashlib.sha256(content).hexdigest())
+PY
+}
+
 BUNDLE_CONTENT="$(bundle_stage)"
 readonly BUNDLE_CONTENT
 BUNDLE_SHA256="$(printf '%s\n' "$BUNDLE_CONTENT" | python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
@@ -70,12 +160,14 @@ APPROVAL_OPERATION="$OPERATION"
 [[ "$OPERATION" == approval ]] && APPROVAL_OPERATION=execute
 [[ "$OPERATION" == approval-rollback ]] && APPROVAL_OPERATION=rollback
 readonly APPROVAL_OPERATION
-readonly APPROVAL_EXPECTED="$ACK_EXPECTED:$STAGE_ID:$APPROVAL_OPERATION:$TARGET:$BUNDLE_SHA256"
 if [[ "$OPERATION" == approval || "$OPERATION" == approval-rollback ]]; then
+  SSH_CONFIG_SHA256="$(validate_ssh_config)" ||
+    die 'OVH_LAB_SSH_CONFIG must be a stable, bounded, private single-file config' 64
+  readonly SSH_CONFIG_SHA256
+  readonly APPROVAL_EXPECTED="$ACK_EXPECTED:$STAGE_ID:$APPROVAL_OPERATION:$TARGET:$BUNDLE_SHA256:$SSH_CONFIG_SHA256"
   printf '%s\n' "$APPROVAL_EXPECTED"
   exit 0
 fi
-[[ "$ACK" == "$APPROVAL_EXPECTED" ]] || die 'stage/operation/target/bundle-bound disposable approval required' 64
 [[ -f "$KNOWN_HOSTS" && ! -L "$KNOWN_HOSTS" ]] || die 'OVH_LAB_KNOWN_HOSTS must be a regular non-symlink file' 64
 
 umask 077
@@ -86,6 +178,17 @@ mkdir -p -- "$RUN_ROOT"
 readonly RUN_DIR="$(mktemp -d "$RUN_ROOT/run-${STAGE_ID}-XXXXXXXX")"
 readonly LOG_FILE="$RUN_DIR/evidence.log"
 readonly SUMMARY_FILE="$RUN_DIR/summary.txt"
+readonly SSH_CONFIG_SNAPSHOT="$RUN_DIR/private-ssh-config"
+
+cleanup_private_snapshot() {
+  rm -f -- "$SSH_CONFIG_SNAPSHOT"
+}
+trap cleanup_private_snapshot EXIT
+SSH_CONFIG_SHA256="$(validate_ssh_config "$SSH_CONFIG_SNAPSHOT")" ||
+  die 'OVH_LAB_SSH_CONFIG must be a stable, bounded, private single-file config' 64
+readonly SSH_CONFIG_SHA256
+readonly APPROVAL_EXPECTED="$ACK_EXPECTED:$STAGE_ID:$APPROVAL_OPERATION:$TARGET:$BUNDLE_SHA256:$SSH_CONFIG_SHA256"
+[[ "$ACK" == "$APPROVAL_EXPECTED" ]] || die 'stage/operation/target/config/bundle-bound disposable approval required' 64
 
 redact() {
   sed -E \
@@ -94,7 +197,7 @@ redact() {
     -e 's/([[:xdigit:]]{0,4}:){2,}[[:xdigit:]:]{0,4}/[redacted-ipv6]/g' \
     -e 's/(connect to host|connection to|resolve host(name)?|host key for|hostname)[[:space:]]+[A-Za-z0-9._-]+/\1 [redacted-host]/Ig' \
     -e 's#((in|file)[[:space:]]+)/[^[:space:]:]+#\1[redacted-path]#Ig' \
-    -e 's#/(Users|home|root)/[^[:space:]]+#[redacted-path]#g' \
+    -e 's#(/[A-Za-z0-9._-]+)+(:[0-9]+)?#[redacted-path]#g' \
     -e 's/((token|secret|password|authorization|private[_-]?key)[[:space:]]*[=:][[:space:]]*)[^[:space:]]+/\1[redacted]/Ig' \
     -e 's/(ssh-(ed25519|rsa|ecdsa)[[:space:]]+)[A-Za-z0-9+\/=]+/\1[redacted-key]/g' \
     -e 's/SHA256:[A-Za-z0-9+\/=]+/SHA256:[redacted-fingerprint]/g'
@@ -107,6 +210,7 @@ run_remote() {
   printf '%s\n' "$BUNDLE_CONTENT" | python3 -c \
     'import os, signal, sys; signal.alarm(int(sys.argv[1])); os.execvp(sys.argv[2], sys.argv[2:])' \
     "$REMOTE_TIMEOUT_SECONDS" ssh \
+    -F "$SSH_CONFIG_SNAPSHOT" \
     -o BatchMode=yes \
     -o ConnectTimeout=10 \
     -o ConnectionAttempts=1 \
@@ -129,8 +233,8 @@ run_remote() {
   return "$rc"
 }
 
-printf 'schema=1\nstage=%s\noperation=%s\nmanifest_status=%s\nkind=%s\nbundle_sha256=%s\n' \
-  "$STAGE_ID" "$OPERATION" "$STAGE_STATUS" "$STAGE_KIND" "$BUNDLE_SHA256" >"$SUMMARY_FILE"
+printf 'schema=1\nstage=%s\noperation=%s\nmanifest_status=%s\nkind=%s\nbundle_sha256=%s\nssh_config_sha256=%s\n' \
+  "$STAGE_ID" "$OPERATION" "$STAGE_STATUS" "$STAGE_KIND" "$BUNDLE_SHA256" "$SSH_CONFIG_SHA256" >"$SUMMARY_FILE"
 printf 'event=run_start stage=%s operation=%s\n' "$STAGE_ID" "$OPERATION" | tee -a "$LOG_FILE"
 
 run_remote before || die "before snapshot failed; evidence: $RUN_DIR" 70

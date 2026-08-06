@@ -26,18 +26,29 @@ The lab marker does not authorize a later stage whose manifest status is
 
 The runner requires strict host-key checking and accepts only a simple SSH
 configuration alias, not an endpoint. Configure the alias and verified host key
-outside this repository. Do not put secrets in environment variables, command
-arguments, stage output, or evidence. The redactor is defense in depth, not a
-license to print sensitive data.
+outside this repository. `OVH_LAB_SSH_CONFIG` must name an absolute, regular,
+non-symlink file owned by the invoking user with no group or other permission
+bits; mode `0600` is recommended. The path is control-free and bounded, and the
+file is limited to one MiB. `Include` is rejected: this is deliberately a
+single-file configuration boundary. For execution, the runner creates one
+private mode-0600 snapshot in the guarded local run directory, hashes it into
+the approval, passes that same snapshot to every `ssh -F` call, and removes it
+on exit. An alias-mapping change therefore invalidates the prior approval. The
+config path and content are not logged.
+Do not put secrets in environment variables, command arguments, stage output,
+or evidence. The redactor is defense in depth, not a license to print sensitive
+data.
 
 Generate the exact approval locally, then supply it unchanged. This is an
 example shape, not authorization to run a stage:
 
 ```bash
 approval="$(OVH_LAB_TARGET=operator-managed-alias \
+  OVH_LAB_SSH_CONFIG=/operator/private/ssh-config \
   ./experiments/ovh-lab/run-stage.sh 00 approval)"
 DISPOSABLE_OVH_LAB="$approval" \
 OVH_LAB_TARGET=operator-managed-alias \
+OVH_LAB_SSH_CONFIG=/operator/private/ssh-config \
 OVH_LAB_KNOWN_HOSTS=/operator/private/verified-known-hosts \
 ./experiments/ovh-lab/run-stage.sh 00 execute
 ```

@@ -562,6 +562,33 @@ untracked, and must never be quoted into tracked documentation.
   or other persistent apply work.
 - **Commit:** `7fcc48a`
 
+## 2026-08-06 - Private SSH-config boundary for OVH lab runner
+
+- **Intent:** Let tracked lab invocations use a non-identifying SSH alias while
+  keeping the endpoint and access configuration entirely outside the
+  repository.
+- **Delegated LUNA agents:** LUNA lab-framework implementation agent and an
+  independent LUNA safety-review agent under project-lead supervision.
+- **Safe activity summary:** Added an explicit private SSH-config input to the
+  disposable lab runner. Validation requires an absolute regular non-symlink
+  file owned by the invoking user with no group or other permission bits. The
+  runner passes it through `ssh -F` and binds its SHA-256 into the exact stage
+  approval without logging its path or content.
+- **Result:** The first review found pathname TOCTOU, unbound `Include` files,
+  and an incompletely bounded read. The corrected runner uses a stable bounded
+  descriptor, rejects `Include`, writes one exclusive mode-0600 snapshot from
+  the hashed bytes, and passes only that snapshot to all SSH phases. Independent
+  re-review approved the correction. Fifteen focused tests and the complete
+  164-test unit suite passed; Bash syntax and whitespace checks passed.
+- **Mutation status:** Repository edits and hermetic local tests only. No SSH,
+  endpoint discovery, upload, remote command, or server mutation.
+- **Limitations / next gate:** This is deliberately a single-file SSH config;
+  `Include` is unsupported. EXIT cleanup removes the private snapshot during
+  ordinary completion; an uncatchable process kill can leave a mode-0600 copy
+  only inside the ignored, mode-0700 local run directory. No remote invocation
+  is authorized by this implementation commit.
+- **Commit:** Pending in this change set.
+
 ## 2026-08-06 - Ubuntu 26.04 E2B prerequisite qualification plan
 
 - **Intent:** Replace guessed package installation with a primary-source-backed

@@ -20,14 +20,21 @@ repository. Runtime evidence defaults to the ignored local
 - A machine-readable manifest fixes the eleven stages and distinguishes
   read-only, plan-only, mutation, executable, and blocked status.
 - The local runner accepts only an operator-managed SSH alias, requires a
-  regular non-symlink verified `known_hosts` file, enables strict host-key
-  checking, disables connection sharing, and streams the selected script to
-  `sudo bash` without copying it to the host.
+  regular non-symlink verified `known_hosts` file, and requires an absolute,
+  regular, non-symlink SSH config owned by the invoking user with no group or
+  other permissions. The config is limited to one MiB and its path is bounded
+  and control-free. `Include` directives are rejected. The runner creates one
+  transient mode-0600 snapshot in the guarded local run directory and passes
+  only that immutable snapshot through every `ssh -F` call. It enables strict
+  host-key checking, disables connection sharing, and streams the selected
+  script to `sudo bash` without copying it to the host. The snapshot is removed
+  on ordinary exit and is never written to tracked evidence.
 - The manifest selects the stage, and the local approval binds its operation,
-  SSH alias, and exact streamed bundle hash. Every stage uses Bash strict mode,
-  verifies Ubuntu 26.04/x86-64/systemd/cgroup-v2, refuses known production/install markers, emits bounded
-  normalized observations, and implements before, after, postcondition, and
-  rollback modes.
+  SSH alias, private SSH-config hash, and exact streamed bundle hash. Every
+  stage uses Bash strict mode, verifies Ubuntu
+  26.04/x86-64/systemd/cgroup-v2, refuses known production/install markers,
+  emits bounded normalized observations, and implements before, after,
+  postcondition, and rollback modes.
 - The runner applies defense-in-depth redaction before evidence reaches disk.
   Stage authors must still avoid emitting sensitive data because pattern-based
   redaction cannot establish secrecy. Each invocation is bounded to 90 seconds
@@ -67,7 +74,7 @@ second, undocumented installer.
 
 ## Verification
 
-Eleven focused repository tests passed. The complete unit suite passed 160/160
+Fifteen focused repository tests passed. The complete unit suite passed 164/164
 with bytecode disabled. The static coverage verifies the full manifest sequence,
 Bash syntax, strict mode, acknowledgement and production gates, postcondition/rollback
 surfaces, blocked-stage absence of guessed mutation commands, verified-host-key
