@@ -561,3 +561,28 @@ untracked, and must never be quoted into tracked documentation.
   not approve bootstrap, identity, package, storage, kernel, network, service,
   or other persistent apply work.
 - **Commit:** `7fcc48a`
+
+## 2026-08-06 - Ubuntu 26.04 E2B prerequisite qualification plan
+
+- **Intent:** Replace guessed package installation with a primary-source-backed
+  sequence for qualifying the disposable Ubuntu 26.04 bare-metal lab for the
+  pinned E2B/Firecracker stack.
+- **Delegated LUNA agent:** LUNA Ubuntu/E2B prerequisite research agent under
+  project-lead supervision.
+- **Safe activity summary:** Rechecked current official E2B, Docker, Ubuntu,
+  Linux-kernel and Firecracker sources. Distinguished required kernel/runtime
+  facilities from optional QEMU/libvirt and cloud deployment tools, then
+  documented package, storage, firewall, port and acceptance gates stage by
+  stage.
+- **Files and evidence:** [Ubuntu 26.04 E2B prerequisites](ovh-26-04-e2b-prerequisites.md).
+- **Result:** Docker officially supports Ubuntu 26.04 amd64, but upstream E2B
+  does not support General Linux or this single-host topology and its current
+  kernel-facing evidence remains based on Ubuntu 24.04. Ubuntu 26.04 therefore
+  requires explicit KVM, NBD, HugeTLB, userfaultfd, cgroup, snapshot, network
+  and cleanup qualification before compatibility can be claimed.
+- **Mutation status:** Research and tracked documentation only. No SSH, server
+  access, package operation, service action or host mutation occurred.
+- **Limitations / next gate:** Independently review the staged recommendations,
+  resolve exact Docker/toolchain versions into locks, then implement only the
+  next approved journaled stage with before/after and rollback evidence.
+- **Commit:** Not committed.

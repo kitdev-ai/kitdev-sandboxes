@@ -33,6 +33,9 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`ovh-26-04-intake.md`](ovh-26-04-intake.md): zero-intentional-mutation
   first-login qualification and redacted evidence procedure for the direct
   Ubuntu 26.04 OVH host.
+- [`ovh-26-04-e2b-prerequisites.md`](ovh-26-04-e2b-prerequisites.md): official
+  Ubuntu 26.04, Docker, KVM/Firecracker, NBD, storage and networking
+  prerequisites with a fail-closed staged qualification sequence.
 - [`ovh-26-04-first-intake.md`](ovh-26-04-first-intake.md): redacted results,
   blockers, and next gates from the first command-by-command OVH inventory.
 - [`ovh-26-04-identity-access-plan.md`](ovh-26-04-identity-access-plan.md):
