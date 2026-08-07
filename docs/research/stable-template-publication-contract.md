@@ -35,6 +35,8 @@ need a public bare alias. The v1 template PATCH atomically creates or verifies
 that bare alias when `public=true`, and returns conflict rather than replacing
 an alias owned by another template. See the
 [pinned update handler](https://github.com/e2b-dev/infra/blob/882a3b4786755db9e94be3297de6827f9100ce5e/packages/api/internal/handlers/template_update.go#L119-L173).
+The PATCH target must be the owned alias, not the opaque template ID, because
+the v1 compatibility path derives the new bare alias from that target.
 
 ## Safety and ownership
 

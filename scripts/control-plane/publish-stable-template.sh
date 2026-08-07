@@ -290,7 +290,7 @@ publish_template() {
   code="$(curl --disable --config "$stage/api.curlrc" --silent --show-error \
     --output /dev/null --write-out '%{http_code}' --max-time 30 \
     --header 'Content-Type: application/json' --request PATCH \
-    --data-binary '{"public":true}' -- "$API_ROOT/templates/$template_id")" ||
+    --data-binary '{"public":true}' -- "$API_ROOT/templates/$alias")" ||
     control_plane_die publication_public_patch_failed 65
   [[ "$code" == 200 ]] || control_plane_die publication_public_patch_rejected 65
   verify_publication "$alias" "$version" "$template_id" "$build_id" "$product"

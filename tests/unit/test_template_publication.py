@@ -57,6 +57,7 @@ class TemplatePublicationTests(unittest.TestCase):
         self.assertLess(lifecycle, sdk)
         self.assertIn('"$API_ROOT/templates/$template_id"', RUNNER)
         self.assertNotIn('DELETE -- "$API_ROOT/templates/$alias"', RUNNER)
+        self.assertIn('--data-binary \'{"public":true}\' -- "$API_ROOT/templates/$alias"', RUNNER)
         self.assertIn("publication_alias_not_owned", RUNNER)
         self.assertIn("publication_firecracker_running", RUNNER)
         self.assertIn("publication_build_running", RUNNER)
