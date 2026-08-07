@@ -25,7 +25,12 @@
 
 - name: Inspect expected legacy containers
   ansible.builtin.command:
-    argv: [/usr/bin/docker, container, inspect, "{{ item }}"]
+    argv:
+      - /usr/bin/docker
+      - container
+      - inspect
+      - "--format={{ '{{' }}.Name{{ '}}' }}|{{ '{{' }}.State.Running{{ '}}' }}"
+      - "{{ item }}"
   loop: "{{ kitdev_legacy_expected_containers }}"
   register: kitdev_legacy_container_inspection
   changed_when: false
@@ -34,9 +39,7 @@
 - name: Require every exact legacy container to be running
   ansible.builtin.assert:
     that:
-      - (item.stdout | from_json | length) == 1
-      - (item.stdout | from_json)[0].Name == '/' + item.item
-      - (item.stdout | from_json)[0].State.Running
+      - item.stdout == '/' + item.item + '|true'
     fail_msg: "Legacy container is absent or stopped: {{ item.item }}"
   loop: "{{ kitdev_legacy_container_inspection.results }}"
   loop_control:

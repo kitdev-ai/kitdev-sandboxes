@@ -1184,4 +1184,9 @@ untracked, and must never be quoted into tracked documentation.
   default in check mode, leaving no container JSON to validate. The role now
   explicitly executes its read-only service, process, database, capacity,
   assignment, and runtime probes during check mode.
+- **Successful check:** The next exact committed preview passed every gate and
+  predicted only the migration state directory, rollback record, adopted
+  sysctl file, and 12,288-page live setting. Before apply, container proof was
+  narrowed from verbose inspection JSON to only exact name/running fields so
+  Ansible cannot echo container environment into migration logs.
 - **Commit:** Pending in this change set.

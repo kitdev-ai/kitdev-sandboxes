@@ -86,6 +86,8 @@ class LegacyCapacityMigrationAssetTests(unittest.TestCase):
         self.assertGreaterEqual(tasks.count("check_mode: false"), 10)
         self.assertIn("Refuse active Firecracker processes", tasks)
         self.assertIn("Require every exact legacy container to be running", tasks)
+        self.assertIn(".Name", tasks)
+        self.assertIn(".State.Running", tasks)
         self.assertIn("Require one exact legacy hugepage assignment", tasks)
         self.assertIn("find_hugepage_assignments.py", tasks)
         self.assertIn("nlink == 1", tasks)

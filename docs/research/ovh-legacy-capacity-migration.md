@@ -95,4 +95,7 @@ bootstrap now checks the exact dpkg state of `python3-venv` before creating the
 controller. The next check stopped before mutation when Ansible skipped its
 read-only command probes in check mode. Those probes now explicitly run during
 check mode, and the wrapper supplies the explicit localhost inventory. Live
-capacity apply remains pending a new committed release.
+capacity preview then passed all gates and predicted only the four intended
+changes. Container proof was narrowed to exact name/running output before live
+apply so Ansible does not print container configuration. Live capacity apply
+remains pending a new committed release.
