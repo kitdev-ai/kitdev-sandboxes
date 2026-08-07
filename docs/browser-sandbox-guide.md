@@ -77,17 +77,19 @@ The verifier refuses production, fewer than 12,288 total or free hugepages,
 less than 16 GiB normal-memory headroom, any pre-existing Firecracker process,
 the wrong team entitlement, or a changed profile file. It proves the database
 build row requested 8,192 MiB RAM and 16,384 MiB free rootfs, and that the guest
-still exposes at least 15,000 MiB available after finalize. This heavy mode is
-implemented but not yet live-qualified. See the
+still exposes at least 15,000 MiB available after finalize. This heavy mode
+passed live qualification on 2026-08-07: the finalized guest exposed 16,021 MiB
+available and cleanup restored all 12,288 hugepages to the free pool. See the
+[live evidence](research/browser-heavy-live-qualification-2026-08-07.md) and
 [pinned resource contract](research/browser-heavy-resource-profile.md).
 
 ## Current limits
 
 The original tested host's 4 GiB HugeTLB pool supported the 2 GiB browser
-qualification but not a 4 GiB template build with build-layer overlap. The new
-8 GiB profile remains unsupported until the 24 GiB pool and heavy gate pass. See
-`docs/research/browser-template-contract.md` for the measured failure boundary
-and the conservative 8 GiB qualification plan.
+qualification but not a 4 GiB template build with build-layer overlap. The
+current 24 GiB pool now qualifies one 8 GiB browser build and runtime at a time;
+it does not qualify two concurrent heavy builds. See
+`docs/research/browser-template-contract.md` for the measured failure boundary.
 
 The browser image includes Firefox bits as part of the official Playwright
 image, but this gate proves Chromium only. It does not prove public wildcard
