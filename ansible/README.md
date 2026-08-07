@@ -39,3 +39,20 @@ after any additional allocation. The five policy inputs live in
 `roles/preflight/defaults/main.yaml`; derived values are recorded in the
 root-owned host prerequisite manifest. These are host-reservation guards, not
 a runtime admission controller.
+
+The disposable OVH development lab predates this ownership contract. Do not
+weaken the fresh-host roles to accommodate it. The separately named
+`legacy-capacity-migration.yaml` playbook can adopt only that lab's exact
+root-owned 2,048-page sysctl drop-in after proving idle SDK/runtime/build state
+and six expected services. Use only its locked wrapper:
+
+```console
+sudo ./scripts/legacy-capacity-migration.sh check
+sudo ./scripts/legacy-capacity-migration.sh apply
+sudo ./scripts/legacy-capacity-migration.sh remove-check
+sudo ./scripts/legacy-capacity-migration.sh remove
+```
+
+The path is intentionally Ubuntu 26.04 development-only and records reversible
+prior state before changing the legacy file or live pool. It does not adopt
+legacy identities, modules, containers, storage, firewall state, or services.

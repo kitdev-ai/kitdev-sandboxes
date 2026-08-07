@@ -1,0 +1,23 @@
+---
+kitdev_legacy_capacity_action: apply
+kitdev_legacy_capacity_failure_injection: none
+kitdev_legacy_capacity_state_root: /var/lib/kitdev-sandboxes/legacy-capacity-migration
+kitdev_legacy_capacity_prior_path: "{{ kitdev_legacy_capacity_state_root }}/prior-state.json"
+kitdev_legacy_capacity_manifest_path: "{{ kitdev_legacy_capacity_state_root }}/manifest.json"
+kitdev_legacy_hugepage_file: /etc/sysctl.d/90-kitdev-sandboxes-hugepages.conf
+kitdev_legacy_hugepage_prior_content: "vm.nr_hugepages = 2048\n"
+kitdev_legacy_hugepage_target_content: "vm.nr_hugepages = 12288\n"
+kitdev_legacy_hugepages_prior: 2048
+kitdev_capacity_max_sandbox_memory_mib: 8192
+kitdev_capacity_concurrent_hugepage_sandboxes: 2
+kitdev_capacity_build_snapshot_headroom_mib: 8192
+kitdev_hugepages_max_ram_percent: 50
+kitdev_hugepages_min_available_mb_after: 16384
+kitdev_legacy_expected_service: kitdev-orchestrator-lab.service
+kitdev_legacy_expected_containers:
+  - kitdev-clickhouse
+  - kitdev-e2b-api
+  - kitdev-e2b-client-proxy
+  - kitdev-loki
+  - kitdev-postgres
+  - kitdev-redis

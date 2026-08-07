@@ -1,0 +1,138 @@
+---
+- name: Create root-only migration state directory
+  ansible.builtin.file:
+    path: "{{ kitdev_legacy_capacity_state_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Persist immutable legacy rollback state before mutation
+  ansible.builtin.template:
+    src: prior-state.json.j2
+    dest: "{{ kitdev_legacy_capacity_prior_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  when: not ansible_check_mode or kitdev_legacy_state_root_stat.stat.exists
+
+- name: Predict immutable rollback-state creation in check mode
+  ansible.builtin.debug:
+    msg: "Would create {{ kitdev_legacy_capacity_prior_path }} before host mutation"
+  when:
+    - ansible_check_mode
+    - not kitdev_legacy_state_root_stat.stat.exists
+  changed_when: true
+
+- name: Publish, apply, verify, and own the adopted target transactionally
+  block:
+    - name: Publish the adopted persistent hugepage target
+      ansible.builtin.template:
+        src: hugepages.conf.j2
+        dest: "{{ kitdev_legacy_hugepage_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Inject failure after persistent-file publication
+      ansible.builtin.fail:
+        msg: Injected failure after persistent hugepage publication.
+      when:
+        - not ansible_check_mode
+        - kitdev_legacy_capacity_failure_injection == 'after_persistent_file'
+
+    - name: Apply the adopted hugepage target
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/sysctl
+          - -w
+          - "vm.nr_hugepages={{ kitdev_capacity_plan.hugepages_2m | int }}"
+      when:
+        - not ansible_check_mode
+        - (kitdev_current_hugepages.stdout | trim | int) != (kitdev_capacity_plan.hugepages_2m | int)
+      changed_when: true
+
+    - name: Predict the adopted hugepage target in check mode
+      ansible.builtin.debug:
+        msg: "Would set vm.nr_hugepages={{ kitdev_capacity_plan.hugepages_2m | int }}"
+      when:
+        - ansible_check_mode
+        - (kitdev_current_hugepages.stdout | trim | int) != (kitdev_capacity_plan.hugepages_2m | int)
+      changed_when: true
+
+    - name: Inject failure after live sysctl application
+      ansible.builtin.fail:
+        msg: Injected failure after live hugepage application.
+      when:
+        - not ansible_check_mode
+        - kitdev_legacy_capacity_failure_injection == 'after_sysctl'
+
+    - name: Verify final pool and ordinary-memory reserve
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - "{{ playbook_dir }}/files/verify_hugepage_pool.py"
+          - --pages
+          - "{{ kitdev_capacity_plan.hugepages_2m | int }}"
+          - --reserve-mib
+          - "{{ kitdev_hugepages_min_available_mb_after }}"
+      register: kitdev_final_capacity_verification
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Inspect final adopted hugepage file
+      ansible.builtin.stat:
+        path: "{{ kitdev_legacy_hugepage_file }}"
+        checksum_algorithm: sha256
+      register: kitdev_final_hugepage_file
+      when: not ansible_check_mode
+
+    - name: Publish deterministic migration ownership manifest
+      ansible.builtin.template:
+        src: manifest.json.j2
+        dest: "{{ kitdev_legacy_capacity_manifest_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      when: not ansible_check_mode
+  rescue:
+    - name: Restore exact legacy file after incomplete first apply
+      ansible.builtin.copy:
+        content: "{{ kitdev_legacy_rollback_content_b64 | b64decode }}"
+        dest: "{{ kitdev_legacy_hugepage_file }}"
+        owner: "{{ kitdev_legacy_rollback_uid }}"
+        group: "{{ kitdev_legacy_rollback_gid }}"
+        mode: "{{ kitdev_legacy_rollback_mode }}"
+      when: not kitdev_legacy_manifest_stat.stat.exists
+
+    - name: Restore exact legacy runtime after incomplete first apply
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/sysctl
+          - -w
+          - "vm.nr_hugepages={{ kitdev_legacy_rollback_pages | int }}"
+      when: not kitdev_legacy_manifest_stat.stat.exists
+      changed_when: true
+
+    - name: Verify rollback after incomplete first apply
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - "{{ playbook_dir }}/files/verify_hugepage_pool.py"
+          - --pages
+          - "{{ kitdev_legacy_rollback_pages | int }}"
+          - --reserve-mib
+          - "{{ kitdev_hugepages_min_available_mb_after }}"
+      when: not kitdev_legacy_manifest_stat.stat.exists
+      changed_when: false
+
+    - name: Remove incomplete migration manifest
+      ansible.builtin.file:
+        path: "{{ kitdev_legacy_capacity_manifest_path }}"
+        state: absent
+      when: not kitdev_legacy_manifest_stat.stat.exists
+
+    - name: Report transactional apply failure
+      ansible.builtin.fail:
+        msg: Capacity migration failed; incomplete first-apply mutation was rolled back.

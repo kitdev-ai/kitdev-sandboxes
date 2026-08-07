@@ -1,0 +1,42 @@
+---
+- name: Restore the exact pre-adoption hugepage file
+  ansible.builtin.copy:
+    content: "{{ kitdev_legacy_prior_state.legacy_file.content_b64 | b64decode }}"
+    dest: "{{ kitdev_legacy_hugepage_file }}"
+    owner: "{{ kitdev_legacy_prior_state.legacy_file.uid }}"
+    group: "{{ kitdev_legacy_prior_state.legacy_file.gid }}"
+    mode: "{{ kitdev_legacy_prior_state.legacy_file.mode }}"
+
+- name: Restore the pre-adoption hugepage pool
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/sysctl
+      - -w
+      - "vm.nr_hugepages={{ kitdev_legacy_prior_state.runtime['vm.nr_hugepages'] | int }}"
+  when: not ansible_check_mode
+  changed_when: true
+
+- name: Verify restored pool and ordinary-memory reserve
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ playbook_dir }}/files/verify_hugepage_pool.py"
+      - --pages
+      - "{{ kitdev_legacy_prior_state.runtime['vm.nr_hugepages'] | int }}"
+      - --reserve-mib
+      - "{{ kitdev_hugepages_min_available_mb_after }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Remove completed migration ownership records
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ kitdev_legacy_capacity_manifest_path }}"
+    - "{{ kitdev_legacy_capacity_prior_path }}"
+
+- name: Remove empty migration state directory
+  ansible.builtin.file:
+    path: "{{ kitdev_legacy_capacity_state_root }}"
+    state: absent

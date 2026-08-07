@@ -25,6 +25,9 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`hugepage-capacity-model.md`](hugepage-capacity-model.md): derived 24 GiB
   HugeTLB profile for 8 GiB heavy sandboxes, transient build/snapshot mapping
   semantics, normal-memory guards, upstream evidence, and remaining load gates.
+- [`ovh-legacy-capacity-migration.md`](ovh-legacy-capacity-migration.md):
+  read-only legacy-lab audit, narrow hugepage adoption ownership proof,
+  serialization boundary, rollback contract, and live qualification record.
 - [`activity-log.md`](activity-log.md): append-only, redacted project activity
   ledger updated before each commit and review or deployment gate.
 - [`cloud-options.md`](cloud-options.md): GCP, AWS, hosted bare-metal, and local

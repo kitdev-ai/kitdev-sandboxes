@@ -1140,3 +1140,36 @@ untracked, and must never be quoted into tracked documentation.
   target; Ubuntu 25.04 remains development/migration-only; Ubuntu 24.04 is
   unsupported.
 - **Commit:** Pending in this change set.
+
+## 2026-08-07 - Disposable-lab legacy capacity migration path
+
+- **Intent:** Apply the reviewed 24 GiB hugepage profile to the live disposable
+  lab without weakening fresh-host ownership guards or manually editing legacy
+  configuration.
+- **Read-only audit:** The SDK lock was exact and free; the lifecycle lock was
+  absent; Firecracker and template-build process counts were zero; PostgreSQL
+  contained only `ready` and `failed` build groups; six expected containers,
+  Docker, the legacy orchestrator, API, and proxy were healthy. All 2,048
+  existing pages were free and ordinary `MemAvailable` was about 56 GiB.
+- **Ownership blocker:** The normal prerequisite role correctly cannot adopt
+  the legacy worker/group identities or separately named kernel files without
+  its manifest. No mutation was attempted through that path.
+- **Implementation:** Added an Ubuntu 26.04 development-only migration wrapper
+  and Ansible role. Apply holds the exact SDK lock, atomically creates and holds
+  the initially absent lifecycle lock, repeats idle checks, queries PostgreSQL
+  for nonterminal builds, proves the exact service/container set and the single
+  root-owned legacy sysctl file, then records rollback state before mutation.
+  Removal requires the apply-created lock and authenticated manifest.
+- **Scope:** The migration adopts only the exact legacy hugepage file and live
+  pool. It does not adopt identities, modules, services, containers, storage,
+  Docker, firewall state, or the broader prerequisite contract.
+- **Failure recovery:** The file/sysctl/verification/manifest sequence is an
+  Ansible transaction with explicit post-file and post-sysctl injection points.
+  A failed incomplete first apply restores and verifies the exact prior file
+  and live pool, removes an incomplete manifest, and retains root-only prior
+  state for audit and safe retry.
+- **Verification:** Nine focused local tests and the complete 344-test workspace
+  suite passed with two expected platform/tool skips. Bash and Python parse
+  checks, both migration action syntax paths, and Git whitespace checks passed.
+  Live apply and post-apply evidence remain pending.
+- **Commit:** Pending in this change set.

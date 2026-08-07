@@ -1,0 +1,309 @@
+---
+- name: Validate the one-time migration tuple
+  ansible.builtin.assert:
+    that:
+      - kitdev_legacy_capacity_action in ['apply', 'remove']
+      - kitdev_legacy_capacity_failure_injection in ['none', 'after_persistent_file', 'after_sysctl']
+      - kitdev_lifecycle_mode == 'development'
+      - ansible_facts.distribution == 'Ubuntu'
+      - ansible_facts.distribution_version == '26.04'
+      - ansible_facts.architecture == 'x86_64'
+      - ansible_facts.service_mgr == 'systemd'
+    fail_msg: This migration is only for the Ubuntu 26.04 disposable development lab.
+
+- name: Require the exact legacy orchestrator service
+  ansible.builtin.command:
+    argv: [/usr/bin/systemctl, is-active, "{{ kitdev_legacy_expected_service }}"]
+  changed_when: false
+
+- name: Require Docker service health
+  ansible.builtin.command:
+    argv: [/usr/bin/systemctl, is-active, docker.service]
+  changed_when: false
+
+- name: Inspect expected legacy containers
+  ansible.builtin.command:
+    argv: [/usr/bin/docker, container, inspect, "{{ item }}"]
+  loop: "{{ kitdev_legacy_expected_containers }}"
+  register: kitdev_legacy_container_inspection
+  changed_when: false
+
+- name: Require every exact legacy container to be running
+  ansible.builtin.assert:
+    that:
+      - (item.stdout | from_json | length) == 1
+      - (item.stdout | from_json)[0].Name == '/' + item.item
+      - (item.stdout | from_json)[0].State.Running
+    fail_msg: "Legacy container is absent or stopped: {{ item.item }}"
+  loop: "{{ kitdev_legacy_container_inspection.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Require legacy API health
+  ansible.builtin.uri:
+    url: http://127.0.0.1:3000/health
+    method: GET
+    status_code: 200
+    return_content: false
+    timeout: 3
+
+- name: Require legacy proxy health
+  ansible.builtin.uri:
+    url: http://127.0.0.1:3003/health
+    method: GET
+    status_code: 200
+    return_content: false
+    timeout: 3
+
+- name: Refuse active Firecracker processes
+  ansible.builtin.command:
+    argv: [/usr/bin/pgrep, -x, firecracker]
+  register: kitdev_legacy_firecracker_processes
+  changed_when: false
+  failed_when: kitdev_legacy_firecracker_processes.rc not in [0, 1]
+
+- name: Refuse active template-manager processes
+  ansible.builtin.command:
+    argv: [/usr/bin/pgrep, -x, template-manager]
+  register: kitdev_legacy_template_manager_processes
+  changed_when: false
+  failed_when: kitdev_legacy_template_manager_processes.rc not in [0, 1]
+
+- name: Require an idle microVM runtime
+  ansible.builtin.assert:
+    that:
+      - kitdev_legacy_firecracker_processes.rc == 1
+      - kitdev_legacy_template_manager_processes.rc == 1
+    fail_msg: A Firecracker or template-manager process is active.
+
+- name: Count nonterminal template builds
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - exec
+      - --user
+      - postgres
+      - kitdev-postgres
+      - psql
+      - --no-psqlrc
+      - --set=ON_ERROR_STOP=1
+      - --tuples-only
+      - --no-align
+      - --dbname
+      - postgres
+      - --command
+      - >-
+        SELECT count(*) FROM env_builds
+        WHERE status_group IS NULL OR status_group NOT IN ('ready', 'failed');
+  register: kitdev_legacy_active_builds
+  changed_when: false
+
+- name: Refuse nonterminal template builds
+  ansible.builtin.assert:
+    that: kitdev_legacy_active_builds.stdout | trim | int == 0
+    fail_msg: The legacy database contains a nonterminal template build.
+
+- name: Derive and validate target host capacity
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ playbook_dir }}/files/validate_host_capacity.py"
+      - --max-sandbox-memory-mib
+      - "{{ kitdev_capacity_max_sandbox_memory_mib }}"
+      - --concurrent-sandboxes
+      - "{{ kitdev_capacity_concurrent_hugepage_sandboxes }}"
+      - --build-snapshot-headroom-mib
+      - "{{ kitdev_capacity_build_snapshot_headroom_mib }}"
+      - --max-ram-percent
+      - "{{ kitdev_hugepages_max_ram_percent }}"
+      - --min-available-mb-after
+      - "{{ kitdev_hugepages_min_available_mb_after }}"
+  register: kitdev_legacy_capacity_validation
+  changed_when: false
+
+- name: Publish the target capacity plan
+  ansible.builtin.set_fact:
+    kitdev_capacity_plan: "{{ kitdev_legacy_capacity_validation.stdout | from_json }}"
+
+- name: Require the reviewed 24 GiB target
+  ansible.builtin.assert:
+    that:
+      - kitdev_capacity_plan.hugepage_pool_mib | int == 24576
+      - kitdev_capacity_plan.hugepages_2m | int == 12288
+      - kitdev_capacity_plan.normal_memory_reserve_mib | int == 16384
+    fail_msg: The one-time migration target differs from the reviewed capacity profile.
+
+- name: Find persistent hugepage assignments without following symlinks
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ playbook_dir }}/files/find_hugepage_assignments.py"
+      - --root
+      - /etc/sysctl.d
+  register: kitdev_legacy_hugepage_assignments
+  changed_when: false
+
+- name: Require one exact legacy hugepage assignment
+  ansible.builtin.assert:
+    that:
+      - (kitdev_legacy_hugepage_assignments.stdout | from_json).assignments == [kitdev_legacy_hugepage_file]
+    fail_msg: Persistent hugepage ownership is ambiguous; refusing adoption.
+
+- name: Inspect legacy file and migration state
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  loop:
+    - "{{ kitdev_legacy_hugepage_file }}"
+    - "{{ kitdev_legacy_capacity_state_root }}"
+    - "{{ kitdev_legacy_capacity_prior_path }}"
+    - "{{ kitdev_legacy_capacity_manifest_path }}"
+  register: kitdev_legacy_capacity_paths
+
+- name: Publish inspected migration paths
+  ansible.builtin.set_fact:
+    kitdev_legacy_hugepage_stat: "{{ kitdev_legacy_capacity_paths.results[0] }}"
+    kitdev_legacy_state_root_stat: "{{ kitdev_legacy_capacity_paths.results[1] }}"
+    kitdev_legacy_prior_stat: "{{ kitdev_legacy_capacity_paths.results[2] }}"
+    kitdev_legacy_manifest_stat: "{{ kitdev_legacy_capacity_paths.results[3] }}"
+
+- name: Validate exact root-owned migration paths
+  ansible.builtin.assert:
+    that:
+      - kitdev_legacy_hugepage_stat.stat.isreg | default(false)
+      - not kitdev_legacy_hugepage_stat.stat.islnk | default(false)
+      - kitdev_legacy_hugepage_stat.stat.pw_name == 'root'
+      - kitdev_legacy_hugepage_stat.stat.gr_name == 'root'
+      - kitdev_legacy_hugepage_stat.stat.mode == '0644'
+      - kitdev_legacy_hugepage_stat.stat.nlink == 1
+      - not kitdev_legacy_state_root_stat.stat.exists or (kitdev_legacy_state_root_stat.stat.isdir and kitdev_legacy_state_root_stat.stat.pw_name == 'root' and kitdev_legacy_state_root_stat.stat.gr_name == 'root' and kitdev_legacy_state_root_stat.stat.mode == '0700')
+      - not kitdev_legacy_manifest_stat.stat.exists or kitdev_legacy_prior_stat.stat.exists
+      - not kitdev_legacy_prior_stat.stat.exists or (kitdev_legacy_prior_stat.stat.isreg and not kitdev_legacy_prior_stat.stat.islnk and kitdev_legacy_prior_stat.stat.pw_name == 'root' and kitdev_legacy_prior_stat.stat.gr_name == 'root' and kitdev_legacy_prior_stat.stat.mode == '0600' and kitdev_legacy_prior_stat.stat.nlink == 1)
+      - not kitdev_legacy_manifest_stat.stat.exists or (kitdev_legacy_manifest_stat.stat.isreg and not kitdev_legacy_manifest_stat.stat.islnk and kitdev_legacy_manifest_stat.stat.pw_name == 'root' and kitdev_legacy_manifest_stat.stat.gr_name == 'root' and kitdev_legacy_manifest_stat.stat.mode == '0600' and kitdev_legacy_manifest_stat.stat.nlink == 1)
+    fail_msg: Legacy capacity paths are foreign, linked, partial, or unsafely owned.
+
+- name: Read current legacy hugepage file
+  ansible.builtin.slurp:
+    src: "{{ kitdev_legacy_hugepage_file }}"
+  register: kitdev_legacy_hugepage_bytes
+
+- name: Read prior migration state
+  ansible.builtin.slurp:
+    src: "{{ kitdev_legacy_capacity_prior_path }}"
+  register: kitdev_legacy_prior_bytes
+  when: kitdev_legacy_prior_stat.stat.exists
+
+- name: Read migration ownership manifest
+  ansible.builtin.slurp:
+    src: "{{ kitdev_legacy_capacity_manifest_path }}"
+  register: kitdev_legacy_manifest_bytes
+  when: kitdev_legacy_manifest_stat.stat.exists
+
+- name: Decode migration ownership records
+  ansible.builtin.set_fact:
+    kitdev_legacy_prior_state: "{{ kitdev_legacy_prior_bytes.content | b64decode | from_json }}"
+  when: kitdev_legacy_prior_stat.stat.exists
+
+- name: Decode migration ownership manifest
+  ansible.builtin.set_fact:
+    kitdev_legacy_manifest: "{{ kitdev_legacy_manifest_bytes.content | b64decode | from_json }}"
+  when: kitdev_legacy_manifest_stat.stat.exists
+
+- name: Authenticate prior migration state
+  ansible.builtin.assert:
+    that:
+      - kitdev_legacy_prior_state.schema_version == 1
+      - kitdev_legacy_prior_state.owner == 'kitdev-sandboxes/legacy-capacity-migration'
+      - kitdev_legacy_prior_state.platform.version == '26.04'
+      - kitdev_legacy_prior_state.platform.lifecycle_mode == 'development'
+      - kitdev_legacy_prior_state.legacy_file.path == kitdev_legacy_hugepage_file
+      - (kitdev_legacy_prior_state.legacy_file.content_b64 | b64decode) == kitdev_legacy_hugepage_prior_content
+      - kitdev_legacy_prior_state.runtime['vm.nr_hugepages'] | int == kitdev_legacy_hugepages_prior
+    fail_msg: Prior migration state is malformed or does not prove the exact legacy input.
+  when: kitdev_legacy_prior_stat.stat.exists
+
+- name: Authenticate migration ownership manifest
+  ansible.builtin.assert:
+    that:
+      - kitdev_legacy_manifest.schema_version == 1
+      - kitdev_legacy_manifest.owner == 'kitdev-sandboxes/legacy-capacity-migration'
+      - kitdev_legacy_manifest.platform.version == '26.04'
+      - kitdev_legacy_manifest.platform.lifecycle_mode == 'development'
+      - kitdev_legacy_manifest.legacy_file.path == kitdev_legacy_hugepage_file
+      - kitdev_legacy_manifest.capacity.hugepage_pool_mib | int == 24576
+      - kitdev_legacy_manifest.capacity.hugepages_2m | int == 12288
+    fail_msg: Migration ownership manifest is malformed or incompatible.
+  when: kitdev_legacy_manifest_stat.stat.exists
+
+- name: Read current hugepage runtime value
+  ansible.builtin.command:
+    argv: [/usr/sbin/sysctl, -n, vm.nr_hugepages]
+  register: kitdev_current_hugepages
+  changed_when: false
+
+- name: Validate initial or owned legacy content
+  ansible.builtin.assert:
+    that:
+      - >-
+        (not kitdev_legacy_prior_stat.stat.exists and
+         (kitdev_legacy_hugepage_bytes.content | b64decode) == kitdev_legacy_hugepage_prior_content and
+         (kitdev_current_hugepages.stdout | trim | int) == kitdev_legacy_hugepages_prior) or
+        (kitdev_legacy_prior_stat.stat.exists and not kitdev_legacy_manifest_stat.stat.exists and
+         (kitdev_legacy_hugepage_bytes.content | b64decode) in [kitdev_legacy_hugepage_prior_content, kitdev_legacy_hugepage_target_content] and
+         (kitdev_current_hugepages.stdout | trim | int) >= kitdev_legacy_hugepages_prior and
+         (kitdev_current_hugepages.stdout | trim | int) <= (kitdev_capacity_plan.hugepages_2m | int)) or
+        (kitdev_legacy_manifest_stat.stat.exists and
+         (kitdev_legacy_hugepage_bytes.content | b64decode) == kitdev_legacy_hugepage_target_content and
+         kitdev_legacy_hugepage_stat.stat.checksum == kitdev_legacy_manifest.legacy_file.sha256 and
+         (kitdev_current_hugepages.stdout | trim | int) == (kitdev_capacity_plan.hugepages_2m | int))
+    fail_msg: Legacy hugepage state is neither the exact adoptable input nor authenticated owned output.
+
+- name: Require complete ownership before removal
+  ansible.builtin.assert:
+    that:
+      - kitdev_legacy_prior_stat.stat.exists
+      - kitdev_legacy_manifest_stat.stat.exists
+    fail_msg: Removal requires complete prior-state and ownership records.
+  when: kitdev_legacy_capacity_action == 'remove'
+
+- name: Verify the current pool is completely idle
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ playbook_dir }}/files/verify_hugepage_pool.py"
+      - --pages
+      - "{{ kitdev_current_hugepages.stdout | trim }}"
+      - --reserve-mib
+      - "{{ kitdev_hugepages_min_available_mb_after }}"
+  changed_when: false
+
+- name: Publish exact rollback inputs for transactional apply
+  ansible.builtin.set_fact:
+    kitdev_legacy_rollback_content_b64: >-
+      {{ kitdev_legacy_prior_state.legacy_file.content_b64
+         if kitdev_legacy_prior_stat.stat.exists
+         else kitdev_legacy_hugepage_bytes.content }}
+    kitdev_legacy_rollback_uid: >-
+      {{ kitdev_legacy_prior_state.legacy_file.uid
+         if kitdev_legacy_prior_stat.stat.exists
+         else kitdev_legacy_hugepage_stat.stat.uid }}
+    kitdev_legacy_rollback_gid: >-
+      {{ kitdev_legacy_prior_state.legacy_file.gid
+         if kitdev_legacy_prior_stat.stat.exists
+         else kitdev_legacy_hugepage_stat.stat.gid }}
+    kitdev_legacy_rollback_mode: >-
+      {{ kitdev_legacy_prior_state.legacy_file.mode
+         if kitdev_legacy_prior_stat.stat.exists
+         else kitdev_legacy_hugepage_stat.stat.mode }}
+    kitdev_legacy_rollback_pages: >-
+      {{ kitdev_legacy_prior_state.runtime['vm.nr_hugepages']
+         if kitdev_legacy_prior_stat.stat.exists
+         else kitdev_current_hugepages.stdout | trim | int }}
+
+- name: Apply the owned legacy capacity migration
+  ansible.builtin.include_tasks: apply.yaml
+  when: kitdev_legacy_capacity_action == 'apply'
+
+- name: Remove the owned legacy capacity migration
+  ansible.builtin.include_tasks: remove.yaml
+  when: kitdev_legacy_capacity_action == 'remove'

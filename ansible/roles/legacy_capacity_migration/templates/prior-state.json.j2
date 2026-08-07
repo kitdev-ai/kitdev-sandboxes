@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "owner": "kitdev-sandboxes/legacy-capacity-migration",
+  "platform": {
+    "distribution": {{ ansible_facts.distribution | to_json }},
+    "version": {{ ansible_facts.distribution_version | to_json }},
+    "architecture": {{ ansible_facts.architecture | to_json }},
+    "lifecycle_mode": {{ kitdev_lifecycle_mode | to_json }}
+  },
+  "legacy_file": {
+    "path": {{ kitdev_legacy_hugepage_file | to_json }},
+    "content_b64": {{ kitdev_legacy_hugepage_bytes.content | to_json }},
+    "sha256": {{ kitdev_legacy_hugepage_stat.stat.checksum | to_json }},
+    "uid": {{ kitdev_legacy_hugepage_stat.stat.uid | int }},
+    "gid": {{ kitdev_legacy_hugepage_stat.stat.gid | int }},
+    "mode": {{ kitdev_legacy_hugepage_stat.stat.mode | to_json }}
+  },
+  "runtime": {
+    "vm.nr_hugepages": {{ kitdev_current_hugepages.stdout | trim | int }}
+  },
+  "lifecycle_lock_created": {{ (kitdev_legacy_lifecycle_lock_created | int == 1) | bool | to_json }}
+}

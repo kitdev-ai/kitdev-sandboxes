@@ -1,0 +1,11 @@
+---
+- name: Adopt or remove the exact disposable-lab hugepage configuration
+  hosts: localhost
+  gather_facts: true
+  become: true
+  vars:
+    kitdev_lifecycle_mode: "{{ lookup('env', 'KITDEV_LIFECYCLE_MODE') }}"
+    kitdev_legacy_capacity_action: "{{ lookup('env', 'KITDEV_LEGACY_CAPACITY_ACTION') }}"
+    kitdev_legacy_lifecycle_lock_created: "{{ lookup('env', 'KITDEV_LEGACY_LIFECYCLE_LOCK_CREATED') | int }}"
+  roles:
+    - role: legacy_capacity_migration
