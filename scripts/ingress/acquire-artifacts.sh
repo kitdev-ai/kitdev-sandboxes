@@ -22,7 +22,7 @@ main() {
   ensure_directory "$KITDEV_OPT_ROOT/bin" root root 755
 
   if [[ "$mode" == apply && ! -e "$KITDEV_OPT_ROOT/bin/lego" ]]; then
-    stage="$(mktemp -d /run/kitdev-sandboxes/ingress-artifacts.XXXXXXXX)"
+    stage="$(mktemp -d "$KITDEV_OPT_ROOT/bin/.ingress-artifacts.XXXXXXXX")"
     trap 'rm -rf -- "${stage:-}"' EXIT
     curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
       --output "$stage/$LEGO_ARCHIVE" "$LEGO_URL"

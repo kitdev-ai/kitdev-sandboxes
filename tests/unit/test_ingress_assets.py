@@ -99,6 +99,8 @@ class IngressAssetTests(unittest.TestCase):
         self.assertIn("docker kill --signal HUP", manager)
         self.assertLess(acquisition.index("lego_archive_hash_mismatch"), acquisition.index("chmod 0755"))
         self.assertLess(acquisition.index("chmod 0755"), acquisition.index('"$stage/lego" --version'))
+        self.assertIn('$KITDEV_OPT_ROOT/bin/.ingress-artifacts.', acquisition)
+        self.assertNotIn("/run/kitdev-sandboxes/ingress-artifacts", acquisition)
         provider_example = (ROOT / "config" / "ingress" / "acme-provider.env.example").read_text(
             encoding="ascii"
         )
