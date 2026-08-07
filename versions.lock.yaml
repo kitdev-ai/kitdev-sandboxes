@@ -205,6 +205,23 @@ container_images:
   otel_collector:
     image: otel/opentelemetry-collector-contrib:0.146.0
     digest: sha256:9742116fb9441d82900be0f35be168e14714fa64ff1f0f7aa182cfcf676832b1
+  ingress_nginx:
+    image: nginx:1.29.6-alpine3.23
+    index_digest: sha256:f46cb72c7df02710e693e863a983ac42f6a9579058a59a35f1ae36c9958e4ce0
+    linux_amd64_manifest_digest: sha256:08fe94b0d1e72fc687840f5696f6e107a85c327b1bcb8a7acc22f8c100227c67
+    source_repository: https://github.com/nginx/docker-nginx.git
+    source_commit: 4b41a5f5e05939905d98a540a269046e862d8d03
+    status: offline-config-validated-candidate
+
+host_tools:
+  lego:
+    repository: https://github.com/go-acme/lego.git
+    version: 5.3.1
+    archive: lego_v5.3.1_linux_amd64.tar.gz
+    url: https://github.com/go-acme/lego/releases/download/v5.3.1/lego_v5.3.1_linux_amd64.tar.gz
+    sha256: b3c71b122ee1947eacfe0b809b955647f6377239fe4bfc49f73b1a091ae1252a
+    size_bytes: 21110571
+    status: hash-locked-candidate
 
 build_images:
   note: >-

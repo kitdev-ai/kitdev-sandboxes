@@ -1,0 +1,14 @@
+[Unit]
+Description=Renew kitdev E2B wildcard certificate
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=KITDEV_LIFECYCLE=production
+ExecStart=/opt/kitdev-sandboxes/libexec/ingress/manage-certificate.sh renew
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/kitdev-sandboxes/ingress/tls /var/lib/kitdev-sandboxes/acme
+NoNewPrivileges=yes

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily kitdev E2B wildcard certificate renewal check
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=45m
+Persistent=true
+Unit=kitdev-e2b-ingress-renew.service
+
+[Install]
+WantedBy=timers.target

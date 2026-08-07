@@ -1,0 +1,32 @@
+name: kitdev-ingress
+
+services:
+  ingress:
+    image: docker.io/library/nginx:1.29.6-alpine3.23@sha256:08fe94b0d1e72fc687840f5696f6e107a85c327b1bcb8a7acc22f8c100227c67
+    pull_policy: never
+    container_name: kitdev-ingress
+    network_mode: host
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /var/cache/nginx:size=64m,mode=0750
+      - /var/run:size=1m,mode=0755
+    volumes:
+      - /etc/kitdev-sandboxes/ingress/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/kitdev-sandboxes/ingress/tls:/run/kitdev-tls:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --quiet --tries=1 --output-document=/dev/null http://127.0.0.1:8080/health
+      interval: 10s
+      timeout: 2s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 30s
