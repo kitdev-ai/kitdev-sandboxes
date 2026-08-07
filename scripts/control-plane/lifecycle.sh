@@ -61,11 +61,12 @@ install_lifecycle_assets() {
     converge-admission-policy.sh \
     build-envd.sh build-orchestrator.sh build-snapshot-tools.sh common.sh configure-firewall.sh \
     install-orchestrator-service.sh install-runtime-artifacts.sh lifecycle.sh \
-    preflight-orchestrator.sh prepare-layout.sh replay-compose.sh seed-local-template.sh \
+    preflight-orchestrator.sh prepare-layout.sh publish-stable-template.sh replay-compose.sh seed-local-template.sh \
     verify-api-proxy-e2e.sh verify-typescript-sdk-e2e.sh; do
     publish_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_SCRIPT_DIR/$name" root root 755
   done
-  for name in backup_manifest.py normalize-copy-sql.py private_env.py publish-template-dirs.py; do
+  for name in backup_manifest.py normalize-copy-sql.py private_env.py publish-template-dirs.py \
+    template-publication-state.py; do
     publish_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_SCRIPT_DIR/$name" root root 755
   done
   publish_exact_file "$SCRIPT_DIR/e2e-process-client/main.go" \

@@ -16,6 +16,12 @@ const packageLockSha256 =
   "db5404269854f530b030d7c31b7ce8c0cd05e7182978af49c58b5e488f87c873";
 const templateTag = "browser";
 
+type PublicationConfig = {
+  schemaVersion: 1;
+  alias: "kitdev-browser-heavy";
+  version: string;
+};
+
 type BrowserResourceProfile = {
   schemaVersion: 1;
   name: "standard" | "heavy";
@@ -45,6 +51,22 @@ async function loadTemplateName(): Promise<string> {
   const value = (await readFile("/run/config/e2b-template-name", "ascii")).trim();
   assert.match(value, /^kitdev-browser-template-[0-9a-f]{12}$/);
   return value;
+}
+
+async function loadPublicationConfig(): Promise<PublicationConfig | undefined> {
+  let source: string;
+  try {
+    source = await readFile("/run/config/template-publication.json", "ascii");
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  const document = JSON.parse(source) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(document).sort(), ["alias", "schemaVersion", "version"]);
+  assert.equal(document.schemaVersion, 1);
+  assert.equal(document.alias, "kitdev-browser-heavy");
+  assert.match(String(document.version), /^v[1-9][0-9]{0,5}$/);
+  return document as PublicationConfig;
 }
 
 async function loadResourceProfile(): Promise<BrowserResourceProfile> {
@@ -215,7 +237,8 @@ async function exerciseBrowserSandbox(
 
 async function main(): Promise<void> {
   const connection = await loadConnection();
-  const templateName = await loadTemplateName();
+  const publication = await loadPublicationConfig();
+  const templateName = publication?.alias ?? (await loadTemplateName());
   const profile = await loadResourceProfile();
   assert.equal(await Template.exists(templateName, connection), false);
   pass("browser-template-absent-preflight");
@@ -273,11 +296,12 @@ async function main(): Promise<void> {
   let buildLogEntries = 0;
   const build = await Template.build(
     browserTemplate,
-    `${templateName}:${templateTag}`,
+    `${templateName}:${publication?.version ?? templateTag}`,
     {
       ...connection,
       cpuCount: profile.cpuCount,
       memoryMB: profile.memoryMB,
+      ...(publication === undefined ? {} : { tags: ["stable"] }),
       onBuildLogs: () => {
         buildLogEntries += 1;
       },
@@ -291,10 +315,15 @@ async function main(): Promise<void> {
   pass("browser-template-build");
 
   const tags = await Template.getTags(build.templateId, connection);
-  assert(tags.some((item) => item.tag === templateTag && item.buildId === build.buildId));
+  const expectedTags = publication === undefined
+    ? [templateTag]
+    : [publication.version, "stable"];
+  for (const tag of expectedTags) {
+    assert(tags.some((item) => item.tag === tag && item.buildId === build.buildId));
+  }
   pass("browser-template-tag");
   await exerciseBrowserSandbox(
-    `${templateName}:${templateTag}`,
+    `${templateName}:${publication?.version ?? templateTag}`,
     connection,
     profile,
   );

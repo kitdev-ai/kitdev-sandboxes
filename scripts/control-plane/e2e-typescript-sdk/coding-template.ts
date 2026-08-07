@@ -12,6 +12,12 @@ const nodeArchiveSha256 =
 const nodeDownload = `https://nodejs.org/dist/v22.18.0/${nodeArchive}`;
 const templateTag = "coding";
 
+type PublicationConfig = {
+  schemaVersion: 1;
+  alias: "kitdev-coding";
+  version: string;
+};
+
 function pass(operation: string): void {
   console.log(`status=pass operation=${operation}`);
 }
@@ -32,6 +38,22 @@ async function loadTemplateName(): Promise<string> {
   const value = (await readFile("/run/config/e2b-template-name", "ascii")).trim();
   assert.match(value, /^kitdev-coding-template-[0-9a-f]{12}$/);
   return value;
+}
+
+async function loadPublicationConfig(): Promise<PublicationConfig | undefined> {
+  let source: string;
+  try {
+    source = await readFile("/run/config/template-publication.json", "ascii");
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  const document = JSON.parse(source) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(document).sort(), ["alias", "schemaVersion", "version"]);
+  assert.equal(document.schemaVersion, 1);
+  assert.equal(document.alias, "kitdev-coding");
+  assert.match(String(document.version), /^v[1-9][0-9]{0,5}$/);
+  return document as PublicationConfig;
 }
 
 async function recordState(name: string, value: string): Promise<void> {
@@ -164,7 +186,8 @@ async function exerciseCodingSandbox(
 
 async function main(): Promise<void> {
   const connection = await loadConnection();
-  const templateName = await loadTemplateName();
+  const publication = await loadPublicationConfig();
+  const templateName = publication?.alias ?? (await loadTemplateName());
   assert.equal(await Template.exists(templateName, connection), false);
   pass("coding-template-absent-preflight");
 
@@ -200,11 +223,12 @@ async function main(): Promise<void> {
   let buildLogEntries = 0;
   const build = await Template.build(
     codingTemplate,
-    `${templateName}:${templateTag}`,
+    `${templateName}:${publication?.version ?? templateTag}`,
     {
       ...connection,
       cpuCount: 2,
       memoryMB: 2048,
+      ...(publication === undefined ? {} : { tags: ["stable"] }),
       onBuildLogs: () => {
         buildLogEntries += 1;
       },
@@ -218,9 +242,17 @@ async function main(): Promise<void> {
   pass("coding-template-build");
 
   const tags = await Template.getTags(build.templateId, connection);
-  assert(tags.some((item) => item.tag === templateTag && item.buildId === build.buildId));
+  const expectedTags = publication === undefined
+    ? [templateTag]
+    : [publication.version, "stable"];
+  for (const tag of expectedTags) {
+    assert(tags.some((item) => item.tag === tag && item.buildId === build.buildId));
+  }
   pass("coding-template-tag");
-  await exerciseCodingSandbox(`${templateName}:${templateTag}`, connection);
+  await exerciseCodingSandbox(
+    `${templateName}:${publication?.version ?? templateTag}`,
+    connection,
+  );
 }
 
 main().catch((error: unknown) => {
