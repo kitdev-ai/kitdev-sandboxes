@@ -104,6 +104,20 @@ export const e2b: ConnectionOpts = {
 Keep SDK debug and HTTP trace logging disabled around credentials. Sanitize
 errors before forwarding them.
 
+Ask the bare-metal operator to issue the product key with the host-local
+`kitdev api-key create` command and assign its final file to the product service
+identity. The operator must transfer or mount that file over a separately
+secured channel; the create command never prints the raw key. Record the
+nonsecret key ID from the operator-managed metadata so rotation and incident
+response can revoke the exact credential. The product integration must not
+receive the control-plane admin token or its private environment file.
+
+After deploying a replacement key and proving it with `kitdev api-key verify`,
+the operator revokes the old key using its exact key ID and confirmation ID.
+Revocation invalidates upstream authentication immediately. Treat a retained
+local key file as a residual secret until the operator uses the metadata-bound
+`--delete-key-file` flow or removes it under an equivalent controlled process.
+
 ## Minimal runnable example
 
 Set `E2B_API_KEY_FILE` to a private mounted key and `E2B_TEMPLATE` to a

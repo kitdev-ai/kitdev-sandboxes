@@ -13,7 +13,8 @@ Milestone 0 establishes contracts before implementation:
 - `typescript-sdk-integration-guide.md` gives external product agents the
   exact official SDK configuration, proven examples, and ingress limitations.
 - `bare-metal-operator-guide.md` is the practical operator runbook, including
-  exact implemented commands and clearly labeled unimplemented workflows.
+  exact implemented lifecycle and API-key commands plus clearly labeled
+  unimplemented workflows.
 - `browser-sandbox-guide.md` is the development-only Chromium/Playwright
   template qualification procedure and its public-ingress limitations.
 - `disaster-recovery.md` defines the implemented offline backup format, secret

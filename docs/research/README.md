@@ -16,6 +16,9 @@ private keys, secret values, or unnecessary personal/host identifiers.
 
 ## Reports
 
+- [`api-key-lifecycle-contract.md`](api-key-lifecycle-contract.md): pinned
+  admin/API authentication routes, credential-safe host-local lifecycle,
+  interrupted-create recovery, team selection, and remaining live gate.
 - [`backup-restore-contract.md`](backup-restore-contract.md): first offline
   physical backup format, durable-state inventory, integrity and compatibility
   gates, secret exclusion, interrupted-run recovery, and live test plan.

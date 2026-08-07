@@ -11,6 +11,7 @@ main() {
   getent group kitdev >/dev/null || control_plane_die kitdev_group_required 65
 
   ensure_directory "$KITDEV_ETC_ROOT" root root 700
+  ensure_directory "$KITDEV_ETC_ROOT/secrets" root root 700
   ensure_directory "$KITDEV_OPT_ROOT" root root 755
   ensure_directory "$KITDEV_OPT_ROOT/src" root root 755
   ensure_directory "$KITDEV_STATE_ROOT" root root 755

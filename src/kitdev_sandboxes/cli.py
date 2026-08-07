@@ -11,6 +11,12 @@ from typing import Callable, Sequence
 sys.dont_write_bytecode = True
 
 from kitdev_sandboxes import __version__
+from kitdev_sandboxes.api_keys import (
+    DEFAULT_PRIVATE_ENV,
+    ApiKeyOperationError,
+    ApiKeyResult,
+    run_api_key,
+)
 from kitdev_sandboxes.collectors import LinuxFacts
 from kitdev_sandboxes.composition import (
     InstallPlanReport,
@@ -186,6 +192,65 @@ def build_parser() -> argparse.ArgumentParser:
         required=False,
         help="absolute root-owned mode-0600 E2B template ID file",
     )
+    api_key = commands.add_parser(
+        "api-key",
+        parents=[common],
+        help="create, inspect, verify, or revoke project API keys",
+    )
+    api_key_actions = api_key.add_subparsers(dest="api_key_action", required=True)
+
+    def add_admin_source(action: argparse.ArgumentParser) -> None:
+        source = action.add_mutually_exclusive_group()
+        source.add_argument(
+            "--admin-token-file",
+            type=Path,
+            help="absolute root-owned mode-0600 file containing only the admin token",
+        )
+        source.add_argument(
+            "--private-env-file",
+            type=Path,
+            help="absolute root-owned mode-0600 private environment file",
+        )
+
+    create = api_key_actions.add_parser("create", parents=[common])
+    create_team = create.add_mutually_exclusive_group()
+    create_team.add_argument("--team-id")
+    create_team.add_argument("--team-slug")
+    create.add_argument("--name", required=True)
+    create.add_argument("--output", type=Path, required=True)
+    create.add_argument("--metadata-file", type=Path)
+    create.add_argument("--owner", default="root")
+    create.add_argument("--group")
+    add_admin_source(create)
+
+    list_keys = api_key_actions.add_parser("list", parents=[common])
+    list_team = list_keys.add_mutually_exclusive_group()
+    list_team.add_argument("--team-id")
+    list_team.add_argument("--team-slug")
+    add_admin_source(list_keys)
+
+    verify = api_key_actions.add_parser("verify", parents=[common])
+    verify.add_argument("--key-file", type=Path, required=True)
+    verify.add_argument("--metadata-file", type=Path)
+
+    revoke = api_key_actions.add_parser("revoke", parents=[common])
+    revoke_team = revoke.add_mutually_exclusive_group()
+    revoke_team.add_argument("--team-id")
+    revoke_team.add_argument("--team-slug")
+    revoke.add_argument("--key-id", required=True)
+    revoke.add_argument("--confirm-key-id", required=True)
+    revoke.add_argument("--metadata-file", type=Path)
+    revoke.add_argument(
+        "--delete-key-file",
+        action="store_true",
+        help="delete the exact metadata-bound key file after durable revocation",
+    )
+    add_admin_source(revoke)
+    api_key_actions.add_parser(
+        "teams",
+        parents=[common],
+        help="list eligible local team IDs, slugs, and names",
+    )
     return parser
 
 
@@ -215,6 +280,7 @@ def main(
     identity_fact_collector: Callable[[Configuration], IdentityFacts] | None = None,
     identity_prerequisites: IdentityPrerequisites = IdentityPrerequisites(),
     lifecycle_runner: LifecycleRunner = run_lifecycle,
+    api_key_runner: Callable[..., ApiKeyResult] = run_api_key,
 ) -> int:
     parser = build_parser()
     raw_arguments = list(argv) if argv is not None else sys.argv[1:]
@@ -254,6 +320,67 @@ def main(
     except ConfigurationError as error:
         _configuration_error(str(error), json_output=json_output)
         return 2
+
+    if arguments.command == "api-key":
+        action = str(arguments.api_key_action)
+        if bool(getattr(arguments, "dry_run", False)):
+            payload = {
+                "schema_version": 1,
+                "command": f"api-key {action}",
+                "status": "planned",
+                "changes": 0,
+            }
+            if json_output:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                print(f"command=api-key-{action} status=planned changes=0")
+            return 0
+        try:
+            api_key_result = api_key_runner(
+                action,
+                loaded.configuration,
+                team_id=getattr(arguments, "team_id", None),
+                team_slug=getattr(arguments, "team_slug", None),
+                name=getattr(arguments, "name", None),
+                output=getattr(arguments, "output", None),
+                metadata_file=getattr(arguments, "metadata_file", None),
+                owner=getattr(arguments, "owner", "root"),
+                group=getattr(arguments, "group", None),
+                admin_token_file=getattr(arguments, "admin_token_file", None),
+                private_env_file=(
+                    getattr(arguments, "private_env_file", None) or DEFAULT_PRIVATE_ENV
+                ),
+                key_file=getattr(arguments, "key_file", None),
+                key_id=getattr(arguments, "key_id", None),
+                confirm_key_id=getattr(arguments, "confirm_key_id", None),
+                delete_key_file=bool(getattr(arguments, "delete_key_file", False)),
+            )
+        except KeyboardInterrupt:
+            if json_output:
+                _emit_json_error("interrupted", "interrupted")
+            else:
+                _emit_human_error("interrupted")
+            return 130
+        except ApiKeyOperationError as error:
+            if json_output:
+                _emit_json_error(error.reason, "API-key operation failed")
+            else:
+                _emit_human_error("API-key operation failed", error.reason)
+            return error.exit_code
+        except (OSError, RuntimeError, ValueError) as error:
+            if json_output:
+                _emit_json_error("api_key_internal_error", "API-key operation failed internally")
+            else:
+                _emit_human_error("API-key operation failed internally", type(error).__name__)
+            return 10
+        try:
+            if json_output:
+                print(json.dumps(api_key_result.as_dict(), indent=2, sort_keys=True))
+            else:
+                print(api_key_result.render_text())
+        except BrokenPipeError:
+            return 0
+        return 0
 
     lifecycle_commands = {"install", "up", "down", "restart", "status", "test"}
     is_install_dry_run = arguments.command == "install" and bool(

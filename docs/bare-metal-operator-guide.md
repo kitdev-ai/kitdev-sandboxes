@@ -267,7 +267,65 @@ Dry-run is available for day-two commands and changes nothing:
 sudo ./kitdev restart --lifecycle-mode development --dry-run --json
 ```
 
-A standalone installed `/usr/local/bin/kitdev` command is not implemented.
+A standalone installed `/usr/local/bin/kitdev` command is not implemented; run
+the reviewed checkout's top-level `./kitdev` entry point.
+
+## Project API keys
+
+The control plane's admin API is loopback-only. Run API-key lifecycle commands
+as root on the sandbox host. By default they read `ADMIN_TOKEN` from the exact
+root-owned mode-`0600` file
+`/etc/kitdev-sandboxes/control-plane.env`. To use a file containing only the
+raw admin token, select `--admin-token-file`; to select another environment
+file, use `--private-env-file`. The two formats are never auto-detected.
+
+For a control plane with exactly one nonblocked, nonbanned team, the common
+create flow is:
+
+```console
+sudo ./kitdev api-key create \
+  --name my-app \
+  --output /etc/kitdev-sandboxes/secrets/my-app.key
+sudo ./kitdev api-key verify \
+  --key-file /etc/kitdev-sandboxes/secrets/my-app.key \
+  --metadata-file /etc/kitdev-sandboxes/secrets/my-app.key.metadata.json
+sudo ./kitdev api-key list
+sudo ./kitdev api-key teams
+```
+
+Create resolves the team only when exactly one eligible local team exists;
+otherwise inspect the read-only `teams` output and pass `--team-slug <slug>` or
+`--team-id <uuid>`. For example, use
+`--team-slug kitdev-browser-heavy-team` for a separately provisioned heavy
+browser team. The selectors are mutually exclusive and slug matching is exact.
+The output directory must already exist, be
+root-owned, and not be group- or world-writable. The final key may be assigned
+to a service with `--owner` and `--group`, but its parent remains root-owned.
+The key is atomically published as mode `0600`; it is never printed. Root-owned
+mode-`0600` metadata defaults to `<output>.metadata.json` and records only the
+key ID, mask, ownership, and crash-recovery journal. The upstream key name gains
+a `--kitdev-<operation-id>` suffix so an interrupted create can be reconciled
+without exposing or duplicating its secret. Repeating the identical create
+command verifies and returns the existing key, or completes a journaled
+interruption.
+
+Revocation requires the same UUID twice:
+
+```console
+sudo ./kitdev api-key revoke \
+  --team-slug <team-slug> \
+  --key-id <key-uuid> \
+  --confirm-key-id <same-key-uuid> \
+  --metadata-file /etc/kitdev-sandboxes/secrets/my-app.key.metadata.json \
+  --delete-key-file
+```
+
+Without `--delete-key-file`, revocation deliberately retains the local raw key
+for operator-controlled audit or cleanup even though it no longer authenticates.
+Deletion requires matching metadata. The remote revoke and revoked metadata
+journal become durable before the exact metadata-bound regular key file is
+removed, so rerunning the command can finish an interrupted deletion. Retain
+the metadata as a nonsecret audit and idempotency record.
 
 ## Post-install tests
 
@@ -296,7 +354,8 @@ runs both. Each verifier owns cleanup, but always confirm final status:
 sudo ./kitdev status --lifecycle-mode development --json
 ```
 
-There is no stable automated API-key/template-ID provisioning command yet.
+API-key provisioning is available through `kitdev api-key`; stable template-ID
+or alias publication is not yet automated.
 
 ### Template qualification gates
 
