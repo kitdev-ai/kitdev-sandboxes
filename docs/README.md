@@ -10,6 +10,8 @@ Milestone 0 establishes contracts before implementation:
 - `research/` contains dated host, upstream, and compatibility evidence.
 - `operations.md` documents the implemented prepared-host control-plane
   lifecycle and its remaining fresh-install boundary.
+- `typescript-sdk-integration-guide.md` gives external product agents the
+  exact official SDK configuration, proven examples, and ingress limitations.
 - `bare-metal-operator-guide.md` is the practical operator runbook, including
   exact implemented commands and clearly labeled unimplemented workflows.
 - `../experiments/ovh-lab/` contains the gated disposable-host experiment

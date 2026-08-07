@@ -94,6 +94,8 @@ Start with [the architecture](docs/architecture.md), [the preflight design](docs
 and [the milestone plan](docs/milestone-plan.md). Collected evidence and
 compatibility findings are kept separately in [research](docs/research/README.md).
 Operators should use the [bare-metal operator guide](docs/bare-metal-operator-guide.md).
+External product agents should use the
+[official TypeScript SDK integration guide](docs/typescript-sdk-integration-guide.md).
 The complete product brief is kept in `PROMPT.md`.
 
 ## Development
