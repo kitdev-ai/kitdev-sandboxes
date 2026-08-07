@@ -966,3 +966,27 @@ untracked, and must never be quoted into tracked documentation.
 - **Support:** Ubuntu 25.04 remains development/migration-only and Ubuntu 26.04
   is the production target. Ubuntu 24.04 is unsupported.
 - **Commit:** Pending in this change set.
+
+## 2026-08-07 - TypeScript SDK and external ingress contract
+
+- **Intent:** Select the exact official TypeScript client compatible with the
+  pinned backend and define the credential-safe, externally reachable test
+  contract for `sandbox.kitdev.ai`.
+- **Result:** Selected `e2b@2.38.0`, recorded immutable npm and Node runtime
+  integrity pins, mapped public SDK operations, and documented official
+  project API-key creation/revocation semantics.
+- **Ingress:** Defined `api.sandbox.kitdev.ai` as the API route and
+  `*.sandbox.kitdev.ai` as the client-proxy fallback, including the official
+  host parser, shared-host headers, WebSocket/streaming requirements, and a
+  Let's Encrypt DNS-01 wildcard-certificate contract. The DNS provider remains
+  a required input.
+- **Evidence boundary:** Primary-source research and local documentation only;
+  this activity did not connect to or mutate the server. Live SDK execution,
+  ingress publication, certificate issuance, pause/snapshot storage, and
+  template-manager coverage remain explicit gates.
+- **Storage finding:** Docker's active containerd content store is on the small
+  NVMe root despite the reported Docker data-root. Image pulls/builds require a
+  relocation or capacity gate and must not race active sandbox tests.
+- **Support:** Ubuntu 25.04 remains development/migration-only and Ubuntu 26.04
+  is the production target. Ubuntu 24.04 is unsupported.
+- **Commit:** Pending in this change set.

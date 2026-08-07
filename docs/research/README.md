@@ -23,6 +23,10 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`control-plane-replay-slice.md`](control-plane-replay-slice.md): pinned
   Compose, host-runtime, firewall, identity, and persistent orchestrator replay
   derived from the successful disposable-host control-plane run.
+- [`e2b-typescript-sdk-self-host-contract.md`](e2b-typescript-sdk-self-host-contract.md):
+  exact `e2b@2.38.0` artifact/runtime pin, self-host authentication, API-key,
+  `sandbox.kitdev.ai` ingress/TLS, public feature surface, and live
+  compatibility gates.
 - [`host-discovery.md`](host-discovery.md): read-only `kit@pc` capability and
   coexistence inventory.
 - [`milestone-1-pc-doctor.md`](milestone-1-pc-doctor.md): temporary read-only
