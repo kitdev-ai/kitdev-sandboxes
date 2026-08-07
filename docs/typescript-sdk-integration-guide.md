@@ -5,6 +5,12 @@ with Kitdev Sandboxes. It targets the official E2B TypeScript SDK. Treat the
 feature-status table as authoritative: SDK source compatibility does not prove
 that the public network path is deployed.
 
+The operator must provide four deployment values before integration starts:
+the API URL, sandbox domain, project API key, and a published template ID or
+alias. Do not guess a template name or substitute a template-build UUID. The
+SDK create call accepts a template ID such as the backend `envs.id`, or an
+operator-published alias; an `env_builds.id` UUID is not a template ID.
+
 ## Exact client
 
 Pin the client and runtime exactly:
@@ -18,6 +24,12 @@ Pin the client and runtime exactly:
 
 ```console
 npm install --save-exact e2b@2.38.0
+```
+
+Commit both `package.json` and `package-lock.json`. CI and deployment should
+then install only from that reviewed lock:
+
+```console
 npm ci --ignore-scripts --no-audit --no-fund
 ```
 
@@ -54,6 +66,11 @@ The expected DNS and TLS names are `api.sandbox.kitdev.ai` and
 `*.sandbox.kitdev.ai`. The first serves lifecycle calls. Wildcard names such
 as `<port>-<sandbox-id>.sandbox.kitdev.ai` route sandbox traffic.
 
+The repository has proved the equivalent loopback SDK path, but not this
+external HTTPS path. Do not deploy a product integration until the operator
+confirms that public DNS, TLS, API authentication, ConnectRPC streaming, and
+wildcard sandbox routing have passed from a separate client host.
+
 ## Credentials
 
 Use a separate project key per product/environment. It has the form `e2b_`
@@ -61,13 +78,19 @@ plus 40 lowercase hexadecimal characters. Never commit it, put it in a command
 argument, bake it into an image, print an SDK options object, or include it in
 telemetry.
 
-Prefer a secret manager or root-owned mode-0600 file:
+Prefer a secret manager. If a file mount is required, make it a regular,
+single-link file readable only by the product service identity, normally mode
+`0400` or `0600`. Root ownership is appropriate only when the product process
+runs as root or a root bootstrapper reads and passes the value without exposing
+it to child process arguments or logs.
 
 ```ts
 import { readFile } from "node:fs/promises";
 import type { ConnectionOpts } from "e2b";
 
-const apiKey = (await readFile(process.env.E2B_API_KEY_FILE!, "ascii")).trim();
+const keyFile = process.env.E2B_API_KEY_FILE;
+if (!keyFile) throw new Error("E2B_API_KEY_FILE is required");
+const apiKey = (await readFile(keyFile, "ascii")).trim();
 if (!/^e2b_[0-9a-f]{40}$/.test(apiKey)) throw new Error("invalid E2B API key");
 
 export const e2b: ConnectionOpts = {
@@ -88,10 +111,14 @@ template ID or alias:
 
 ```ts
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Sandbox, type ConnectionOpts } from "e2b";
 
-const apiKey = (await readFile(process.env.E2B_API_KEY_FILE!, "ascii")).trim();
+const keyFile = process.env.E2B_API_KEY_FILE;
+if (!keyFile) throw new Error("E2B_API_KEY_FILE is required");
+const apiKey = (await readFile(keyFile, "ascii")).trim();
+if (!/^e2b_[0-9a-f]{40}$/.test(apiKey)) throw new Error("invalid E2B API key");
 const template = process.env.E2B_TEMPLATE;
 if (!template) throw new Error("E2B_TEMPLATE is required");
 
@@ -107,18 +134,19 @@ try {
   sandbox = await Sandbox.create(template, {
     ...connection,
     timeoutMs: 10 * 60_000,
-    metadata: { product: "example", request_id: crypto.randomUUID() },
+    metadata: { product: "example", request_id: randomUUID() },
   });
   const result = await sandbox.commands.run("printf hello", { timeoutMs: 30_000 });
   assert.equal(result.exitCode, 0);
   assert.equal(result.stdout, "hello");
 } finally {
-  if (sandbox) await sandbox.kill().catch(() => false);
+  if (sandbox) await sandbox.kill();
 }
 ```
 
 The equivalent server-side loopback flow is live-proven. This public-host flow
-remains ingress-dependent.
+remains ingress-dependent. `E2B_TEMPLATE` must be trusted deployment
+configuration supplied by the operator, not an arbitrary end-user value.
 
 ## Lifecycle and commands
 
@@ -240,8 +268,8 @@ try {
     timeoutMs: 10 * 60_000,
   });
 } finally {
-  if (restored) await restored.kill().catch(() => false);
-  await Sandbox.deleteSnapshot(snapshot.snapshotId, e2b).catch(() => false);
+  if (restored) await restored.kill();
+  await Sandbox.deleteSnapshot(snapshot.snapshotId, e2b);
 }
 ```
 
@@ -265,7 +293,8 @@ authentication. The SDK exposes `sandbox.trafficAccessToken`, but caller
 Template builds are live-proven through the server-side loopback API with the
 official SDK and local template manager. This includes background and blocking
 builds, status polling, alias existence, tag assignment/removal, and sandbox
-creation from both resulting tags. Use a separate build-capable key:
+creation from both resulting tags. Use a dedicated team key for build
+automation so the operator can revoke it independently:
 
 ```ts
 import { Template } from "e2b";
@@ -278,8 +307,27 @@ const template = Template()
 const build = await Template.build(template, "my-product:v1", e2b);
 ```
 
+The backend project key is team-scoped, not restricted to template builds.
+Using a distinct key gives the operator an independent revocation handle; it
+does not create least-privilege build permissions. Keep template building in a
+trusted deployment workflow and never expose it to product users directly.
+
 The external HTTPS path from another server remains ingress-dependent; do not
 automate remote production builds until that public path passes its own gate.
+
+## Coding template
+
+A pinned non-graphical coding template has been live-proven through the
+official SDK. Its tested contract includes an unprivileged `user` account and
+workspace, Node.js 22.18.0, npm 10.9.3, Git, Python, GCC, Make, SDK-managed
+files, shell commands, and PTYs. That test creates a unique template and
+deletes its alias afterward; it does not publish a stable production alias.
+
+Ask the operator for the deployed coding template ID or alias. Do not assume
+that `base`, `coding`, or the test name is available. Keep the project API key
+on the product server: never put it, product credentials, or tenant secrets in
+sandbox environment variables or files unless the product has an explicit
+per-sandbox secret policy and cleanup contract.
 
 ## Reliability rules
 
@@ -309,9 +357,12 @@ automate remote production builds until that public path passes its own gate.
 | Guest ports, streaming, WebSockets | Ingress-dependent | Wildcard proxy unproven |
 | Direct URL upload/download | Ingress-dependent | Caller-managed URL unproven |
 | Template SDK build/status/exists/tags | Live-proven | Official SDK, loopback API/template manager |
-| Code/browser/desktop/CDP/screen/input | Pending | Product templates/tests incomplete |
+| Coding template toolchain/files/commands/PTY | Live-proven | Ephemeral official-SDK build and sandbox; stable deployment alias pending |
+| Browser/CDP/Playwright | Pending | Template/test work not yet committed and qualified |
+| Desktop/stream/screen/input | Pending | Product template and live test incomplete |
 | Persistent volumes | Pending | Volume service not deployed |
 
 See the [live result](research/ovh-typescript-sdk-live-core.md) and
 [template-build result](research/ovh-typescript-sdk-template-build.md), plus the
+[coding-template result](research/coding-template-contract.md) and
 [exact upstream contract](research/e2b-typescript-sdk-self-host-contract.md).
