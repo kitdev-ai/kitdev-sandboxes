@@ -9,8 +9,9 @@ and what is still planned. It is not a production-readiness declaration.
 
 The current system has a working pinned control plane, Firecracker runtime,
 local template, official TypeScript SDK and template-build tests, a live-proven
-coding-template gate, and optional HTTPS ingress. It does **not** yet have a
-complete fresh-host installer or a production-published coding template.
+coding-template gate, a live-proven loopback Chromium/Playwright gate, and
+optional HTTPS ingress. It does **not** yet have a complete fresh-host installer
+or production-published coding/browser templates.
 
 `sudo ./kitdev install` itself applies only the minimal control plane on an
 already prepared host in explicit `development` or `migration` mode. A separate
@@ -301,7 +302,7 @@ There is no stable automated API-key/template-ID provisioning command yet.
 
 The top-level `kitdev test` command does not expose the template-build or
 product-template gates. From the same reviewed checkout, an operator can run
-the two currently passing low-level gates explicitly:
+the three currently passing low-level gates explicitly:
 
 ```console
 sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
@@ -313,6 +314,11 @@ sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
   KITDEV_LIFECYCLE=development \
   /usr/bin/bash scripts/control-plane/verify-typescript-sdk-coding-template.sh \
   --api-key-file /run/kitdev-sandboxes/e2e-api-key
+
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/control-plane/verify-typescript-sdk-browser-template.sh \
+  --api-key-file /run/kitdev-sandboxes/e2e-api-key
 ```
 
 These development-only tests use the same shared SDK lock, refuse a preexisting
@@ -320,8 +326,12 @@ Firecracker process, build uniquely named templates, create real sandboxes, and
 attempt cleanup on every exit. The generic gate proves background/blocking SDK
 builds, status, tags, and boot from the result. The coding gate proves its
 pinned toolchain, unprivileged workspace, TypeScript and shell execution,
-SDK-managed files, and PTY. Both remove their test aliases; neither publishes a
-stable product template. Confirm `kitdev status` after each run.
+SDK-managed files, and PTY. The browser gate proves non-root Chromium readiness,
+loopback CDP, Playwright navigation/DOM interaction, and screenshot/download
+collection through the SDK. See the
+[browser qualification guide](browser-sandbox-guide.md) for its Chromium-only,
+non-public boundary. All three gates remove their test aliases; none publishes
+a stable product template. Confirm `kitdev status` after each run.
 
 ## Public HTTPS ingress
 
@@ -497,9 +507,10 @@ Before production use, this project still needs:
 - apply/apply, reboot, restart, failure-recovery, and rollback qualification;
 - a standalone installed CLI and installation manifest/journal ownership;
 - concurrent sandbox, security isolation, and external TLS/SDK acceptance;
-- stable coding-template publication and complete browser/desktop acceptance;
+- stable coding/browser template publication and complete desktop acceptance;
 - persistent workspace semantics;
 - public and live-qualified backup/restore, update/rollback, and full uninstall;
-- capacity limits, observability, alerting, and containerd data-root policy.
+- sustained capacity/load qualification, observability, alerting, and
+  containerd data-root policy.
 
 Treat every unchecked item as a release blocker, not an optional enhancement.

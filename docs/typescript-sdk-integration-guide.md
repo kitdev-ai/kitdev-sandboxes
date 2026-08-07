@@ -329,6 +329,22 @@ on the product server: never put it, product credentials, or tenant secrets in
 sandbox environment variables or files unless the product has an explicit
 per-sandbox secret policy and cleanup contract.
 
+## Browser template
+
+A 2 GiB Chromium template has also passed its complete server-side
+qualification gate. The official SDK created the sandbox; its non-root browser
+reached loopback CDP readiness; Playwright performed local navigation and DOM
+interaction; and the files SDK collected exact screenshot and download
+artifacts. Sandbox, API, Redis, and Firecracker cleanup passed afterward.
+
+This proves a qualification template, not a published product alias. The gate
+deletes its unique alias, covers Chromium only, and keeps CDP on
+`127.0.0.1:9222` inside the guest. Ask the operator for a separately published
+browser template contract before writing product behavior. Do not expose CDP
+with `getHost(9222)` or assume arbitrary public browser ports work; authenticated
+wildcard ingress remains unproven. See the
+[browser qualification guide](browser-sandbox-guide.md) for the exact boundary.
+
 ## Reliability rules
 
 - Bound sandbox lifetime, API requests, commands, watches, and PTYs separately.
@@ -358,11 +374,12 @@ per-sandbox secret policy and cleanup contract.
 | Direct URL upload/download | Ingress-dependent | Caller-managed URL unproven |
 | Template SDK build/status/exists/tags | Live-proven | Official SDK, loopback API/template manager |
 | Coding template toolchain/files/commands/PTY | Live-proven | Ephemeral official-SDK build and sandbox; stable deployment alias pending |
-| Browser/CDP/Playwright | Pending | Template/test work not yet committed and qualified |
+| Browser/CDP/Playwright | Live-proven (loopback) | Ephemeral Chromium qualification template; stable alias and public CDP pending |
 | Desktop/stream/screen/input | Pending | Product template and live test incomplete |
 | Persistent volumes | Pending | Volume service not deployed |
 
-See the [live result](research/ovh-typescript-sdk-live-core.md) and
-[template-build result](research/ovh-typescript-sdk-template-build.md), plus the
-[coding-template result](research/coding-template-contract.md) and
+See the [live result](research/ovh-typescript-sdk-live-core.md),
+[template-build result](research/ovh-typescript-sdk-template-build.md),
+[coding-template result](research/coding-template-contract.md),
+[browser-template result](research/browser-template-contract.md), and
 [exact upstream contract](research/e2b-typescript-sdk-self-host-contract.md).
