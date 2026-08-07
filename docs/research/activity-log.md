@@ -1044,3 +1044,34 @@ untracked, and must never be quoted into tracked documentation.
   before lifecycle qualification. See
   [`ovh-cli-lifecycle-precheck.md`](ovh-cli-lifecycle-precheck.md).
 - **Commit:** Pending in this change set.
+
+## 2026-08-07 - Fresh-host prerequisite Ansible slice
+
+- **Intent:** Replace the blocked disposable-lab package/identity/kernel stages
+  with reusable fresh-host convergence while preserving strict lifecycle and
+  ownership boundaries.
+- **Implementation:** Added a localhost-only pinned Ansible controller and
+  narrow preflight, package, identity, kernel, manifest, and removal roles.
+  Ubuntu 26.04 is production eligible; Ubuntu 25.04 requires explicit
+  development/migration; Ubuntu 24.04 is unsupported.
+- **Safety:** All platform, APT trust, NSS/name/numeric collision, KVM/TUN,
+  loaded-NBD, hugepage total-RAM and current-MemAvailable gates execute before
+  the first project host mutation. Only the worker receives KVM membership.
+  No role edits SSH, unattended updates, Docker, firewall, storage, or
+  unrelated services.
+- **Rollback:** Root-only prior state records packages, identities, files,
+  sysctls, and loaded modules. Removal refuses managed-file or live-sysctl
+  drift and active service identities, restores only recorded prior state, and
+  emits an ephemeral controlled-reboot marker instead of forcibly unloading
+  KVM/TUN/NBD modules.
+- **Evidence boundary:** Implementation and validation were local only. The
+  intentionally incompatible legacy OVH lab was not contacted or mutated.
+- **Verification:** An empty virtual environment installed the complete hashed
+  lock and reported `ansible-playbook [core 2.21.2]`; both playbooks passed
+  syntax check. The final full Python unit suite passed 328 tests with two
+  expected platform/tool skips, including the expanded focused prerequisite
+  suite. Bash syntax and Git whitespace checks passed.
+- **Remaining gates:** Apply/apply, check-mode zero-mutation evidence, reboot
+  persistence, remove/remove and post-removal reboot evidence on clean Ubuntu
+  26.04 production and Ubuntu 25.04 development/migration hosts remain pending.
+- **Commit:** Pending in this change set.

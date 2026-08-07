@@ -1,3 +1,4 @@
-# Bootstrap and deployment requirements belong here once their versions are
-# selected and verified. Generate requirements.lock with hashes; never edit the
-# generated lock by hand.
+# The local controller is intentionally ansible-core only. Roles use
+# ansible.builtin modules so no floating Galaxy collection is required.
+ansible-core==2.21.2
+pip==26.1.1

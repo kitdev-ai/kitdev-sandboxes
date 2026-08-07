@@ -1,0 +1,45 @@
+---
+kitdev_supported_platforms:
+  - os_version: "26.04"
+    lifecycle_modes: [production, development, migration]
+  - os_version: "25.04"
+    lifecycle_modes: [development, migration]
+
+kitdev_service_identities:
+  - name: kitdev-e2b
+    uid: 61000
+    gid: 61000
+    supplementary_groups: []
+  - name: kitdev-proxy
+    uid: 61001
+    gid: 61001
+    supplementary_groups: []
+  - name: kitdev-worker
+    uid: 61002
+    gid: 61002
+    supplementary_groups: [kvm]
+
+kitdev_prerequisite_packages:
+  - ca-certificates
+  - curl
+  - e2fsprogs
+  - git
+  - iproute2
+  - jq
+  - kmod
+  - qemu-utils
+  - util-linux
+
+kitdev_hugepages_2m: 512
+kitdev_hugepages_max_ram_percent: 25
+kitdev_hugepages_min_available_mb_after: 1024
+kitdev_nbd_devices: 64
+kitdev_nbd_max_partitions: 8
+kitdev_prerequisite_state_root: /var/lib/kitdev-sandboxes/host-prerequisites
+kitdev_prerequisite_prior_state_path: "{{ kitdev_prerequisite_state_root }}/prior-state.json"
+kitdev_prerequisite_manifest_path: "{{ kitdev_prerequisite_state_root }}/manifest.json"
+kitdev_prerequisite_reboot_marker: /run/kitdev-sandboxes/host-prerequisites-reboot-required
+kitdev_managed_host_files:
+  - /etc/modules-load.d/90-kitdev-sandboxes.conf
+  - /etc/modprobe.d/90-kitdev-sandboxes-nbd.conf
+  - /etc/sysctl.d/90-kitdev-sandboxes.conf

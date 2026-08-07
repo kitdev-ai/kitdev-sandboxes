@@ -1,0 +1,12 @@
+---
+- name: Remove only manifest-owned kitdev host prerequisites
+  hosts: localhost
+  gather_facts: true
+  become: true
+  vars:
+    kitdev_lifecycle_mode: "{{ lookup('env', 'KITDEV_LIFECYCLE_MODE') | default('production', true) }}"
+  roles:
+    - role: preflight
+      tags: [always, preflight]
+    - role: host_remove
+      tags: [remove]

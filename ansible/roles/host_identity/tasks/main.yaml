@@ -1,0 +1,39 @@
+---
+- name: Converge dedicated primary service groups
+  ansible.builtin.group:
+    name: "{{ item.name }}"
+    gid: "{{ item.gid }}"
+    system: true
+    state: present
+  loop: "{{ kitdev_service_identities }}"
+
+- name: Converge locked non-login service identities
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    uid: "{{ item.uid }}"
+    group: "{{ item.name }}"
+    groups: "{{ item.supplementary_groups | join(',') }}"
+    append: false
+    home: /nonexistent
+    create_home: false
+    shell: /usr/sbin/nologin
+    password_lock: true
+    system: true
+    state: present
+  loop: "{{ kitdev_service_identities }}"
+
+- name: Re-read converged identity group sets
+  ansible.builtin.command:
+    argv: [/usr/bin/id, -Gn, "{{ item.name }}"]
+  loop: "{{ kitdev_service_identities }}"
+  register: kitdev_converged_group_sets
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify exact service supplementary group policy
+  ansible.builtin.assert:
+    that:
+      - (item.stdout.split() | sort) == (([item.item.name] + item.item.supplementary_groups) | sort)
+    fail_msg: "Unexpected supplementary group access for {{ item.item.name }}"
+  loop: "{{ kitdev_converged_group_sets.results }}"
+  when: not ansible_check_mode

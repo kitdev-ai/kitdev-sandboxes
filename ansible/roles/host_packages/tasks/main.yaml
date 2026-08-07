@@ -1,0 +1,90 @@
+---
+- name: Collect exact pre-change package versions
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Inspect project-owned host configuration paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  loop: "{{ kitdev_managed_host_files }}"
+  register: kitdev_prior_managed_file_stats
+
+- name: Read pre-existing project host configuration
+  ansible.builtin.slurp:
+    src: "{{ item.item }}"
+  loop: "{{ kitdev_prior_managed_file_stats.results }}"
+  when: item.stat.exists
+  register: kitdev_prior_managed_file_contents
+
+- name: Refuse non-regular managed path collisions
+  ansible.builtin.assert:
+    that: not item.stat.exists or (item.stat.isreg and not item.stat.islnk)
+    fail_msg: "Managed host path is not a regular file: {{ item.item }}"
+  loop: "{{ kitdev_prior_managed_file_stats.results }}"
+
+- name: Refuse unowned or modified managed host files
+  ansible.builtin.assert:
+    that:
+      - >-
+        not item.stat.exists or
+        (kitdev_state_paths.results[2].stat.exists and
+         item.stat.checksum == kitdev_existing_host_manifest.files[item.item])
+    fail_msg: "Managed host file is unowned or changed: {{ item.item }}"
+  loop: "{{ kitdev_prior_managed_file_stats.results }}"
+
+- name: Read prior runtime sysctl values
+  ansible.builtin.command:
+    argv: [/usr/sbin/sysctl, -n, "{{ item }}"]
+  loop:
+    - net.ipv4.ip_forward
+    - vm.nr_hugepages
+  register: kitdev_prior_sysctls
+  changed_when: false
+
+- name: Inspect prior module state
+  ansible.builtin.stat:
+    path: "/sys/module/{{ item }}"
+  loop:
+    - kvm
+    - "{{ kitdev_kvm_vendor_module }}"
+    - tun
+    - nbd
+  register: kitdev_prior_modules
+
+- name: Create root-only prerequisite state directory
+  ansible.builtin.file:
+    path: "{{ kitdev_prerequisite_state_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Persist immutable pre-change rollback state before mutation
+  ansible.builtin.template:
+    src: prior-state.json.j2
+    dest: "{{ kitdev_prerequisite_prior_state_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+
+- name: Install minimal capability-derived host packages
+  ansible.builtin.apt:
+    name: "{{ kitdev_prerequisite_packages }}"
+    state: present
+    install_recommends: false
+    update_cache: "{{ not ansible_check_mode }}"
+    cache_valid_time: 3600
+
+- name: Refresh installed package evidence
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Verify all prerequisite packages are installed
+  ansible.builtin.assert:
+    that:
+      - item in ansible_facts.packages
+      - (ansible_facts.packages[item] | length) >= 1
+    fail_msg: "Required host package did not converge: {{ item }}"
+  loop: "{{ kitdev_prerequisite_packages }}"

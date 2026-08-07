@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "owner": "kitdev-sandboxes/host-prerequisites",
+  "platform": {
+    "distribution": {{ ansible_facts.distribution | to_json }},
+    "version": {{ ansible_facts.distribution_version | to_json }},
+    "lifecycle_mode": {{ kitdev_lifecycle_mode | to_json }}
+  },
+  "identities": {{ kitdev_service_identities | to_json }},
+  "packages": {
+{% for package in kitdev_prerequisite_packages %}
+    {{ package | to_json }}: {{ (ansible_facts.packages[package] | map(attribute='version') | sort | list) | to_json }}{{ "," if not loop.last else "" }}
+{% endfor %}
+  },
+  "files": {
+{% for result in kitdev_final_managed_files.results %}
+    {{ result.item | to_json }}: {{ result.stat.checksum | to_json }}{{ "," if not loop.last else "" }}
+{% endfor %}
+  },
+  "kernel": {
+    "kvm_vendor_module": {{ kitdev_kvm_vendor_module | to_json }},
+    "nbd_devices_minimum": {{ kitdev_nbd_devices | int }},
+    "nbd_max_partitions_minimum": {{ kitdev_nbd_max_partitions | int }},
+    "hugepages_2m": {{ kitdev_hugepages_2m | int }},
+    "ipv4_forwarding": 1
+  },
+  "rollback": {
+    "state": {{ kitdev_prerequisite_prior_state_path | to_json }},
+    "module_runtime_restore": "controlled-reboot",
+    "reboot_marker": {{ kitdev_prerequisite_reboot_marker | to_json }},
+    "modules_loaded_before": {
+{% for result in kitdev_prior_modules.results %}
+      {{ result.item | to_json }}: {{ result.stat.exists | bool | to_json }}{{ "," if not loop.last else "" }}
+{% endfor %}
+    }
+  }
+}

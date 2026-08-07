@@ -1,0 +1,22 @@
+---
+- name: Collect final managed file digests
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  loop: "{{ kitdev_managed_host_files }}"
+  register: kitdev_final_managed_files
+  when: not ansible_check_mode
+
+- name: Collect final package versions
+  ansible.builtin.package_facts:
+    manager: apt
+  when: not ansible_check_mode
+
+- name: Publish deterministic ownership manifest
+  ansible.builtin.template:
+    src: manifest.json.j2
+    dest: "{{ kitdev_prerequisite_manifest_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: not ansible_check_mode

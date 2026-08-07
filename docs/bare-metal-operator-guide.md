@@ -149,21 +149,43 @@ Doctor exit codes are:
 | 6 | Installed deployment is unhealthy |
 | 10 | Unexpected internal error |
 
-## Prerequisite preparation: not yet implemented
+## Host prerequisite preparation
 
-The repository does not currently provide a supported command that converges
-all of these fresh-host prerequisites:
+The first fresh-host Ansible slice converges Ubuntu archive trust, a narrow host
+package set, reserved service identities, KVM membership, and persistent
+KVM/TUN/NBD/hugepage/IPv4-forwarding state. It does not prepare storage,
+install Docker, or configure the firewall. Those later roles remain required
+before `kitdev install` can run on a clean host.
 
-- exact Ubuntu/Docker packages and repository trust;
-- reserved `kitdev` service identities and KVM membership;
-- dedicated data filesystem and mount;
-- KVM, TUN, NBD, hugepage, forwarding, and persistence settings;
-- baseline UFW policy and coexistence checks.
+Review the exact plan from an immutable checkout:
 
-Do not assemble a production procedure from the disposable-lab experiment
-scripts. The staged experiment harness deliberately marks the corresponding
-mutation stages blocked. Reinstall is the authoritative reset for the current
-lab.
+```console
+sudo ./scripts/host-prerequisites.sh bootstrap production
+sudo ./scripts/host-prerequisites.sh check production
+sudo ./scripts/host-prerequisites.sh apply production
+```
+
+For Ubuntu 25.04, replace `production` with `development` or `migration`.
+Bootstrap creates only the hash-locked repository-local Ansible environment;
+if Ubuntu omitted the standard `venv` module, it installs only `python3-venv`.
+Apply refuses unsupported APT sources, identity collisions, insufficient
+hugepage capacity, unsafe live NBD reconfiguration, and foreign rollback state
+before project host mutation.
+
+Pre-change state and the final ownership manifest are root-only files below
+`/var/lib/kitdev-sandboxes/host-prerequisites`. Removal first verifies managed
+file hashes and that service identities own no processes:
+
+```console
+sudo ./scripts/host-prerequisites.sh remove-check production
+sudo ./scripts/host-prerequisites.sh remove production
+```
+
+Removal restores prior files and sysctls and removes only identities/packages
+created by the prerequisite slice. It deliberately does not unload live kernel
+modules; perform a controlled reboot after removal if returning module state to
+the pre-install boot baseline. Do not assemble any remaining production steps
+from the disposable-lab experiment scripts.
 
 ## Prepared-host install
 

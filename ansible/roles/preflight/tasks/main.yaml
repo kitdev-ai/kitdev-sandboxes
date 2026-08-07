@@ -1,0 +1,281 @@
+---
+- name: Validate immutable platform tuple before mutation
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Ubuntu'
+      - ansible_facts.architecture == 'x86_64'
+      - kitdev_lifecycle_mode in ['production', 'development', 'migration']
+      - >-
+        (ansible_facts.distribution_version == '26.04') or
+        (ansible_facts.distribution_version == '25.04' and
+         kitdev_lifecycle_mode in ['development', 'migration'])
+    fail_msg: >-
+      Supported tuples are Ubuntu 26.04 x86_64 in production/development/migration
+      and Ubuntu 25.04 x86_64 in explicit development/migration only.
+
+- name: Validate init and cgroups v2
+  ansible.builtin.stat:
+    path: /sys/fs/cgroup/cgroup.controllers
+  register: kitdev_cgroup_v2
+
+- name: Validate systemd and cgroups v2 before mutation
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.service_mgr == 'systemd'
+      - kitdev_cgroup_v2.stat.isreg | default(false)
+    fail_msg: The host must boot systemd with the unified cgroups v2 hierarchy.
+
+- name: Inspect required device nodes
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /dev/kvm
+    - /dev/net/tun
+  register: kitdev_device_nodes
+
+- name: Validate KVM and TUN character devices
+  ansible.builtin.assert:
+    that:
+      - kitdev_device_nodes.results[0].stat.ischr | default(false)
+      - kitdev_device_nodes.results[1].stat.ischr | default(false)
+    fail_msg: Hardware KVM and TUN/TAP device nodes must exist before convergence.
+
+- name: Read CPU vendor
+  ansible.builtin.slurp:
+    src: /proc/cpuinfo
+  register: kitdev_cpuinfo
+
+- name: Select the KVM vendor module
+  ansible.builtin.set_fact:
+    kitdev_kvm_vendor_module: >-
+      {{ 'kvm_intel' if 'GenuineIntel' in (kitdev_cpuinfo.content | b64decode)
+         else 'kvm_amd' if 'AuthenticAMD' in (kitdev_cpuinfo.content | b64decode)
+         else '' }}
+
+- name: Validate a supported CPU vendor
+  ansible.builtin.assert:
+    that: kitdev_kvm_vendor_module in ['kvm_intel', 'kvm_amd']
+    fail_msg: CPU vendor must expose Intel VT-x or AMD-V through KVM.
+
+- name: Query local KVM group
+  ansible.builtin.command:
+    argv: [/usr/bin/getent, -s, files, group, kvm]
+  register: kitdev_kvm_group
+  changed_when: false
+
+- name: Require the distro-owned local KVM group
+  ansible.builtin.assert:
+    that:
+      - kitdev_kvm_group.rc == 0
+      - (kitdev_kvm_group.stdout.split(':') | length) == 4
+    fail_msg: A local distro-owned kvm group must exist; this role never replaces it.
+
+- name: Query desired service identities by name
+  ansible.builtin.command:
+    argv: [/usr/bin/getent, -s, files, "{{ item.0.database }}", "{{ item.1.name }}"]
+  loop: "{{ query('subelements', kitdev_identity_databases, 'identities') }}"
+  vars:
+    kitdev_identity_databases:
+      - database: passwd
+        identities: "{{ kitdev_service_identities }}"
+      - database: group
+        identities: "{{ kitdev_service_identities }}"
+  register: kitdev_identity_by_name
+  changed_when: false
+  failed_when: kitdev_identity_by_name.rc not in [0, 2]
+
+- name: Query effective service identities by name
+  ansible.builtin.command:
+    argv: [/usr/bin/getent, "{{ item.0.database }}", "{{ item.1.name }}"]
+  loop: "{{ query('subelements', kitdev_identity_databases, 'identities') }}"
+  vars:
+    kitdev_identity_databases:
+      - database: passwd
+        identities: "{{ kitdev_service_identities }}"
+      - database: group
+        identities: "{{ kitdev_service_identities }}"
+  register: kitdev_effective_identity_by_name
+  changed_when: false
+  failed_when: kitdev_effective_identity_by_name.rc not in [0, 2]
+
+- name: Reject non-local NSS name collisions
+  ansible.builtin.assert:
+    that:
+      - item.0.rc == item.1.rc
+      - item.0.rc == 2 or item.0.stdout == item.1.stdout
+    fail_msg: "Service identity is shadowed or supplied by non-local NSS: {{ item.0.item.1.name }}"
+  loop: "{{ kitdev_identity_by_name.results | zip(kitdev_effective_identity_by_name.results) | list }}"
+  loop_control:
+    label: "{{ item.0.item.0.database }}:{{ item.0.item.1.name }}"
+
+- name: Query desired service identity numeric IDs
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/getent
+      - "{{ item.0.database }}"
+      - "{{ item.1.uid if item.0.database == 'passwd' else item.1.gid }}"
+  loop: "{{ query('subelements', kitdev_identity_databases, 'identities') }}"
+  vars:
+    kitdev_identity_databases:
+      - database: passwd
+        identities: "{{ kitdev_service_identities }}"
+      - database: group
+        identities: "{{ kitdev_service_identities }}"
+  register: kitdev_identity_by_id
+  changed_when: false
+  failed_when: kitdev_identity_by_id.rc not in [0, 2]
+
+- name: Reject name and numeric identity collisions
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.rc == 2 or
+        (item.item.0.database == 'passwd' and
+         item.stdout.split(':')[0] == item.item.1.name and
+         (item.stdout.split(':')[2] | int) == item.item.1.uid and
+         (item.stdout.split(':')[3] | int) == item.item.1.gid and
+         item.stdout.split(':')[5] == '/nonexistent' and
+         item.stdout.split(':')[6] == '/usr/sbin/nologin') or
+        (item.item.0.database == 'group' and
+         item.stdout.split(':')[0] == item.item.1.name and
+         (item.stdout.split(':')[2] | int) == item.item.1.gid)
+    fail_msg: "Foreign or mismatched service identity collision: {{ item.item.1.name }}"
+  loop: "{{ kitdev_identity_by_name.results }}"
+  loop_control:
+    label: "{{ item.item.0.database }}:{{ item.item.1.name }}"
+
+- name: Reject numeric ID collisions
+  ansible.builtin.assert:
+    that: item.rc == 2 or item.stdout.split(':')[0] == item.item.1.name
+    fail_msg: "Reserved numeric identity is occupied: {{ item.item.1.name }}"
+  loop: "{{ kitdev_identity_by_id.results }}"
+  loop_control:
+    label: "{{ item.item.0.database }}:{{ item.item.1.name }}"
+
+- name: Query existing service group sets
+  ansible.builtin.command:
+    argv: [/usr/bin/id, -Gn, "{{ item.item.1.name }}"]
+  loop: "{{ kitdev_identity_by_name.results[:(kitdev_service_identities | length)] }}"
+  when: item.rc == 0
+  register: kitdev_existing_service_group_sets
+  changed_when: false
+
+- name: Reject excess service group privileges
+  ansible.builtin.assert:
+    that:
+      - item.skipped | default(false) or ((item.stdout.split() | sort) == (([item.item.item.1.name] + item.item.item.1.supplementary_groups) | sort))
+    fail_msg: "Unexpected existing group access for {{ item.item.item.1.name }}"
+  loop: "{{ kitdev_existing_service_group_sets.results }}"
+  loop_control:
+    label: "{{ item.item.item.1.name }}"
+
+- name: Inspect NBD module state
+  ansible.builtin.stat:
+    path: /sys/module/nbd
+  register: kitdev_nbd_module
+
+- name: Read loaded NBD device capacity
+  ansible.builtin.slurp:
+    src: /sys/module/nbd/parameters/nbds_max
+  register: kitdev_loaded_nbd_devices
+  when: kitdev_nbd_module.stat.exists
+
+- name: Read loaded NBD partition capacity
+  ansible.builtin.slurp:
+    src: /sys/module/nbd/parameters/max_part
+  register: kitdev_loaded_nbd_partitions
+  when: kitdev_nbd_module.stat.exists
+
+- name: Refuse unsafe live NBD reconfiguration
+  ansible.builtin.assert:
+    that:
+      - not kitdev_nbd_module.stat.exists or ((kitdev_loaded_nbd_devices.content | b64decode | trim | int) >= kitdev_nbd_devices)
+      - not kitdev_nbd_module.stat.exists or ((kitdev_loaded_nbd_partitions.content | b64decode | trim | int) >= kitdev_nbd_max_partitions)
+    fail_msg: Loaded NBD capacity is below the requested values; reboot/unload it safely first.
+
+- name: Validate parameter ranges and hugepage memory budget
+  ansible.builtin.assert:
+    that:
+      - kitdev_nbd_devices | int >= 16
+      - kitdev_nbd_devices | int <= 256
+      - kitdev_nbd_max_partitions | int >= 0
+      - kitdev_nbd_max_partitions | int <= 16
+      - kitdev_hugepages_2m | int >= 0
+      - kitdev_hugepages_max_ram_percent | int >= 1
+      - kitdev_hugepages_max_ram_percent | int <= 50
+      - kitdev_hugepages_min_available_mb_after | int >= 512
+    fail_msg: Requested NBD/hugepage settings are invalid or exceed the configured RAM budget.
+
+- name: Validate current hugepage allocation against available memory
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ playbook_dir }}/files/validate_host_capacity.py"
+      - --hugepages
+      - "{{ kitdev_hugepages_2m }}"
+      - --max-ram-percent
+      - "{{ kitdev_hugepages_max_ram_percent }}"
+      - --min-available-mb-after
+      - "{{ kitdev_hugepages_min_available_mb_after }}"
+  register: kitdev_capacity_validation
+  changed_when: false
+
+- name: Validate enabled APT source ownership and trust
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ playbook_dir }}/files/validate_apt_sources.py"
+      - --codename
+      - "{{ ansible_facts.distribution_release }}"
+  register: kitdev_apt_source_validation
+  changed_when: false
+
+- name: Inspect rollback state paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ kitdev_prerequisite_state_root }}"
+    - "{{ kitdev_prerequisite_prior_state_path }}"
+    - "{{ kitdev_prerequisite_manifest_path }}"
+  register: kitdev_state_paths
+
+- name: Reject foreign or partial rollback state
+  ansible.builtin.assert:
+    that:
+      - not kitdev_state_paths.results[0].stat.exists or (kitdev_state_paths.results[0].stat.isdir and kitdev_state_paths.results[0].stat.pw_name == 'root' and kitdev_state_paths.results[0].stat.gr_name == 'root')
+      - not kitdev_state_paths.results[2].stat.exists or kitdev_state_paths.results[1].stat.exists
+      - not kitdev_state_paths.results[1].stat.exists or (kitdev_state_paths.results[1].stat.isreg and not kitdev_state_paths.results[1].stat.islnk and kitdev_state_paths.results[1].stat.pw_name == 'root' and kitdev_state_paths.results[1].stat.gr_name == 'root' and kitdev_state_paths.results[1].stat.mode == '0600')
+      - not kitdev_state_paths.results[2].stat.exists or (kitdev_state_paths.results[2].stat.isreg and not kitdev_state_paths.results[2].stat.islnk and kitdev_state_paths.results[2].stat.pw_name == 'root' and kitdev_state_paths.results[2].stat.gr_name == 'root' and kitdev_state_paths.results[2].stat.mode == '0600')
+    fail_msg: Host-prerequisite state is foreign, partial, or not root-owned.
+
+- name: Read existing ownership manifest
+  ansible.builtin.slurp:
+    src: "{{ kitdev_prerequisite_manifest_path }}"
+  register: kitdev_existing_manifest_bytes
+  when: kitdev_state_paths.results[2].stat.exists
+
+- name: Decode existing ownership manifest
+  ansible.builtin.set_fact:
+    kitdev_existing_host_manifest: >-
+      {{ kitdev_existing_manifest_bytes.content | b64decode | from_json }}
+  when: kitdev_state_paths.results[2].stat.exists
+
+- name: Authenticate existing ownership manifest
+  ansible.builtin.assert:
+    that:
+      - kitdev_existing_host_manifest.schema_version == 1
+      - kitdev_existing_host_manifest.owner == 'kitdev-sandboxes/host-prerequisites'
+      - kitdev_existing_host_manifest.platform.version == ansible_facts.distribution_version
+      - kitdev_existing_host_manifest.platform.lifecycle_mode == kitdev_lifecycle_mode
+      - kitdev_existing_host_manifest.identities == kitdev_service_identities
+      - kitdev_existing_host_manifest.files.keys() | sort == kitdev_managed_host_files | sort
+    fail_msg: Existing host-prerequisite manifest is malformed or incompatible.
+  when: kitdev_state_paths.results[2].stat.exists
+
+- name: Refuse unowned service identity adoption
+  ansible.builtin.assert:
+    that: item.rc == 2 or kitdev_state_paths.results[2].stat.exists
+    fail_msg: "Existing service identity lacks manifest ownership: {{ item.item.1.name }}"
+  loop: "{{ kitdev_identity_by_name.results }}"
+  loop_control:
+    label: "{{ item.item.0.database }}:{{ item.item.1.name }}"

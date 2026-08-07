@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "owner": "kitdev-sandboxes/host-prerequisites",
+  "platform": {
+    "distribution": {{ ansible_facts.distribution | to_json }},
+    "version": {{ ansible_facts.distribution_version | to_json }},
+    "architecture": {{ ansible_facts.architecture | to_json }},
+    "lifecycle_mode": {{ kitdev_lifecycle_mode | to_json }}
+  },
+  "state_root_existed": {{ kitdev_state_paths.results[0].stat.exists | bool | to_json }},
+  "packages": {
+{% for package in kitdev_prerequisite_packages %}
+    {{ package | to_json }}: {
+      "installed": {{ (package in ansible_facts.packages) | bool | to_json }},
+      "versions": {{ (ansible_facts.packages.get(package, []) | map(attribute='version') | sort | list) | to_json }}
+    }{{ "," if not loop.last else "" }}
+{% endfor %}
+  },
+  "identities": {
+{% for identity in kitdev_service_identities %}
+    {{ identity.name | to_json }}: {
+      "user_existed": {{ (kitdev_identity_by_name.results[loop.index0].rc == 0) | bool | to_json }},
+      "group_existed": {{ (kitdev_identity_by_name.results[kitdev_service_identities | length + loop.index0].rc == 0) | bool | to_json }}
+    }{{ "," if not loop.last else "" }}
+{% endfor %}
+  },
+  "files": {
+{% for result in kitdev_prior_managed_file_stats.results %}
+    {{ result.item | to_json }}: {
+      "existed": {{ result.stat.exists | bool | to_json }},
+      "content_b64": {{ (kitdev_prior_managed_file_contents.results[loop.index0].content | default('')) | to_json }},
+      "uid": {{ result.stat.uid | default(0) | int }},
+      "gid": {{ result.stat.gid | default(0) | int }},
+      "mode": {{ (result.stat.mode | default('')) | to_json }}
+    }{{ "," if not loop.last else "" }}
+{% endfor %}
+  },
+  "runtime": {
+    "sysctl": {
+      "net.ipv4.ip_forward": {{ kitdev_prior_sysctls.results[0].stdout | trim | int }},
+      "vm.nr_hugepages": {{ kitdev_prior_sysctls.results[1].stdout | trim | int }}
+    },
+    "modules_loaded": {
+{% for result in kitdev_prior_modules.results %}
+      {{ result.item | to_json }}: {{ result.stat.exists | bool | to_json }}{{ "," if not loop.last else "" }}
+{% endfor %}
+    }
+  }
+}

@@ -1,0 +1,180 @@
+---
+- name: Require a complete ownership and rollback record
+  ansible.builtin.assert:
+    that:
+      - kitdev_state_paths.results[1].stat.exists
+      - kitdev_state_paths.results[2].stat.exists
+    fail_msg: Removal requires both root-owned prerequisite state files.
+
+- name: Read immutable prior state
+  ansible.builtin.slurp:
+    src: "{{ kitdev_prerequisite_prior_state_path }}"
+  register: kitdev_prior_state_bytes
+
+- name: Read current ownership manifest
+  ansible.builtin.slurp:
+    src: "{{ kitdev_prerequisite_manifest_path }}"
+  register: kitdev_manifest_bytes
+
+- name: Decode prerequisite state records
+  ansible.builtin.set_fact:
+    kitdev_prior_state: "{{ kitdev_prior_state_bytes.content | b64decode | from_json }}"
+    kitdev_host_manifest: "{{ kitdev_manifest_bytes.content | b64decode | from_json }}"
+
+- name: Authenticate prerequisite state contracts
+  ansible.builtin.assert:
+    that:
+      - kitdev_prior_state.schema_version == 1
+      - kitdev_prior_state.owner == 'kitdev-sandboxes/host-prerequisites'
+      - kitdev_host_manifest.schema_version == 1
+      - kitdev_host_manifest.owner == 'kitdev-sandboxes/host-prerequisites'
+      - kitdev_prior_state.platform.version == ansible_facts.distribution_version
+      - kitdev_host_manifest.platform.version == ansible_facts.distribution_version
+      - kitdev_prior_state.platform.lifecycle_mode == kitdev_lifecycle_mode
+      - kitdev_host_manifest.platform.lifecycle_mode == kitdev_lifecycle_mode
+      - kitdev_prior_state.files.keys() | sort == kitdev_managed_host_files | sort
+    fail_msg: Prerequisite state is malformed or belongs to another platform/owner.
+
+- name: Inspect current managed host files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  loop: "{{ kitdev_managed_host_files }}"
+  register: kitdev_removal_file_stats
+
+- name: Refuse removal over locally modified managed files
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - not item.stat.islnk | default(false)
+      - item.stat.checksum == kitdev_host_manifest.files[item.item]
+    fail_msg: "Managed file changed after installation: {{ item.item }}"
+  loop: "{{ kitdev_removal_file_stats.results }}"
+
+- name: Check service identities have no running processes
+  ansible.builtin.command:
+    argv: [/usr/bin/pgrep, -u, "{{ item.name }}"]
+  loop: "{{ kitdev_service_identities }}"
+  register: kitdev_service_processes
+  changed_when: false
+  failed_when: kitdev_service_processes.rc not in [0, 1]
+
+- name: Refuse removal while service identities are active
+  ansible.builtin.assert:
+    that: item.rc == 1
+    fail_msg: "Service identity still owns a process: {{ item.item.name }}"
+  loop: "{{ kitdev_service_processes.results }}"
+
+- name: Read current project-owned runtime sysctl values
+  ansible.builtin.command:
+    argv: [/usr/sbin/sysctl, -n, "{{ item }}"]
+  loop:
+    - net.ipv4.ip_forward
+    - vm.nr_hugepages
+  register: kitdev_removal_current_sysctls
+  changed_when: false
+
+- name: Refuse removal over runtime sysctl drift
+  ansible.builtin.assert:
+    that:
+      - (kitdev_removal_current_sysctls.results[0].stdout | trim | int) == kitdev_host_manifest.kernel.ipv4_forwarding
+      - (kitdev_removal_current_sysctls.results[1].stdout | trim | int) == kitdev_host_manifest.kernel.hugepages_2m
+    fail_msg: Runtime sysctl state changed after installation; reconcile ownership before removal.
+
+- name: Identify module state requiring a controlled reboot
+  ansible.builtin.set_fact:
+    kitdev_modules_requiring_reboot: >-
+      {{ kitdev_prior_state.runtime.modules_loaded | dict2items
+         | rejectattr('value') | map(attribute='key') | list }}
+
+- name: Create ephemeral rollback marker directory
+  ansible.builtin.file:
+    path: "{{ kitdev_prerequisite_reboot_marker | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: (kitdev_modules_requiring_reboot | length) > 0
+
+- name: Record controlled reboot requirement for module-state restoration
+  ansible.builtin.copy:
+    content: "modules={{ kitdev_modules_requiring_reboot | join(',') }}\naction=controlled-reboot\n"
+    dest: "{{ kitdev_prerequisite_reboot_marker }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: (kitdev_modules_requiring_reboot | length) > 0
+
+- name: Restore pre-existing managed file contents
+  ansible.builtin.copy:
+    content: "{{ item.value.content_b64 | b64decode }}"
+    dest: "{{ item.key }}"
+    owner: "{{ item.value.uid }}"
+    group: "{{ item.value.gid }}"
+    mode: "{{ item.value.mode }}"
+  loop: "{{ kitdev_prior_state.files | dict2items }}"
+  when: item.value.existed
+
+- name: Remove managed files absent before installation
+  ansible.builtin.file:
+    path: "{{ item.key }}"
+    state: absent
+  loop: "{{ kitdev_prior_state.files | dict2items }}"
+  when: not item.value.existed
+
+- name: Restore prior runtime sysctl values
+  ansible.builtin.command:
+    argv: [/usr/sbin/sysctl, -w, "{{ item.key }}={{ item.value }}"]
+  loop: "{{ kitdev_prior_state.runtime.sysctl | dict2items }}"
+  when: not ansible_check_mode
+  changed_when: true
+
+- name: Predict prior runtime sysctl restoration in check mode
+  ansible.builtin.debug:
+    msg: "Would restore {{ item.key }}={{ item.value }}"
+  loop: "{{ kitdev_prior_state.runtime.sysctl | dict2items }}"
+  when: ansible_check_mode
+  changed_when: true
+
+- name: Remove service users created by this installation
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    state: absent
+    remove: false
+  loop: "{{ kitdev_service_identities }}"
+  when: not kitdev_prior_state.identities[item.name].user_existed
+
+- name: Remove service groups created by this installation
+  ansible.builtin.group:
+    name: "{{ item.name }}"
+    state: absent
+  loop: "{{ kitdev_service_identities }}"
+  when: not kitdev_prior_state.identities[item.name].group_existed
+
+- name: Remove packages absent before installation
+  ansible.builtin.apt:
+    name: "{{ kitdev_prior_state.packages | dict2items | rejectattr('value.installed') | map(attribute='key') | list }}"
+    state: absent
+    autoremove: false
+    purge: false
+
+- name: Remove completed ownership records
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ kitdev_prerequisite_manifest_path }}"
+    - "{{ kitdev_prerequisite_prior_state_path }}"
+
+- name: Remove state directory created by this installation
+  ansible.builtin.file:
+    path: "{{ kitdev_prerequisite_state_root }}"
+    state: absent
+  when: not kitdev_prior_state.state_root_existed
+
+- name: Report required controlled reboot
+  ansible.builtin.debug:
+    msg: >-
+      Controlled reboot required to restore pre-install loaded-module state for:
+      {{ kitdev_modules_requiring_reboot | join(', ') }}.
+  when: (kitdev_modules_requiring_reboot | length) > 0

@@ -1,0 +1,85 @@
+---
+- name: Persist project kernel module list
+  ansible.builtin.template:
+    src: modules-load.conf.j2
+    dest: /etc/modules-load.d/90-kitdev-sandboxes.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Persist parameterized NBD options
+  ansible.builtin.template:
+    src: nbd.conf.j2
+    dest: /etc/modprobe.d/90-kitdev-sandboxes-nbd.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Persist project sysctl values
+  ansible.builtin.template:
+    src: sysctl.conf.j2
+    dest: /etc/sysctl.d/90-kitdev-sandboxes.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Inspect required runtime kernel modules
+  ansible.builtin.stat:
+    path: "/sys/module/{{ item }}"
+  loop:
+    - kvm
+    - "{{ kitdev_kvm_vendor_module }}"
+    - tun
+    - nbd
+  register: kitdev_runtime_modules
+
+- name: Load missing runtime kernel modules
+  ansible.builtin.command:
+    argv: [/usr/sbin/modprobe, "{{ item.item }}"]
+  loop: "{{ kitdev_runtime_modules.results }}"
+  when:
+    - not ansible_check_mode
+    - not item.stat.exists
+  changed_when: true
+
+- name: Predict missing runtime module changes in check mode
+  ansible.builtin.debug:
+    msg: "Would load kernel module {{ item.item }}"
+  loop: "{{ kitdev_runtime_modules.results }}"
+  when:
+    - ansible_check_mode
+    - not item.stat.exists
+  changed_when: true
+
+- name: Read current runtime sysctl values
+  ansible.builtin.command:
+    argv: [/usr/sbin/sysctl, -n, "{{ item.key }}"]
+  loop:
+    - {key: net.ipv4.ip_forward, value: 1}
+    - {key: vm.nr_hugepages, value: "{{ kitdev_hugepages_2m }}"}
+  register: kitdev_current_sysctls
+  changed_when: false
+
+- name: Apply changed runtime sysctl values
+  ansible.builtin.command:
+    argv: [/usr/sbin/sysctl, -w, "{{ item.item.key }}={{ item.item.value }}"]
+  loop: "{{ kitdev_current_sysctls.results }}"
+  when:
+    - not ansible_check_mode
+    - (item.stdout | trim | int) != (item.item.value | int)
+  changed_when: true
+
+- name: Predict changed runtime sysctl values in check mode
+  ansible.builtin.debug:
+    msg: "Would set {{ item.item.key }}={{ item.item.value }}"
+  loop: "{{ kitdev_current_sysctls.results }}"
+  when:
+    - ansible_check_mode
+    - (item.stdout | trim | int) != (item.item.value | int)
+  changed_when: true
+
+- name: Verify live NBD and sysctl state
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, "{{ playbook_dir }}/files/verify_host_kernel.py", "{{ kitdev_nbd_devices }}", "{{ kitdev_nbd_max_partitions }}", "{{ kitdev_hugepages_2m }}"]
+  changed_when: false
+  when: not ansible_check_mode

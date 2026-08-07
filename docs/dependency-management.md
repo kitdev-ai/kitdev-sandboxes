@@ -22,9 +22,11 @@ for all transitive dependencies. Installation uses `pip --require-hashes
 --no-deps` in a project-owned virtual environment after bootstrap tooling is
 verified.
 
-Milestone 0 has no runnable Python dependency and therefore an intentionally
-empty deployment lock. Before Milestone 1 adds Ansible or a CLI dependency, it
-must:
+Milestone 1 pins the local Ansible controller and its complete transitive graph
+in `requirements.lock`. The host-prerequisite entrypoint verifies the lock
+digest, installs with `--require-hashes --no-deps`, and verifies the exact
+controller version before executing a playbook. Future Python or CLI additions
+must continue to:
 
 1. select and record the lock generator and pip versions;
 2. generate under the lowest supported interpreter and resolve any Python 3.14

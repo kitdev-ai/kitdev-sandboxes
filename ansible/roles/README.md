@@ -1,10 +1,16 @@
-# Planned roles
+# Role ownership
 
-The empty directories reserve these narrow ownership boundaries:
+Implemented in the host-prerequisite slice:
 
-- `preflight`: fact collection and hard requirement gates;
-- `host_packages`: approved package and repository state;
-- `host_kernel`: project module/sysctl/huge-page drop-ins;
+- `preflight`: immutable platform, capability, APT trust and collision gates;
+- `host_packages`: approved packages plus immutable pre-change state capture;
+- `host_identity`: three fixed non-login identities; only the worker joins KVM;
+- `host_kernel`: project module, NBD and sysctl drop-ins plus live convergence;
+- `host_manifest`: deterministic final versions and managed-file digests;
+- `host_remove`: authenticated guarded restoration from the pre-change state.
+
+Reserved for later milestones:
+
 - `docker`: compatibility and project integration, never Docker ownership;
 - `e2b_sources`: verified immutable upstream source trees;
 - `e2b_datastores`: private Compose state services;
