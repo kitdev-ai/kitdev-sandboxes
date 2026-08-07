@@ -1178,4 +1178,10 @@ untracked, and must never be quoted into tracked documentation.
   distro `ensurepip` payload was absent. The reusable bootstrap was corrected
   to query the exact `python3-venv` dpkg install state before venv creation; no
   manual package-install bypass was used.
+- **First check result:** The corrected bootstrap installed only four Ubuntu
+  venv support packages and the hash-locked repository controller. Migration
+  check then stopped before mutation because Ansible skips command modules by
+  default in check mode, leaving no container JSON to validate. The role now
+  explicitly executes its read-only service, process, database, capacity,
+  assignment, and runtime probes during check mode.
 - **Commit:** Pending in this change set.

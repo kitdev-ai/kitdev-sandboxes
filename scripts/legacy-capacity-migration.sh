@@ -83,9 +83,11 @@ main() {
   export KITDEV_LEGACY_CAPACITY_ACTION="$([[ "$operation" == remove* ]] && printf remove || printf apply)"
   cd "$REPOSITORY_ROOT"
   if [[ "$operation" == check || "$operation" == remove-check ]]; then
-    exec "$VENV/bin/ansible-playbook" --check --diff ansible/legacy-capacity-migration.yaml
+    exec "$VENV/bin/ansible-playbook" -i ansible/inventory/localhost.yaml \
+      --check --diff ansible/legacy-capacity-migration.yaml
   fi
-  exec "$VENV/bin/ansible-playbook" --diff ansible/legacy-capacity-migration.yaml
+  exec "$VENV/bin/ansible-playbook" -i ansible/inventory/localhost.yaml \
+    --diff ansible/legacy-capacity-migration.yaml
 }
 
 main "$@"

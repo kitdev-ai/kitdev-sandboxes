@@ -15,11 +15,13 @@
   ansible.builtin.command:
     argv: [/usr/bin/systemctl, is-active, "{{ kitdev_legacy_expected_service }}"]
   changed_when: false
+  check_mode: false
 
 - name: Require Docker service health
   ansible.builtin.command:
     argv: [/usr/bin/systemctl, is-active, docker.service]
   changed_when: false
+  check_mode: false
 
 - name: Inspect expected legacy containers
   ansible.builtin.command:
@@ -27,6 +29,7 @@
   loop: "{{ kitdev_legacy_expected_containers }}"
   register: kitdev_legacy_container_inspection
   changed_when: false
+  check_mode: false
 
 - name: Require every exact legacy container to be running
   ansible.builtin.assert:
@@ -46,6 +49,7 @@
     status_code: 200
     return_content: false
     timeout: 3
+  check_mode: false
 
 - name: Require legacy proxy health
   ansible.builtin.uri:
@@ -54,12 +58,14 @@
     status_code: 200
     return_content: false
     timeout: 3
+  check_mode: false
 
 - name: Refuse active Firecracker processes
   ansible.builtin.command:
     argv: [/usr/bin/pgrep, -x, firecracker]
   register: kitdev_legacy_firecracker_processes
   changed_when: false
+  check_mode: false
   failed_when: kitdev_legacy_firecracker_processes.rc not in [0, 1]
 
 - name: Refuse active template-manager processes
@@ -67,6 +73,7 @@
     argv: [/usr/bin/pgrep, -x, template-manager]
   register: kitdev_legacy_template_manager_processes
   changed_when: false
+  check_mode: false
   failed_when: kitdev_legacy_template_manager_processes.rc not in [0, 1]
 
 - name: Require an idle microVM runtime
@@ -97,6 +104,7 @@
         WHERE status_group IS NULL OR status_group NOT IN ('ready', 'failed');
   register: kitdev_legacy_active_builds
   changed_when: false
+  check_mode: false
 
 - name: Refuse nonterminal template builds
   ansible.builtin.assert:
@@ -120,6 +128,7 @@
       - "{{ kitdev_hugepages_min_available_mb_after }}"
   register: kitdev_legacy_capacity_validation
   changed_when: false
+  check_mode: false
 
 - name: Publish the target capacity plan
   ansible.builtin.set_fact:
@@ -142,6 +151,7 @@
       - /etc/sysctl.d
   register: kitdev_legacy_hugepage_assignments
   changed_when: false
+  check_mode: false
 
 - name: Require one exact legacy hugepage assignment
   ansible.builtin.assert:
@@ -240,6 +250,7 @@
     argv: [/usr/sbin/sysctl, -n, vm.nr_hugepages]
   register: kitdev_current_hugepages
   changed_when: false
+  check_mode: false
 
 - name: Validate initial or owned legacy content
   ansible.builtin.assert:
@@ -276,6 +287,7 @@
       - --reserve-mib
       - "{{ kitdev_hugepages_min_available_mb_after }}"
   changed_when: false
+  check_mode: false
 
 - name: Publish exact rollback inputs for transactional apply
   ansible.builtin.set_fact:

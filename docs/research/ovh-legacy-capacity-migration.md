@@ -92,4 +92,7 @@ stopped before package or capacity mutation: the existing `venv --help` probe
 returned success even though Ubuntu's `ensurepip` payload was unavailable, so
 venv creation failed. No manual package install was used. The repository
 bootstrap now checks the exact dpkg state of `python3-venv` before creating the
-controller. Live capacity apply remains pending a new committed release.
+controller. The next check stopped before mutation when Ansible skipped its
+read-only command probes in check mode. Those probes now explicitly run during
+check mode, and the wrapper supplies the explicit localhost inventory. Live
+capacity apply remains pending a new committed release.

@@ -83,6 +83,7 @@ class LegacyCapacityMigrationAssetTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("Count nonterminal template builds", tasks)
         self.assertIn("status_group NOT IN ('ready', 'failed')", tasks)
+        self.assertGreaterEqual(tasks.count("check_mode: false"), 10)
         self.assertIn("Refuse active Firecracker processes", tasks)
         self.assertIn("Require every exact legacy container to be running", tasks)
         self.assertIn("Require one exact legacy hugepage assignment", tasks)
