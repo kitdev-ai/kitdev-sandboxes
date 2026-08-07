@@ -109,6 +109,27 @@ The runner now accepts no broad exception. It requires the residual set to be
 either empty or exactly that one audit key, deletes the exact key, and then
 reruns the generic zero-key terminal check for both sandbox IDs.
 
+A subsequent full-suite replay observed short-lived Redis transition keys next
+to that audit key. Their exact shape was
+`sandbox:storage:{<cluster-uuid>}:transition:<source-sandbox-id>:<transition-uuid>`,
+their type was `string`, and a fresh atomic observation measured about 28.5
+seconds remaining. The earlier sub-second reading had sampled the same keys
+near expiry. The runner now reads matching key names, types, and TTLs
+atomically. It waits for at most 60 seconds only when every extra key has that
+exact shape and a positive
+TTL no greater than 60 seconds, then deletes only the exact `snapshot:last`
+key. A transition TTL increasing between polls is also rejected. Unknown keys,
+wrong types, missing expiry, long expiry, or malformed identifiers remain a
+hard failure.
+
+The corrected snapshot-only replay passed source creation, snapshot creation
+and listing, source deletion, restoration, restored command and file checks,
+restored-sandbox deletion, snapshot deletion, bounded transition expiry, exact
+audit-key deletion, and the final generic terminal gate. An independent
+post-run audit then confirmed an empty authenticated API sandbox list, no
+`snapshot:last` or transition keys, zero Firecracker processes, no SDK runtime
+stage, and a free SDK lock.
+
 The failed template-identifier probes left zero Firecracker processes. The
 successful run killed its sandbox. The reusable runner keeps the sandbox ID
 only in its root-owned runtime stage so an exit trap can issue an idempotent

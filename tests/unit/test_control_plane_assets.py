@@ -494,6 +494,11 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn("secondary-sandbox-id", runner)
         self.assertIn("run_sdk_group snapshot.ts", runner)
         self.assertIn('expected = "snapshot:last:" + sys.argv[2]', runner)
+        self.assertIn("return cjson.encode(out)", runner)
+        self.assertIn("redis.call('PTTL',key)", runner)
+        self.assertIn("0 < pttl <= 60_000", runner)
+        self.assertIn("pttl > previous[key]", runner)
+        self.assertIn('print("wait" if transitions else "delete")', runner)
         self.assertIn("sdk_snapshot_audit_cleanup_invalid", runner)
         self.assertIn("cleanup_snapshot_audit_key || status=1", runner)
         self.assertLess(

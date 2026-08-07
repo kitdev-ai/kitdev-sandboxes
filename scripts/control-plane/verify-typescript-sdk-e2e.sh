@@ -79,34 +79,82 @@ PY_SANDBOX_ID
 }
 
 cleanup_snapshot_audit_key() {
-  local action redis_container source_id
+  local action attempt redis_container source_id
   [[ -f "$stage/state/snapshot-id" ]] || return 0
   source_id="$(read_sandbox_id "$stage/state/sandbox-id")" || return 1
   redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || return 1
-  timeout 10 docker exec -- "$redis_container" redis-cli --raw --scan \
-    --pattern "*$source_id*" >"$stage/snapshot-audit-keys" 2>/dev/null || return 1
-  chmod 0600 -- "$stage/snapshot-audit-keys"
-  action="$(/usr/bin/python3 -I -B -S - "$stage/snapshot-audit-keys" "$source_id" <<'PY_SNAPSHOT_AUDIT'
+  rm -f -- "$stage/snapshot-audit-keys" "$stage/snapshot-audit-keys.previous"
+  for attempt in {1..60}; do
+    if [[ -f "$stage/snapshot-audit-keys" ]]; then
+      mv -- "$stage/snapshot-audit-keys" "$stage/snapshot-audit-keys.previous"
+    fi
+    timeout 10 docker exec -- "$redis_container" redis-cli --raw EVAL \
+      "local keys=redis.call('KEYS',ARGV[1]); table.sort(keys); local out={}; for _,key in ipairs(keys) do table.insert(out,{key=key,type=redis.call('TYPE',key)['ok'],pttl=redis.call('PTTL',key)}) end; return cjson.encode(out)" \
+      0 "*$source_id*" >"$stage/snapshot-audit-keys" 2>/dev/null || return 1
+    chmod 0600 -- "$stage/snapshot-audit-keys"
+    action="$(/usr/bin/python3 -I -B -S - "$stage/snapshot-audit-keys" "$source_id" \
+      "$stage/snapshot-audit-keys.previous" <<'PY_SNAPSHOT_AUDIT'
+import json
+import os
+import re
 import sys
 
-rows = open(sys.argv[1], encoding="ascii").read().splitlines()
+rows = json.load(open(sys.argv[1], encoding="ascii"))
 expected = "snapshot:last:" + sys.argv[2]
+uuid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+transition = re.compile(
+    rf"sandbox:storage:\{{{uuid}\}}:transition:{re.escape(sys.argv[2])}:{uuid}"
+)
+previous = {}
+if os.path.exists(sys.argv[3]):
+    previous = {
+        row["key"]: row["pttl"]
+        for row in json.load(open(sys.argv[3], encoding="ascii"))
+        if isinstance(row, dict) and transition.fullmatch(str(row.get("key", "")))
+    }
 if not rows:
     print("absent")
-elif rows == [expected]:
-    print("delete")
 else:
-    raise SystemExit(1)
+    keys = []
+    transitions = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"key", "type", "pttl"}:
+            raise SystemExit(1)
+        key, kind, pttl = row["key"], row["type"], row["pttl"]
+        if not isinstance(key, str) or kind != "string" or not isinstance(pttl, int):
+            raise SystemExit(1)
+        keys.append(key)
+        if key == expected:
+            if pttl <= 0:
+                raise SystemExit(1)
+        elif transition.fullmatch(key):
+            if not 0 < pttl <= 60_000:
+                raise SystemExit(1)
+            if key in previous and pttl > previous[key]:
+                raise SystemExit(1)
+            transitions.append(key)
+        else:
+            raise SystemExit(1)
+    if len(keys) != len(set(keys)) or keys.count(expected) != 1:
+        raise SystemExit(1)
+    print("wait" if transitions else "delete")
 PY_SNAPSHOT_AUDIT
-  )" || return 1
-  rm -f -- "$stage/snapshot-audit-keys"
-  if [[ "$action" == delete ]]; then
-    [[ "$(docker exec -- "$redis_container" redis-cli --raw DEL \
-      "snapshot:last:$source_id" 2>/dev/null)" == 1 ]] || return 1
-  else
-    [[ "$action" == absent ]] || return 1
-  fi
+    )" || return 1
+    if [[ "$action" == wait ]]; then
+      sleep 1
+      continue
+    fi
+    rm -f -- "$stage/snapshot-audit-keys" "$stage/snapshot-audit-keys.previous"
+    if [[ "$action" == delete ]]; then
+      [[ "$(docker exec -- "$redis_container" redis-cli --raw DEL \
+        "snapshot:last:$source_id" 2>/dev/null)" == 1 ]] || return 1
+    else
+      [[ "$action" == absent ]] || return 1
+    fi
+    return 0
+  done
+  return 1
 }
 
 terminal_state_ready() {
