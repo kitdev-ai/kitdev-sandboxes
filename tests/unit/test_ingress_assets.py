@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import unittest
@@ -37,10 +38,10 @@ class IngressAssetTests(unittest.TestCase):
         self.assertNotIn("docker.sock", self.compose)
 
     def test_routes_only_api_shared_and_strict_sandbox_hosts(self) -> None:
-        self.assertEqual(self.nginx.count("api.sandbox.kitdev.ai"), 2)
-        self.assertEqual(self.nginx.count("sandbox.sandbox.kitdev.ai"), 2)
+        self.assertEqual(self.nginx.count("api.sandbox.kitdev.ai"), 1)
+        self.assertEqual(self.nginx.count("sandbox.sandbox.kitdev.ai"), 1)
         pattern_text = re.findall(r'"~(\^.*?\\\.ai\$)"', self.nginx)
-        self.assertEqual(len(pattern_text), 2)
+        self.assertEqual(len(pattern_text), 1)
         pattern = re.compile(pattern_text[0].replace(r"\.", "."))
         sandbox_id = "i" + "a" * 20
         for port in (1, 80, 443, 49983, 65535):
@@ -53,8 +54,9 @@ class IngressAssetTests(unittest.TestCase):
             "api.evil.example",
         ):
             self.assertNotRegex(host, pattern)
-        self.assertIn("return 444;", self.nginx)
         self.assertIn("ssl_reject_handshake on;", self.nginx)
+        self.assertNotIn("listen 80", self.nginx)
+        self.assertEqual(self.nginx.count("listen [::]:443 ssl"), 3)
 
     def test_proxy_contract_preserves_streaming_and_routing(self) -> None:
         self.assertIn("proxy_pass http://127.0.0.1:3000", self.nginx)
@@ -105,34 +107,108 @@ class IngressAssetTests(unittest.TestCase):
 
     def test_firewall_owns_rules_by_exact_comment_and_preserves_foreign_rules(self) -> None:
         firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
-        self.assertIn('"kitdev public ingress http"', firewall)
-        self.assertIn('"kitdev public ingress https"', firewall)
+        self.assertIn("kitdev restricted ingress https", firewall)
+        self.assertIn("KITDEV-INGRESS", firewall)
         self.assertIn("observed == expected", firewall)
-        self.assertIn("elif verify_rules absent", firewall)
-        self.assertIn("delete allow 80/tcp comment 'kitdev public ingress http'", firewall)
-        self.assertIn("delete allow 443/tcp comment 'kitdev public ingress https'", firewall)
+        self.assertIn("source_firewall_transaction_failed", firewall)
+        self.assertIn("source_firewall_rollback_failed", firewall)
+        self.assertIn("--ctorigdstport", firewall)
+        self.assertIn("docker http deny", firewall)
+        self.assertIn("ufw_default_policy_mismatch", firewall)
         self.assertIn("public_internal_listener_detected", firewall)
+        self.assertIn("public_docker_ingress_detected", firewall)
+        self.assertIn("control_plane_firewall_mismatch", firewall)
+        self.assertIn('"$CONTROL_PLANE_FIREWALL" verify', firewall)
+        listener_verifier = firewall.split("<<'PY_VERIFY_INGRESS_LISTENERS'\n", 1)[1].split(
+            "\nPY_VERIFY_INGRESS_LISTENERS", 1
+        )[0]
+        self.assertNotIn("5007", listener_verifier)
+        self.assertNotIn("5008", listener_verifier)
+        self.assertNotIn("5010", listener_verifier)
+
+    def test_firewall_lock_and_list_are_fail_closed(self) -> None:
+        firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
+        lock = firewall.split("open_firewall_lock() {", 1)[1].split(
+            "\n}\n\nguard_required", 1
+        )[0]
+        self.assertIn("os.O_EXCL", lock)
+        self.assertIn("os.O_NOFOLLOW", lock)
+        self.assertIn("metadata.st_nlink != 1", lock)
+        self.assertIn("metadata.st_size != 0", lock)
+        self.assertIn("/proc/self/fd/9", lock)
+        source_list = firewall.split('if [[ "$mode" == source-list ]]', 1)[1].split(
+            'if [[ "$mode" == source-add ]]', 1
+        )[0]
+        self.assertLess(
+            source_list.index("verify_system_rules"),
+            source_list.index('"$SOURCE_STATE" list'),
+        )
+
+    def test_firewall_transaction_commits_manifest_last_and_has_rollback(self) -> None:
+        firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
+        transaction = firewall.split("mutate_sources() {", 1)[1].split("\n}\n\nmain()", 1)[0]
+        self.assertLess(
+            transaction.index('transition_system_rules "$old_file" "$new_file"'),
+            transaction.index('install-file "$new_file"'),
+        )
+        self.assertIn('transition_system_rules "$new_file" "$old_file"', transaction)
+        self.assertIn("source_manifest_commit_failed", transaction)
+        transition = firewall.split("transition_system_rules() {", 1)[1].split(
+            "\n}\n\nmutate_sources", 1
+        )[0]
+        self.assertIn('cleanup_candidate_rules "$new_file"', transition)
+        self.assertIn('add_system_rules "$old_file"', transition)
+        failed_remove = transition.split('if ! remove_system_rules "$old_file"', 1)[1].split(
+            "\n  fi", 1
+        )[0]
+        self.assertIn('cleanup_candidate_rules "$old_file"', failed_remove)
+        self.assertIn('add_system_rules "$old_file"', failed_remove)
 
     def test_firewall_verifier_rejects_foreign_and_duplicate_ingress_rules(self) -> None:
         firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
         verifier = firewall.split("<<'PY_VERIFY_INGRESS_UFW'\n", 1)[1].split(
             "\nPY_VERIFY_INGRESS_UFW", 1
         )[0]
-        http = "ufw allow 80/tcp comment 'kitdev public ingress http'"
-        https = "ufw allow 443/tcp comment 'kitdev public ingress https'"
+        https = (
+            "ufw allow proto tcp from 8.8.8.8/32 to any port 443 "
+            "comment 'kitdev restricted ingress https'"
+        )
 
-        def run(policy: str, rules: str) -> subprocess.CompletedProcess[str]:
+        def run(
+            policy: str,
+            rules: str,
+            sources: tuple[str, ...] = (),
+        ) -> subprocess.CompletedProcess[str]:
             with TemporaryDirectory(dir=ROOT) as directory:
                 verifier_path = Path(directory) / "verify.py"
                 verifier_path.write_text(verifier, encoding="ascii")
+                source_path = Path(directory) / "sources.json"
+                source_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "sources": [
+                                {
+                                    "cidr": source,
+                                    "non_public_override": False,
+                                    "broad_range_override": False,
+                                }
+                                for source in sources
+                            ],
+                        }
+                    ),
+                    encoding="ascii",
+                )
                 return subprocess.run(
                     [
                         "bash",
                         "-c",
-                        'python3 -I -B -S "$1" "$2" 3<<<"$3"',
+                        'python3 -I -B -S "$1" "$2" "$3" '
+                        '"kitdev restricted ingress https" "22" 3<<<"$4"',
                         "_",
                         str(verifier_path),
                         policy,
+                        str(source_path),
                         rules,
                     ],
                     capture_output=True,
@@ -140,17 +216,25 @@ class IngressAssetTests(unittest.TestCase):
                 )
 
         self.assertEqual(run("absent", "ufw allow 22/tcp").returncode, 0)
-        self.assertEqual(run("exact", f"{http}\n{https}\nufw allow 22/tcp").returncode, 0)
+        self.assertEqual(
+            run("exact", f"{https}\nufw allow 22/tcp", ("8.8.8.8/32",)).returncode,
+            0,
+        )
         self.assertNotEqual(run("absent", "ufw allow 80/tcp").returncode, 0)
-        self.assertNotEqual(run("exact", f"{http}\n{http}\n{https}").returncode, 0)
+        self.assertNotEqual(
+            run("exact", f"{https}\n{https}\nufw allow 22/tcp", ("8.8.8.8/32",)).returncode,
+            0,
+        )
         self.assertNotEqual(run("absent", "ufw allow 3000/tcp").returncode, 0)
         self.assertEqual(
             run(
                 "absent",
+                "ufw allow 22/tcp\n"
                 "ufw allow in on veth+ from 10.11.0.0/16 to any port 5007 proto tcp",
             ).returncode,
             0,
         )
+        self.assertNotEqual(run("absent", "ufw deny 22/tcp").returncode, 0)
 
     def test_all_ingress_shell_scripts_parse_and_are_strict(self) -> None:
         scripts = sorted(SCRIPTS.glob("*.sh"))

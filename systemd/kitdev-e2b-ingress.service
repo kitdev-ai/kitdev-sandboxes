@@ -1,7 +1,7 @@
 [Unit]
 Description=kitdev E2B public HTTPS ingress
 Requires=docker.service
-After=docker.service network-online.target
+After=docker.service network-online.target ufw.service
 Wants=network-online.target
 ConditionPathIsDirectory=/etc/kitdev-sandboxes/ingress/tls
 
@@ -10,7 +10,7 @@ Type=oneshot
 RemainAfterExit=yes
 Environment=KITDEV_LIFECYCLE=production
 ExecStartPre=/opt/kitdev-sandboxes/libexec/ingress/manage-certificate.sh verify
-ExecStartPre=/opt/kitdev-sandboxes/libexec/ingress/configure-firewall.sh verify
+ExecStartPre=/opt/kitdev-sandboxes/libexec/ingress/configure-firewall.sh apply
 ExecStart=/usr/bin/docker compose --file /opt/kitdev-sandboxes/compose/ingress/compose.yaml up --detach --wait --wait-timeout 60
 ExecStop=/usr/bin/docker compose --file /opt/kitdev-sandboxes/compose/ingress/compose.yaml down --timeout 30
 TimeoutStartSec=120

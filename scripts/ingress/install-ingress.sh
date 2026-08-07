@@ -24,7 +24,7 @@ publish_assets() {
   for name in acquire-artifacts.sh configure-firewall.sh manage-certificate.sh; do
     publish_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
   done
-  for name in ingress_config.py run_lego.py; do
+  for name in firewall_source_state.py ingress_config.py run_lego.py; do
     publish_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
   done
   publish_exact_file "$REPO_ROOT/compose/ingress/compose.yaml" \
@@ -48,7 +48,7 @@ verify_assets() {
   for name in acquire-artifacts.sh configure-firewall.sh manage-certificate.sh; do
     require_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
   done
-  for name in ingress_config.py run_lego.py; do
+  for name in firewall_source_state.py ingress_config.py run_lego.py; do
     require_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
   done
   require_exact_file "$REPO_ROOT/compose/ingress/compose.yaml" \
@@ -84,7 +84,7 @@ remove_assets() {
   for name in acquire-artifacts.sh configure-firewall.sh manage-certificate.sh; do
     remove_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
   done
-  for name in ingress_config.py run_lego.py; do
+  for name in firewall_source_state.py ingress_config.py run_lego.py; do
     remove_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
   done
   for name in kitdev-e2b-ingress.service kitdev-e2b-ingress-renew.service \

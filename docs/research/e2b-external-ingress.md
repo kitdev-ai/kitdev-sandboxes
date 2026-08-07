@@ -62,10 +62,15 @@ The configuration supplies:
 - access logs that deliberately omit the URI, query, and request headers so
   authenticated file or stream URLs cannot be copied into logs.
 
-Public UFW mutation is explicit and project-owned: only commented TCP 80 and
-443 rules are added. Existing SSH and unrelated rules are preserved. A foreign
-rule touching 80/443 is a conflict, not something the installer adopts or
-deletes. The verifier also refuses public binds for the internal service ports.
+Public UFW mutation is explicit, project-owned, and source restricted. One
+commented TCP 443 allow is added for each validated IPv4 or IPv6 source CIDR;
+TCP 80 remains closed because wildcard issuance uses DNS-01. Existing SSH and
+unrelated rules are preserved. A foreign rule touching 80/443 is a conflict,
+not something the installer adopts or deletes. A conntrack original-port guard
+in `DOCKER-USER` prevents future Docker publications from bypassing the source
+policy after DNAT. The ingress verifier also delegates the intentional
+orchestrator bridge/veth listeners to the exact control-plane firewall verifier
+and refuses public binds or Docker publications for internal services.
 
 Primary source:
 
@@ -117,13 +122,20 @@ manage-certificate.sh issue-staging
 
 manage-certificate.sh issue
 install-ingress.sh apply
-  -> validates certificate, adds exact UFW rules, starts ingress and renew timer
+  -> validates certificate, converges exact UFW and Docker guard rules for the
+     source manifest (an empty manifest keeps 443 closed), then starts ingress
+     and renew timer
 
 install-ingress.sh verify
   -> verifies installed bytes, service/container health, certificate and firewall
 
 install-ingress.sh remove
   -> stops only project ingress, removes only project-commented UFW rules and
-     exact installed program/config/unit files; retains ACME state, keys and
-     operator configuration for explicit backup or deletion
+     exact Docker guard/program/config/unit files; retains the source ownership
+     manifest, ACME state, keys and operator configuration for explicit backup
+     or deletion
 ```
+
+Manage sources with `kitdev firewall source add|list|remove`; see
+`docs/firewall-source-allowlist-guide.md`. No source is applied until the
+external SDK server's stable public address is supplied.

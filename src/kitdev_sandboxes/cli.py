@@ -33,6 +33,11 @@ from kitdev_sandboxes.config import (
     LifecycleMode,
     load_configuration,
 )
+from kitdev_sandboxes.firewall_sources import (
+    FirewallSourceOperationError,
+    FirewallSourceResult,
+    run_firewall_source_operation,
+)
 from kitdev_sandboxes.lifecycle import LifecycleRunner, run_lifecycle
 from kitdev_sandboxes.planning import ResourceFact
 from kitdev_sandboxes.identity import (
@@ -251,6 +256,25 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[common],
         help="list eligible local team IDs, slugs, and names",
     )
+    firewall = commands.add_parser(
+        "firewall",
+        parents=[common],
+        help="manage host firewall policy",
+    )
+    firewall_actions = firewall.add_subparsers(dest="firewall_action", required=True)
+    source = firewall_actions.add_parser(
+        "source",
+        parents=[common],
+        help="manage SDK HTTPS source CIDRs",
+    )
+    source_actions = source.add_subparsers(dest="firewall_source_action", required=True)
+    add_source = source_actions.add_parser("add", parents=[common])
+    add_source.add_argument("--cidr", required=True)
+    add_source.add_argument("--allow-non-public", action="store_true")
+    add_source.add_argument("--allow-broad-range", action="store_true")
+    source_actions.add_parser("list", parents=[common])
+    remove_source = source_actions.add_parser("remove", parents=[common])
+    remove_source.add_argument("--cidr", required=True)
     return parser
 
 
@@ -281,6 +305,7 @@ def main(
     identity_prerequisites: IdentityPrerequisites = IdentityPrerequisites(),
     lifecycle_runner: LifecycleRunner = run_lifecycle,
     api_key_runner: Callable[..., ApiKeyResult] = run_api_key,
+    firewall_source_runner: Callable[..., FirewallSourceResult] = run_firewall_source_operation,
 ) -> int:
     parser = build_parser()
     raw_arguments = list(argv) if argv is not None else sys.argv[1:]
@@ -378,6 +403,60 @@ def main(
                 print(json.dumps(api_key_result.as_dict(), indent=2, sort_keys=True))
             else:
                 print(api_key_result.render_text())
+        except BrokenPipeError:
+            return 0
+        return 0
+
+    if arguments.command == "firewall":
+        action = str(arguments.firewall_source_action)
+        if bool(getattr(arguments, "dry_run", False)):
+            payload = {
+                "schema_version": 1,
+                "command": f"firewall source {action}",
+                "status": "planned",
+                "changes": 0,
+            }
+            if json_output:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                print(f"command=firewall-source-{action} status=planned changes=0")
+            return 0
+        try:
+            firewall_result = firewall_source_runner(
+                action,
+                cidr=getattr(arguments, "cidr", None),
+                allow_non_public=bool(getattr(arguments, "allow_non_public", False)),
+                allow_broad_range=bool(getattr(arguments, "allow_broad_range", False)),
+            )
+        except KeyboardInterrupt:
+            if json_output:
+                _emit_json_error("interrupted", "interrupted")
+            else:
+                _emit_human_error("interrupted")
+            return 130
+        except FirewallSourceOperationError as error:
+            if json_output:
+                _emit_json_error(error.reason, "firewall source operation failed")
+            else:
+                _emit_human_error("firewall source operation failed", error.reason)
+            return error.exit_code
+        except (OSError, RuntimeError, ValueError) as error:
+            if json_output:
+                _emit_json_error(
+                    "firewall_source_internal_error",
+                    "firewall source operation failed internally",
+                )
+            else:
+                _emit_human_error(
+                    "firewall source operation failed internally",
+                    type(error).__name__,
+                )
+            return 10
+        try:
+            if json_output:
+                print(json.dumps(firewall_result.as_dict(), indent=2, sort_keys=True))
+            else:
+                print(firewall_result.render_text())
         except BrokenPipeError:
             return 0
         return 0
