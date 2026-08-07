@@ -101,6 +101,8 @@ class IngressAssetTests(unittest.TestCase):
         self.assertLess(acquisition.index("chmod 0755"), acquisition.index('"$stage/lego" --version'))
         self.assertIn('$KITDEV_OPT_ROOT/bin/.ingress-artifacts.', acquisition)
         self.assertNotIn("/run/kitdev-sandboxes/ingress-artifacts", acquisition)
+        self.assertIn("-depth -delete", acquisition)
+        self.assertNotIn("${stage:-}", acquisition)
         provider_example = (ROOT / "config" / "ingress" / "acme-provider.env.example").read_text(
             encoding="ascii"
         )

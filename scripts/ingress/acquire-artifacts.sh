@@ -23,7 +23,7 @@ main() {
 
   if [[ "$mode" == apply && ! -e "$KITDEV_OPT_ROOT/bin/lego" ]]; then
     stage="$(mktemp -d "$KITDEV_OPT_ROOT/bin/.ingress-artifacts.XXXXXXXX")"
-    trap 'rm -rf -- "${stage:-}"' EXIT
+    trap "/usr/bin/find '$stage' -depth -delete 2>/dev/null || true" EXIT
     curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
       --output "$stage/$LEGO_ARCHIVE" "$LEGO_URL"
     [[ "$(stat -c %s -- "$stage/$LEGO_ARCHIVE")" == "$LEGO_SIZE" ]] ||
