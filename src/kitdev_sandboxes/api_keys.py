@@ -839,7 +839,7 @@ def _list_local_teams() -> tuple[dict[str, str], ...]:
     except (OSError, subprocess.SubprocessError) as error:
         raise ApiKeyOperationError("team_resolution_failed", 69) from error
     containers = completed.stdout.splitlines() if completed.returncode == 0 else []
-    if len(containers) != 1 or re.fullmatch(r"[0-9a-f]{64}", containers[0]) is None:
+    if len(containers) != 1 or re.fullmatch(r"[0-9a-f]{12}|[0-9a-f]{64}", containers[0]) is None:
         raise ApiKeyOperationError("team_resolution_failed", 69)
     separator = "\x1f"
     query = (
