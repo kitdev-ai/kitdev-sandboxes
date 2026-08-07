@@ -262,8 +262,10 @@ authentication. The SDK exposes `sandbox.trafficAccessToken`, but caller
 
 ## Templates
 
-Template SDK source compatibility is selected, but remote builds are not yet
-live-proven. Use a separate build-capable key:
+Template builds are live-proven through the server-side loopback API with the
+official SDK and local template manager. This includes background and blocking
+builds, status polling, alias existence, tag assignment/removal, and sandbox
+creation from both resulting tags. Use a separate build-capable key:
 
 ```ts
 import { Template } from "e2b";
@@ -276,7 +278,8 @@ const template = Template()
 const build = await Template.build(template, "my-product:v1", e2b);
 ```
 
-Do not automate this example against production until its gate is proven.
+The external HTTPS path from another server remains ingress-dependent; do not
+automate remote production builds until that public path passes its own gate.
 
 ## Reliability rules
 
@@ -305,9 +308,10 @@ Do not automate this example against production until its gate is proven.
 | External API from another server | Ingress-dependent | DNS/TLS/public auth unproven |
 | Guest ports, streaming, WebSockets | Ingress-dependent | Wildcard proxy unproven |
 | Direct URL upload/download | Ingress-dependent | Caller-managed URL unproven |
-| Template SDK build | Pending | Source-compatible; live gate incomplete |
+| Template SDK build/status/exists/tags | Live-proven | Official SDK, loopback API/template manager |
 | Code/browser/desktop/CDP/screen/input | Pending | Product templates/tests incomplete |
 | Persistent volumes | Pending | Volume service not deployed |
 
 See the [live result](research/ovh-typescript-sdk-live-core.md) and
+[template-build result](research/ovh-typescript-sdk-template-build.md), plus the
 [exact upstream contract](research/e2b-typescript-sdk-self-host-contract.md).
