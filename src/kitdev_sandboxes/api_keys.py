@@ -822,11 +822,9 @@ def _list_local_teams() -> tuple[dict[str, str], ...]:
             (
                 "/usr/bin/docker",
                 "ps",
-                "--quiet",
-                "--filter",
-                "label=com.docker.compose.project=kitdev-control-plane",
-                "--filter",
-                "label=com.docker.compose.service=postgres",
+                "--format",
+                "{{.ID}}\x1f{{.Names}}\x1f{{.Label \"com.docker.compose.project\"}}"
+                "\x1f{{.Label \"com.docker.compose.service\"}}",
             ),
             env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"},
             stdin=subprocess.DEVNULL,
@@ -838,8 +836,21 @@ def _list_local_teams() -> tuple[dict[str, str], ...]:
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise ApiKeyOperationError("team_resolution_failed", 69) from error
-    containers = completed.stdout.splitlines() if completed.returncode == 0 else []
-    if len(containers) != 1 or re.fullmatch(r"[0-9a-f]{12}|[0-9a-f]{64}", containers[0]) is None:
+    if len(completed.stdout.encode("utf-8")) > 65_536:
+        raise ApiKeyOperationError("team_resolution_failed", 69)
+    containers: list[str] = []
+    for line in completed.stdout.splitlines() if completed.returncode == 0 else []:
+        fields = line.split("\x1f")
+        if len(fields) != 4:
+            raise ApiKeyOperationError("team_resolution_failed", 69)
+        container_id, name, project, service = fields
+        if re.fullmatch(r"[0-9a-f]{12}|[0-9a-f]{64}", container_id) is None:
+            raise ApiKeyOperationError("team_resolution_failed", 69)
+        if (project, service) == ("kitdev-control-plane", "postgres") or (
+            name == "kitdev-postgres" and not project and not service
+        ):
+            containers.append(container_id)
+    if len(containers) != 1:
         raise ApiKeyOperationError("team_resolution_failed", 69)
     separator = "\x1f"
     query = (

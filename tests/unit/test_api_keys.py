@@ -388,7 +388,10 @@ class ApiKeyFileTests(unittest.TestCase):
             )
 
     def test_team_resolution_requires_exactly_one_eligible_team(self) -> None:
-        container = mock.Mock(returncode=0, stdout="a" * 12 + "\n")
+        container = mock.Mock(
+            returncode=0,
+            stdout="a" * 12 + "\x1fkitdev-postgres\x1f\x1f\n",
+        )
         ambiguous = mock.Mock(
             returncode=0,
             stdout=(
