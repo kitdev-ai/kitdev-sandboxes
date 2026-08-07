@@ -46,11 +46,46 @@ After any result, confirm the runner has exited. Its cleanup already treats
 API/Redis/Firecracker absence as part of the gate; do not manually delete
 internal template artifacts while another build or sandbox may share them.
 
+## Heavy resource profile
+
+The default command above remains the qualified 2 vCPU, 2 GiB RAM profile. A
+separate development profile prepares 2 vCPU, 8 GiB RAM, and a 16 GiB
+free-rootfs target. Disk is team-scoped in the pinned backend, not a
+`Template.build()` option, so the heavy test uses a dedicated team and API key.
+
+Provision that team once, preserving the generated root-only key file:
+
+```console
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/control-plane/provision-browser-heavy-profile.sh \
+  --api-key-file /etc/kitdev-sandboxes/e2e-browser-heavy-api-key
+```
+
+After the host prerequisite audit confirms 12,288 total and free 2 MiB
+hugepages, run:
+
+```console
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/control-plane/verify-typescript-sdk-browser-template.sh \
+  --resource-profile heavy \
+  --api-key-file /etc/kitdev-sandboxes/e2e-browser-heavy-api-key
+```
+
+The verifier refuses production, fewer than 12,288 total or free hugepages,
+less than 16 GiB normal-memory headroom, any pre-existing Firecracker process,
+the wrong team entitlement, or a changed profile file. It proves the database
+build row requested 8,192 MiB RAM and 16,384 MiB free rootfs, and that the guest
+still exposes at least 15,000 MiB available after finalize. This heavy mode is
+implemented but not yet live-qualified. See the
+[pinned resource contract](research/browser-heavy-resource-profile.md).
+
 ## Current limits
 
-The tested host's 4 GiB HugeTLB pool supports the 2 GiB browser qualification
-but not a 4 GiB template build with build-layer overlap. An 8 GiB sandbox is
-therefore unsupported on the current pool. See
+The original tested host's 4 GiB HugeTLB pool supported the 2 GiB browser
+qualification but not a 4 GiB template build with build-layer overlap. The new
+8 GiB profile remains unsupported until the 24 GiB pool and heavy gate pass. See
 `docs/research/browser-template-contract.md` for the measured failure boundary
 and the conservative 8 GiB qualification plan.
 

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "name": "standard",
+  "cpuCount": 2,
+  "memoryMB": 2048,
+  "freeDiskSizeMB": 512,
+  "minimumGuestAvailableDiskMB": 0
+}

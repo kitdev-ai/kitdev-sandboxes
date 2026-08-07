@@ -16,6 +16,15 @@ const packageLockSha256 =
   "db5404269854f530b030d7c31b7ce8c0cd05e7182978af49c58b5e488f87c873";
 const templateTag = "browser";
 
+type BrowserResourceProfile = {
+  schemaVersion: 1;
+  name: "standard" | "heavy";
+  cpuCount: number;
+  memoryMB: number;
+  freeDiskSizeMB: number;
+  minimumGuestAvailableDiskMB: number;
+};
+
 function pass(operation: string): void {
   console.log(`status=pass operation=${operation}`);
 }
@@ -38,6 +47,33 @@ async function loadTemplateName(): Promise<string> {
   return value;
 }
 
+async function loadResourceProfile(): Promise<BrowserResourceProfile> {
+  const document = JSON.parse(
+    await readFile("/run/config/browser-resource-profile.json", "ascii"),
+  ) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(document).sort(), [
+    "cpuCount",
+    "freeDiskSizeMB",
+    "memoryMB",
+    "minimumGuestAvailableDiskMB",
+    "name",
+    "schemaVersion",
+  ]);
+  assert.equal(document.schemaVersion, 1);
+  assert(document.name === "standard" || document.name === "heavy");
+  assert.equal(document.cpuCount, 2);
+  if (document.name === "standard") {
+    assert.equal(document.memoryMB, 2048);
+    assert.equal(document.freeDiskSizeMB, 512);
+    assert.equal(document.minimumGuestAvailableDiskMB, 0);
+  } else {
+    assert.equal(document.memoryMB, 8192);
+    assert.equal(document.freeDiskSizeMB, 16384);
+    assert.equal(document.minimumGuestAvailableDiskMB, 15000);
+  }
+  return document as BrowserResourceProfile;
+}
+
 async function recordState(name: string, value: string): Promise<void> {
   await writeFile(`${stateRoot}/${name}`, `${value}\n`, {
     encoding: "ascii",
@@ -49,6 +85,7 @@ async function recordState(name: string, value: string): Promise<void> {
 async function exerciseBrowserSandbox(
   template: string,
   connection: ConnectionOpts,
+  profile: BrowserResourceProfile,
 ): Promise<void> {
   let sandbox: Sandbox | undefined;
   try {
@@ -87,6 +124,23 @@ async function exerciseBrowserSandbox(
       "pwuser:pwuser:700",
     ]);
     pass("browser-identity-readiness-loopback-cdp");
+
+    if (profile.minimumGuestAvailableDiskMB > 0) {
+      const disk = await sandbox.commands.run(
+        "df --output=avail -BM / | tail -n 1 | tr -dc '0-9'",
+        { timeoutMs: 30_000 },
+      );
+      assert.equal(disk.exitCode, 0);
+      assert.equal(disk.stderr, "");
+      const availableMB = Number.parseInt(disk.stdout, 10);
+      assert(Number.isSafeInteger(availableMB));
+      assert(availableMB >= profile.minimumGuestAvailableDiskMB);
+      console.log(
+        `status=progress operation=browser-disk profile=${profile.name} ` +
+          `available_mb=${availableMB}`,
+      );
+      pass("browser-heavy-disk-available");
+    }
 
     const manifest = await sandbox.files.read("/etc/kitdev-browser-toolchain");
     assert.equal(
@@ -162,6 +216,7 @@ async function exerciseBrowserSandbox(
 async function main(): Promise<void> {
   const connection = await loadConnection();
   const templateName = await loadTemplateName();
+  const profile = await loadResourceProfile();
   assert.equal(await Template.exists(templateName, connection), false);
   pass("browser-template-absent-preflight");
 
@@ -221,8 +276,8 @@ async function main(): Promise<void> {
     `${templateName}:${templateTag}`,
     {
       ...connection,
-      cpuCount: 2,
-      memoryMB: 2048,
+      cpuCount: profile.cpuCount,
+      memoryMB: profile.memoryMB,
       onBuildLogs: () => {
         buildLogEntries += 1;
       },
@@ -238,7 +293,11 @@ async function main(): Promise<void> {
   const tags = await Template.getTags(build.templateId, connection);
   assert(tags.some((item) => item.tag === templateTag && item.buildId === build.buildId));
   pass("browser-template-tag");
-  await exerciseBrowserSandbox(`${templateName}:${templateTag}`, connection);
+  await exerciseBrowserSandbox(
+    `${templateName}:${templateTag}`,
+    connection,
+    profile,
+  );
 }
 
 main().catch((error: unknown) => {

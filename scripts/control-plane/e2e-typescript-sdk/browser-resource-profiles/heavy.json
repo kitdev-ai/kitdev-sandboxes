@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "name": "heavy",
+  "cpuCount": 2,
+  "memoryMB": 8192,
+  "freeDiskSizeMB": 16384,
+  "minimumGuestAvailableDiskMB": 15000
+}

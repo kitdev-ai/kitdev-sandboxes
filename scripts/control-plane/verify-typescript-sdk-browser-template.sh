@@ -9,6 +9,8 @@ readonly CLIENT_DIR="$SCRIPT_DIR/e2e-typescript-sdk"
 readonly NODE_IMAGE='docker.io/library/node:22.18.0-bookworm-slim@sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e'
 readonly SDK_LOCK_SHA256=490c2920ffce8e59f8edd9e9d7951b0f13f93521a851355e7c72e99ad134766c
 readonly BROWSER_LOCK_SHA256=db5404269854f530b030d7c31b7ce8c0cd05e7182978af49c58b5e488f87c873
+readonly STANDARD_PROFILE_SHA256=6850c73171505bbd15fdf8eeef544797dd2e1fbcfafded33b1f216e55ee05377
+readonly HEAVY_PROFILE_SHA256=8b5b4bf0fb93361eceb30360b155b7ce2e6c92a65fe586ab34fcf696acae1c5b
 readonly API_ROOT=http://127.0.0.1:3000
 stage=''
 template_id=''
@@ -114,6 +116,79 @@ template_absent() {
   [[ "$code" == 404 ]]
 }
 
+api_key_hash() {
+  /usr/bin/python3 -I -B -S - "$1" <<'PY_API_KEY_HASH'
+import base64
+import hashlib
+import sys
+
+raw = open(sys.argv[1], "rb").read().rstrip(b"\n")
+value = bytes.fromhex(raw.removeprefix(b"e2b_").decode("ascii"))
+print("$sha256$" + base64.b64encode(hashlib.sha256(value).digest()).decode("ascii").rstrip("="))
+PY_API_KEY_HASH
+}
+
+require_heavy_capacity() {
+  local available_kib huge_free huge_total
+  huge_total="$(awk '$1 == "HugePages_Total:" {print $2}' /proc/meminfo)"
+  huge_free="$(awk '$1 == "HugePages_Free:" {print $2}' /proc/meminfo)"
+  available_kib="$(awk '$1 == "MemAvailable:" {print $2}' /proc/meminfo)"
+  [[ "$huge_total" =~ ^[0-9]+$ && "$huge_free" =~ ^[0-9]+$ && "$available_kib" =~ ^[0-9]+$ ]] ||
+    control_plane_die heavy_capacity_unknown 65
+  (( huge_total >= 12288 )) || control_plane_die heavy_hugepages_total_insufficient 65
+  (( huge_free >= 12288 )) || control_plane_die heavy_hugepages_free_insufficient 65
+  (( available_kib >= 16777216 )) || control_plane_die heavy_normal_memory_insufficient 65
+}
+
+require_heavy_team_profile() {
+  local api_key_file="$1" key_hash postgres_container redis_container row team_id
+  key_hash="$(api_key_hash "$api_key_file")" || control_plane_die heavy_api_key_hash_failed 65
+  [[ "$key_hash" =~ ^\$sha256\$[A-Za-z0-9+/]{43}$ ]] || control_plane_die heavy_api_key_hash_invalid 65
+  postgres_container="$(docker ps --quiet \
+    --filter label=com.docker.compose.project=kitdev-control-plane \
+    --filter label=com.docker.compose.service=postgres)"
+  [[ "$postgres_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
+  row="$(docker exec --interactive "$postgres_container" \
+    psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+      --field-separator='|' --username kitdev --dbname kitdev --command "
+SELECT t.id, t.slug, l.max_vcpu, l.max_ram_mb, l.disk_mb,
+       l.default_free_disk_size_mb, l.max_disk_size_mb
+FROM public.team_api_keys k
+JOIN public.teams t ON t.id = k.team_id
+JOIN public.team_limits l ON l.id = t.id
+WHERE k.api_key_hash = '$key_hash';")" || control_plane_die heavy_team_query_failed 65
+  [[ "$row" =~ ^([0-9a-f-]{36})\|kitdev-browser-heavy-team\|2\|8192\|16384\|16384\|25600$ ]] ||
+    control_plane_die heavy_team_profile_invalid 65
+  team_id="${BASH_REMATCH[1]}"
+  redis_container="$(docker ps --quiet \
+    --filter label=com.docker.compose.project=kitdev-control-plane \
+    --filter label=com.docker.compose.service=redis)"
+  [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die redis_container_invalid 65
+  [[ "$(docker exec -- "$redis_container" redis-cli --raw DEL \
+    "auth:team:$key_hash" "auth:team:team-$team_id")" =~ ^[0-9]+$ ]] ||
+    control_plane_die heavy_auth_cache_invalidation_failed 65
+}
+
+verify_heavy_build_metadata() {
+  local build_id postgres_container row
+  build_id="$(read_state_id "$stage/state/build-id" '[0-9a-f-]{36}\n' 37)" ||
+    control_plane_die heavy_build_id_invalid 65
+  postgres_container="$(docker ps --quiet \
+    --filter label=com.docker.compose.project=kitdev-control-plane \
+    --filter label=com.docker.compose.service=postgres)"
+  [[ "$postgres_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
+  row="$(docker exec --interactive "$postgres_container" \
+    psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+      --field-separator='|' --username kitdev --dbname kitdev --command "
+SELECT vcpu, ram_mb, free_disk_size_mb, total_disk_size_mb, status_group
+FROM public.env_builds WHERE id = '$build_id'::uuid;")" ||
+    control_plane_die heavy_build_query_failed 65
+  [[ "$row" =~ ^2\|8192\|16384\|([0-9]+)\|ready$ ]] ||
+    control_plane_die heavy_build_metadata_invalid 65
+  (( BASH_REMATCH[1] >= 16384 && BASH_REMATCH[1] <= 25600 )) ||
+    control_plane_die heavy_build_total_disk_invalid 65
+}
+
 cleanup() {
   local status=$? code attempt
   trap - EXIT INT TERM
@@ -172,9 +247,26 @@ cleanup() {
 }
 
 main() {
-  local api_key_file uuid
-  [[ $# == 2 && "$1" == --api-key-file ]] || control_plane_die invalid_arguments 64
-  api_key_file="$2"
+  local api_key_file profile profile_path profile_sha256 uuid
+  profile=standard
+  if [[ $# == 2 && "$1" == --api-key-file ]]; then
+    api_key_file="$2"
+  elif [[ $# == 4 && "$1" == --resource-profile && "$3" == --api-key-file ]]; then
+    profile="$2"
+    api_key_file="$4"
+  else
+    control_plane_die invalid_arguments 64
+  fi
+  case "$profile" in
+    standard)
+      profile_sha256="$STANDARD_PROFILE_SHA256"
+      ;;
+    heavy)
+      profile_sha256="$HEAVY_PROFILE_SHA256"
+      ;;
+    *) control_plane_die browser_resource_profile_invalid 64 ;;
+  esac
+  profile_path="$CLIENT_DIR/browser-resource-profiles/$profile.json"
   require_root
   require_lifecycle_platform
   [[ "$KITDEV_LIFECYCLE" != production ]] || control_plane_die e2e_not_for_production 68
@@ -188,6 +280,8 @@ main() {
     control_plane_die sdk_lock_hash_invalid 65
   [[ "$(sha256sum -- "$CLIENT_DIR/browser-template-assets/package-lock.json" | awk '{print $1}')" == "$BROWSER_LOCK_SHA256" ]] ||
     control_plane_die browser_lock_hash_invalid 65
+  [[ "$(sha256sum -- "$profile_path" | awk '{print $1}')" == "$profile_sha256" ]] ||
+    control_plane_die browser_resource_profile_hash_invalid 65
   [[ ! -L "$api_key_file" && -f "$api_key_file" ]] || control_plane_die sdk_api_key_file_invalid 65
   [[ "$(stat -c '%u:%g:%a:%h' -- "$api_key_file")" == 0:0:600:1 ]] ||
     control_plane_die sdk_api_key_file_metadata_invalid 65
@@ -204,6 +298,10 @@ main() {
   exec 9<>/run/kitdev-sandboxes/typescript-sdk-e2e.lock
   flock --nonblock 9 || control_plane_die sdk_e2e_already_running 75
   ! pgrep -x firecracker >/dev/null 2>&1 || control_plane_die sdk_preexisting_firecracker 65
+  if [[ "$profile" == heavy ]]; then
+    require_heavy_capacity
+    require_heavy_team_profile "$api_key_file"
+  fi
 
   trap cleanup EXIT
   trap 'exit 130' INT TERM
@@ -214,6 +312,8 @@ main() {
   install -o root -g root -m 0600 "$CLIENT_DIR/package.json" "$stage/client/package.json"
   install -o root -g root -m 0600 "$CLIENT_DIR/package-lock.json" "$stage/client/package-lock.json"
   install -o root -g root -m 0600 "$CLIENT_DIR/browser-template.ts" "$stage/client/browser-template.ts"
+  install -o root -g root -m 0600 "$profile_path" \
+    "$stage/config/browser-resource-profile.json"
   install -o root -g root -m 0600 "$CLIENT_DIR/browser-template-assets/"* \
     "$stage/client/browser-template-assets/"
   uuid="$(</proc/sys/kernel/random/uuid)"
@@ -239,6 +339,7 @@ main() {
     --volume "$stage/config:/run/config:ro" \
     --volume "$stage/state:/run/state" --workdir /workspace \
     "$NODE_IMAGE" node browser-template.ts
+  [[ "$profile" != heavy ]] || verify_heavy_build_metadata
   printf 'status=pass operation=verify-typescript-sdk-browser-template\n'
 }
 
