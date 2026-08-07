@@ -1023,3 +1023,24 @@ untracked, and must never be quoted into tracked documentation.
   replay remain pending. Ubuntu 25.04 is development/migration-only; Ubuntu
   24.04 is unsupported.
 - **Commit:** Pending in this change set.
+
+## 2026-08-07 - OVH CLI lifecycle exercise stopped before mutation
+
+- **Intent:** Stage the exact reviewed lifecycle release and prove status,
+  dry-run, down/up/restart, and combined SDK smoke on the disposable lab after
+  all sandbox agents reported terminal cleanup.
+- **Read-only result:** Firecracker was zero, but the new expected orchestrator
+  unit was not installed and no container carried the new Compose project
+  identity. An independent check confirmed the healthy lab still used the
+  manually assembled legacy orchestrator unit and six legacy containers.
+- **Safety decision:** The new lifecycle refuses unowned/manual state. No
+  release checkout was staged and no service, container, sandbox, package,
+  identity, filesystem, firewall, or configuration mutation occurred. Running
+  the new unit beside the legacy runtime was rejected as a dual-ownership risk.
+- **Diagnostic correction:** One read-only `fuser` invocation used an
+  unsupported separator, printed usage, and returned nonzero. It changed
+  nothing and the overall predicate remained blocked.
+- **Next gate:** Clean Ubuntu 26.04 reinstall and one-owner replay are required
+  before lifecycle qualification. See
+  [`ovh-cli-lifecycle-precheck.md`](ovh-cli-lifecycle-precheck.md).
+- **Commit:** Pending in this change set.
