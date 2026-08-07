@@ -2,6 +2,9 @@
 
 Milestone 0 establishes contracts before implementation:
 
+- `PROJECT-HANDOVER.md` is the clean-resume checkpoint for a new project lead,
+  including live state, security boundaries, evidence, blockers, rollback, and
+  the dependency-ordered continuation plan.
 - `architecture.md` describes the proposed system and trust boundaries.
 - `preflight-design.md` specifies read-only discovery, validation, and dry-run.
 - `milestone-plan.md` defines incremental delivery and review gates.
