@@ -97,5 +97,26 @@ read-only command probes in check mode. Those probes now explicitly run during
 check mode, and the wrapper supplies the explicit localhost inventory. Live
 capacity preview then passed all gates and predicted only the four intended
 changes. Container proof was narrowed to exact name/running output before live
-apply so Ansible does not print container configuration. Live capacity apply
-remains pending a new committed release.
+apply so Ansible does not print container configuration.
+
+Exact commit `1e09e5e` then applied successfully without rescue:
+
+| Post-apply predicate | Result |
+| --- | --- |
+| HugePages total/free | 12,288 / 12,288 |
+| HugePages reserved/surplus | 0 / 0 |
+| `MemAvailable` | approximately 36.2 GiB |
+| Firecracker | 0 |
+| SDK/lifecycle locks after exit | exact metadata and free |
+| Docker and legacy orchestrator | active |
+| API/proxy health | HTTP 200 / HTTP 200 |
+| Containers | exact six running |
+| Prior/manifest records | root-owned mode `0600`, single link |
+| Adopted file | root-owned mode `0644`, single link, hash matches manifest |
+
+The prior record stores 2,048 pages and exact original file bytes. The final
+manifest stores the 24,576 MiB / 12,288-page target and 16,384 MiB ordinary
+reserve. Manifest publication was subsequently made create-once: reapply still
+verifies current memory but cannot rewrite initial apply evidence when
+`MemAvailable` naturally fluctuates. Idempotent reapply remains pending that
+committed correction.

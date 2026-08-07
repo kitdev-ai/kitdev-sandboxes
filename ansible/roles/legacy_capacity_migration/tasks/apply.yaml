@@ -95,6 +95,7 @@
         owner: root
         group: root
         mode: "0600"
+        force: false
       when: not ansible_check_mode
   rescue:
     - name: Restore exact legacy file after incomplete first apply

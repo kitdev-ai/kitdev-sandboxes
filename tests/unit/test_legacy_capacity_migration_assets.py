@@ -121,6 +121,7 @@ class LegacyCapacityMigrationAssetTests(unittest.TestCase):
         self.assertIn("Restore exact legacy file", apply)
         self.assertIn("Verify rollback after incomplete first apply", apply)
         self.assertIn("Remove incomplete migration manifest", apply)
+        self.assertIn("force: false", apply)
 
     def test_assignment_finder_does_not_follow_symlinks(self) -> None:
         finder = load_assignment_finder()

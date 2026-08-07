@@ -1189,4 +1189,14 @@ untracked, and must never be quoted into tracked documentation.
   sysctl file, and 12,288-page live setting. Before apply, container proof was
   narrowed from verbose inspection JSON to only exact name/running fields so
   Ansible cannot echo container environment into migration logs.
+- **Live apply:** Exact commit `1e09e5e` applied the 24 GiB pool without rescue.
+  Post-apply audit found 12,288 total/free 2 MiB pages, zero reserved/surplus
+  pages, about 36.2 GiB ordinary `MemAvailable`, zero Firecracker processes,
+  both locks free, all six containers and both health endpoints healthy, and
+  exact root-owned single-link prior/manifest/file metadata. The stored prior
+  count is 2,048 and the adopted file hash matches the manifest.
+- **Idempotency correction:** Apply-time available memory is evidence, not a
+  stable desired value. Final manifest publication is now create-once so a
+  reapply verifies current memory but cannot rewrite the authenticated initial
+  apply record as `MemAvailable` fluctuates.
 - **Commit:** Pending in this change set.
