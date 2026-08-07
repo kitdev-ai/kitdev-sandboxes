@@ -86,6 +86,7 @@ class IngressAssetTests(unittest.TestCase):
         self.assertIsNone(re.search(r"\$request(?:[^_a-z]|$)", log_format))
 
     def test_certificate_runner_does_not_source_credentials(self) -> None:
+        acquisition = (SCRIPTS / "acquire-artifacts.sh").read_text(encoding="ascii")
         runner = (SCRIPTS / "run_lego.py").read_text(encoding="ascii")
         manager = (SCRIPTS / "manage-certificate.sh").read_text(encoding="ascii")
         self.assertIn("O_NOFOLLOW", runner)
@@ -96,6 +97,8 @@ class IngressAssetTests(unittest.TestCase):
         self.assertIn("issued_certificate_invalid", manager)
         self.assertLess(manager.index("issued_certificate_invalid"), manager.index("mv -f"))
         self.assertIn("docker kill --signal HUP", manager)
+        self.assertLess(acquisition.index("lego_archive_hash_mismatch"), acquisition.index("chmod 0755"))
+        self.assertLess(acquisition.index("chmod 0755"), acquisition.index('"$stage/lego" --version'))
         provider_example = (ROOT / "config" / "ingress" / "acme-provider.env.example").read_text(
             encoding="ascii"
         )

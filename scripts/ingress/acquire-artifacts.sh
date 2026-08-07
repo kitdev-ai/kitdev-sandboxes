@@ -31,6 +31,8 @@ main() {
     printf '%s  %s\n' "$LEGO_SHA256" "$stage/$LEGO_ARCHIVE" | sha256sum --check --status - ||
       control_plane_die lego_archive_hash_mismatch 65
     tar --extract --gzip --file "$stage/$LEGO_ARCHIVE" --directory "$stage" --no-same-owner lego
+    [[ ! -L "$stage/lego" && -f "$stage/lego" ]] || control_plane_die lego_archive_invalid 65
+    chmod 0755 -- "$stage/lego"
     [[ "$("$stage/lego" --version)" == "lego version $LEGO_VERSION linux/amd64" ]] ||
       control_plane_die lego_version_mismatch 65
     publish_exact_file "$stage/lego" "$KITDEV_OPT_ROOT/bin/lego" root root 755
