@@ -420,6 +420,43 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         )
         self.assertNotEqual(execute("PY_SANDBOX_LIST", {}, sandbox_id, "absent").returncode, 0)
 
+    def test_typescript_sdk_e2e_is_pinned_and_cleanup_safe(self) -> None:
+        runner = (SCRIPTS / "verify-typescript-sdk-e2e.sh").read_text(encoding="ascii")
+        client_dir = SCRIPTS / "e2e-typescript-sdk"
+        package = json.loads((client_dir / "package.json").read_text(encoding="ascii"))
+        lock = json.loads((client_dir / "package-lock.json").read_text(encoding="ascii"))
+        smoke = (client_dir / "smoke.ts").read_text(encoding="ascii")
+
+        self.assertEqual(package["engines"]["node"], "22.18.0")
+        self.assertEqual(package["dependencies"]["e2b"], "2.38.0")
+        self.assertEqual(lock["packages"]["node_modules/e2b"]["version"], "2.38.0")
+        self.assertEqual(
+            lock["packages"]["node_modules/e2b"]["integrity"],
+            "sha512-l+3Quu3nI+BST9VVynFYiFhXowy7SxivyRKyvNAusrOnjgyTVKVGwi59PPntWLPg"
+            "PSOkqEhWNM4vcLSg7E/s/A==",
+        )
+        self.assertIn(
+            "sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e", runner
+        )
+        self.assertIn("490c2920ffce8e59f8edd9e9d7951b0f13f93521a851355e7c72e99ad134766c", runner)
+        self.assertIn("npm ci --ignore-scripts --no-audit --no-fund", runner)
+        self.assertIn("--network none", runner)
+        self.assertIn("--read-only", runner)
+        self.assertIn("flock --nonblock 9", runner)
+        self.assertIn("pgrep -x firecracker", runner)
+        self.assertIn("redis-cli --raw --scan", runner)
+        self.assertNotIn("E2B_DEBUG", smoke)
+        self.assertNotIn("apiKey:", runner)
+        self.assertLess(
+            smoke.index('writeFile("/run/state/sandbox-id"'), smoke.index('pass("sandbox-create")')
+        )
+        self.assertLess(runner.index("trap cleanup EXIT"), runner.index('stage="$(mktemp'))
+        post_run = runner.rsplit("node smoke.ts", maxsplit=1)[1]
+        self.assertLess(
+            post_run.index('sandbox_id="$(read_sandbox_id)"'),
+            post_run.index("verify_terminal_state ||"),
+        )
+
     def test_all_control_plane_shell_entrypoints_parse_and_are_strict(self) -> None:
         scripts = sorted(SCRIPTS.glob("*.sh"))
         self.assertTrue(scripts)
