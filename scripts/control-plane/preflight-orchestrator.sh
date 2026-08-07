@@ -6,6 +6,7 @@ source "$SCRIPT_DIR/common.sh"
 
 readonly ORCHESTRATOR_ENV=/etc/kitdev-sandboxes/orchestrator.env
 readonly EXPECTED_ORCHESTRATOR_ENV=/opt/kitdev-sandboxes/libexec/control-plane/orchestrator.env.expected
+readonly ADMISSION_PATCH=/opt/kitdev-sandboxes/libexec/control-plane/882a3b4-host-admission.patch
 
 verify_fixed_artifacts() {
   local kitdev_gid
@@ -38,7 +39,7 @@ verify_fixed_artifacts() {
 }
 
 verify_orchestrator_build() {
-  /usr/bin/python3 -I -B -S - "$KITDEV_RUNTIME_ROOT/orchestrator" <<'PY_VERIFY_BUILD'
+  /usr/bin/python3 -I -B -S - "$KITDEV_RUNTIME_ROOT/orchestrator" "$ADMISSION_PATCH" <<'PY_VERIFY_BUILD'
 import hashlib
 import json
 import os
@@ -48,12 +49,27 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
+patch = Path(sys.argv[2])
 manifest = root / "build-manifest.json"
 metadata = os.lstat(manifest)
 if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_gid != 0 or stat.S_IMODE(metadata.st_mode) != 0o600 or metadata.st_nlink != 1:
     raise SystemExit(1)
 document = json.loads(manifest.read_text(encoding="ascii"))
-if document.get("schema_version") != 1 or document.get("source_commit") != "882a3b4786755db9e94be3297de6827f9100ce5e" or document.get("platform") != "linux/amd64":
+if document.get("schema_version") != 2 or document.get("source_commit") != "882a3b4786755db9e94be3297de6827f9100ce5e" or document.get("platform") != "linux/amd64":
+    raise SystemExit(1)
+patch_metadata = os.lstat(patch)
+if not stat.S_ISREG(patch_metadata.st_mode) or patch_metadata.st_uid != 0 or patch_metadata.st_gid != 0 or stat.S_IMODE(patch_metadata.st_mode) != 0o644 or patch_metadata.st_nlink != 1:
+    raise SystemExit(1)
+admission = document.get("host_admission", {})
+if admission != {
+    "patch_sha256": hashlib.sha256(patch.read_bytes()).hexdigest(),
+    "max_live_sandboxes": 1,
+    "max_concurrent_starts": 1,
+    "max_concurrent_builds": 1,
+    "max_vcpu": 2,
+    "max_ram_mb": 8192,
+    "max_disk_mb": 25600,
+}:
     raise SystemExit(1)
 artifacts = document.get("artifacts", {})
 if set(artifacts) != {"orchestrator", "clean-nfs-cache"}:
@@ -128,6 +144,9 @@ for line in contents[0].decode("ascii").splitlines():
 if set(values) != {
     "KITDEV_LIFECYCLE", "NODE_ID", "NODE_IP", "ENVIRONMENT", "ORCHESTRATOR_SERVICES",
     "USE_LOCAL_NAMESPACE_STORAGE", "GRPC_PORT", "PROXY_PORT", "NBD_POOL_SIZE",
+    "KITDEV_MAX_LIVE_SANDBOXES", "KITDEV_MAX_CONCURRENT_STARTS",
+    "KITDEV_MAX_CONCURRENT_BUILDS", "KITDEV_MAX_VCPU", "KITDEV_MAX_RAM_MB",
+    "KITDEV_MAX_DISK_MB",
     "ORCHESTRATOR_LOCK_PATH", "ORCHESTRATOR_BASE_PATH", "SANDBOX_DIR", "SANDBOX_CACHE_DIR",
     "SNAPSHOT_CACHE_DIR", "TEMPLATE_CACHE_DIR", "TEMPLATES_DIR", "SHARED_CHUNK_CACHE_PATH",
     "TEMPLATE_STORAGE_URL", "BUILD_CACHE_STORAGE_URL", "LOCAL_UPLOAD_BASE_URL", "PROVIDER",
@@ -140,11 +159,41 @@ if set(values) != {
     "SANDBOXES_VRT_NETWORK_CIDR",
 }:
     raise SystemExit(1)
+integer_names = {
+    "NBD_POOL_SIZE", "KITDEV_MAX_LIVE_SANDBOXES", "KITDEV_MAX_CONCURRENT_STARTS",
+    "KITDEV_MAX_CONCURRENT_BUILDS", "KITDEV_MAX_VCPU", "KITDEV_MAX_RAM_MB",
+    "KITDEV_MAX_DISK_MB",
+}
+try:
+    limits = {name: int(values[name]) for name in integer_names}
+except ValueError:
+    raise SystemExit(1)
+if any(value < 1 for value in limits.values()):
+    raise SystemExit(1)
+if limits["KITDEV_MAX_CONCURRENT_STARTS"] > limits["KITDEV_MAX_LIVE_SANDBOXES"]:
+    raise SystemExit(1)
+if limits["NBD_POOL_SIZE"] < limits["KITDEV_MAX_LIVE_SANDBOXES"] + limits["KITDEV_MAX_CONCURRENT_BUILDS"]:
+    raise SystemExit(1)
+
+meminfo = {}
+with open("/proc/meminfo", encoding="ascii") as stream:
+    for line in stream:
+        fields = line.split()
+        if len(fields) >= 2 and fields[1].isdigit():
+            meminfo[fields[0].rstrip(":")] = int(fields[1])
+if meminfo.get("Hugepagesize") != 2048:
+    raise SystemExit(1)
+required_mib = limits["KITDEV_MAX_RAM_MB"] * (
+    limits["KITDEV_MAX_LIVE_SANDBOXES"] + 2 * limits["KITDEV_MAX_CONCURRENT_BUILDS"]
+)
+required_pages = (required_mib * 1024 + meminfo["Hugepagesize"] - 1) // meminfo["Hugepagesize"]
+if meminfo.get("HugePages_Total", 0) < required_pages or meminfo.get("HugePages_Free", 0) < required_pages:
+    raise SystemExit(1)
 PY_ORCHESTRATOR_ENV
 }
 
 main() {
-  local free_pages command
+  local command
   require_root
   require_lifecycle_platform
   require_worker_identity
@@ -161,9 +210,6 @@ main() {
   ip -4 route show default | awk 'NF {found=1} END {exit !found}' || control_plane_die default_route_missing 65
   [[ "$(sysctl -n net.ipv4.ip_forward)" == 1 ]] || control_plane_die ipv4_forwarding_disabled 65
   grep -q '^Hugepagesize:[[:space:]]*2048 kB$' /proc/meminfo || control_plane_die hugepage_size_mismatch 65
-  free_pages="$(awk '$1 == "HugePages_Free:" {value=$2; count++} END {if (count == 1) print value; else exit 1}' /proc/meminfo)" ||
-    control_plane_die hugepage_inventory_invalid 65
-  [[ "$free_pages" -ge 512 ]] || control_plane_die hugepage_capacity_insufficient 65
   verify_fixed_artifacts
   verify_orchestrator_build || control_plane_die orchestrator_build_invalid 65
   verify_network_overlap || control_plane_die sandbox_network_overlap 65

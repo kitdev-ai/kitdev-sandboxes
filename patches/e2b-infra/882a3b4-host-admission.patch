@@ -1,0 +1,394 @@
+diff --git a/orchestrator/pkg/admission/config.go b/orchestrator/pkg/admission/config.go
+new file mode 100644
+index 0000000..c7cb847
+--- /dev/null
++++ b/orchestrator/pkg/admission/config.go
+@@ -0,0 +1,63 @@
++package admission
++
++import (
++	"fmt"
++	"os"
++	"strconv"
++)
++
++type Config struct {
++	MaxLiveSandboxes   int
++	MaxConcurrentStarts int
++	MaxConcurrentBuilds int
++	MaxVCPU             int64
++	MaxRAMMB            int64
++	MaxDiskMB           int64
++}
++
++func positiveInt(name string) (int, error) {
++	raw, ok := os.LookupEnv(name)
++	if !ok || raw == "" {
++		return 0, fmt.Errorf("required host admission setting %s is missing", name)
++	}
++	value, err := strconv.Atoi(raw)
++	if err != nil || value < 1 {
++		return 0, fmt.Errorf("host admission setting %s must be a positive integer", name)
++	}
++	return value, nil
++}
++
++func Load() (Config, error) {
++	var result Config
++	inputs := []struct {
++		name   string
++		target *int
++	}{
++		{"KITDEV_MAX_LIVE_SANDBOXES", &result.MaxLiveSandboxes},
++		{"KITDEV_MAX_CONCURRENT_STARTS", &result.MaxConcurrentStarts},
++		{"KITDEV_MAX_CONCURRENT_BUILDS", &result.MaxConcurrentBuilds},
++	}
++	for _, input := range inputs {
++		value, err := positiveInt(input.name)
++		if err != nil {
++			return Config{}, err
++		}
++		*input.target = value
++	}
++	resources := []struct {
++		name   string
++		target *int64
++	}{
++		{"KITDEV_MAX_VCPU", &result.MaxVCPU},
++		{"KITDEV_MAX_RAM_MB", &result.MaxRAMMB},
++		{"KITDEV_MAX_DISK_MB", &result.MaxDiskMB},
++	}
++	for _, input := range resources {
++		value, err := positiveInt(input.name)
++		if err != nil {
++			return Config{}, err
++		}
++		*input.target = int64(value)
++	}
++	return result, nil
++}
+diff --git a/orchestrator/pkg/admission/config_test.go b/orchestrator/pkg/admission/config_test.go
+new file mode 100644
+index 0000000..9784979
+--- /dev/null
++++ b/orchestrator/pkg/admission/config_test.go
+@@ -0,0 +1,49 @@
++package admission
++
++import "testing"
++
++var validEnvironment = map[string]string{
++	"KITDEV_MAX_LIVE_SANDBOXES":    "1",
++	"KITDEV_MAX_CONCURRENT_STARTS": "1",
++	"KITDEV_MAX_CONCURRENT_BUILDS": "1",
++	"KITDEV_MAX_VCPU":              "2",
++	"KITDEV_MAX_RAM_MB":            "8192",
++	"KITDEV_MAX_DISK_MB":           "25600",
++}
++
++func setValidEnvironment(t *testing.T) {
++	t.Helper()
++	for name, value := range validEnvironment {
++		t.Setenv(name, value)
++	}
++}
++
++func TestLoadRequiresEverySetting(t *testing.T) {
++	setValidEnvironment(t)
++	t.Setenv("KITDEV_MAX_RAM_MB", "")
++	if _, err := Load(); err == nil {
++		t.Fatal("expected missing setting to fail")
++	}
++}
++
++func TestLoadRejectsInvalidSetting(t *testing.T) {
++	setValidEnvironment(t)
++	t.Setenv("KITDEV_MAX_CONCURRENT_BUILDS", "0")
++	if _, err := Load(); err == nil {
++		t.Fatal("expected non-positive setting to fail")
++	}
++}
++
++func TestLoadReturnsExactSettings(t *testing.T) {
++	setValidEnvironment(t)
++	config, err := Load()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if config.MaxLiveSandboxes != 1 || config.MaxConcurrentStarts != 1 || config.MaxConcurrentBuilds != 1 {
++		t.Fatalf("unexpected concurrency settings: %+v", config)
++	}
++	if config.MaxVCPU != 2 || config.MaxRAMMB != 8192 || config.MaxDiskMB != 25600 {
++		t.Fatalf("unexpected resource settings: %+v", config)
++	}
++}
+diff --git a/orchestrator/pkg/admission/slots.go b/orchestrator/pkg/admission/slots.go
+new file mode 100644
+index 0000000..2ca5f18
+--- /dev/null
++++ b/orchestrator/pkg/admission/slots.go
+@@ -0,0 +1,17 @@
++package admission
++
++import "sync/atomic"
++
++func Acquire(counter *atomic.Int64, limit int64) (release func(), ok bool) {
++	if counter.Add(1) > limit {
++		counter.Add(-1)
++		return nil, false
++	}
++
++	var released atomic.Bool
++	return func() {
++		if released.CompareAndSwap(false, true) {
++			counter.Add(-1)
++		}
++	}, true
++}
+diff --git a/orchestrator/pkg/admission/slots_test.go b/orchestrator/pkg/admission/slots_test.go
+new file mode 100644
+index 0000000..d864e5b
+--- /dev/null
++++ b/orchestrator/pkg/admission/slots_test.go
+@@ -0,0 +1,59 @@
++package admission
++
++import (
++	"sync"
++	"sync/atomic"
++	"testing"
++)
++
++func TestAcquireHonorsBoundaryUnderContention(t *testing.T) {
++	const contenders = 32
++	const limit = 3
++	var counter atomic.Int64
++	var workers sync.WaitGroup
++	start := make(chan struct{})
++	releaseGate := make(chan struct{})
++	results := make(chan bool, contenders)
++
++	for range contenders {
++		workers.Add(1)
++		go func() {
++			defer workers.Done()
++			<-start
++			release, ok := Acquire(&counter, limit)
++			results <- ok
++			if ok {
++				<-releaseGate
++				release()
++			}
++		}()
++	}
++	close(start)
++	successes := 0
++	for range contenders {
++		if <-results {
++			successes++
++		}
++	}
++	if successes != limit {
++		t.Fatalf("acquired %d slots, want %d", successes, limit)
++	}
++	close(releaseGate)
++	workers.Wait()
++	if counter.Load() != 0 {
++		t.Fatalf("counter after release is %d", counter.Load())
++	}
++}
++
++func TestReleaseIsIdempotent(t *testing.T) {
++	var counter atomic.Int64
++	release, ok := Acquire(&counter, 1)
++	if !ok {
++		t.Fatal("expected slot")
++	}
++	release()
++	release()
++	if counter.Load() != 0 {
++		t.Fatalf("counter after double release is %d", counter.Load())
++	}
++}
+diff --git a/orchestrator/pkg/server/main.go b/orchestrator/pkg/server/main.go
+index 797a2ac..ea7c13a 100644
+--- a/orchestrator/pkg/server/main.go
++++ b/orchestrator/pkg/server/main.go
+@@ -12,5 +12,6 @@ import (
+ 	"go.uber.org/zap"
+ 
++	"github.com/e2b-dev/infra/packages/orchestrator/pkg/admission"
+ 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/cfg"
+ 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/events"
+ 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/proxy"
+@@ -58,6 +59,7 @@ type Server struct {
+ 	orchestrator.UnimplementedSandboxServiceServer
+ 	orchestrator.UnimplementedChunkServiceServer
+ 
++	admission             admission.Config
+ 	config                cfg.Config
+ 	sandboxFactory        *sandbox.Factory
+ 	info                  *service.ServiceInfo
+@@ -114,13 +116,18 @@ type ServiceConfig struct {
+ }
+ 
+ func New(ctx context.Context, cfg ServiceConfig) (*Server, error) {
++	admissionConfig, err := admission.Load()
++	if err != nil {
++		return nil, fmt.Errorf("invalid host admission configuration: %w", err)
++	}
+ 	uploadedBuilds := ttlcache.New[string, struct{}](
+ 		ttlcache.WithTTL[string, struct{}](uploadedBuildsTTL),
+ 	)
+ 	go uploadedBuilds.Start()
+ 
+-	startingLimit := cfg.FeatureFlags.IntFlag(ctx, featureflags.MaxStartingInstancesPerNode)
+-	startingSandboxes, err := utils.NewAdjustableSemaphore(int64(startingLimit))
++	startingFlag := cfg.FeatureFlags.IntFlag(ctx, featureflags.MaxStartingInstancesPerNode)
++	startingLimit := min(startingFlag, admissionConfig.MaxConcurrentStarts)
++	startingSandboxes, err := utils.NewAdjustableSemaphore(int64(startingLimit))
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to create starting sandboxes semaphore: %w", err)
+ 	}
+@@ -127,5 +134,6 @@ func New(ctx context.Context, cfg ServiceConfig) (*Server, error) {
+ 
+ 	server := &Server{
++		admission:         admissionConfig,
+ 		config:            cfg.Config,
+ 		sandboxFactory:    cfg.SandboxFactory,
+ 		info:              cfg.Info,
+@@ -377,7 +386,8 @@ func (s *Server) refreshStartingSandboxesLimit(ctx context.Context) {
+ 		case <-s.done:
+ 			return
+ 		case <-ticker.C:
+-			limit := s.featureFlags.IntFlag(ctx, featureflags.MaxStartingInstancesPerNode)
++			flag := s.featureFlags.IntFlag(ctx, featureflags.MaxStartingInstancesPerNode)
++			limit := min(flag, s.admission.MaxConcurrentStarts)
+ 			if limit <= 0 {
+ 				continue
+ 			}
+diff --git a/orchestrator/pkg/server/sandboxes.go b/orchestrator/pkg/server/sandboxes.go
+index 54f4db1..2199af3 100644
+--- a/orchestrator/pkg/server/sandboxes.go
++++ b/orchestrator/pkg/server/sandboxes.go
+@@ -109,6 +109,17 @@ func (s *Server) Create(ctx context.Context, req *orchestrator.SandboxCreateRequ
+ 		telemetry.WithEnvdVersion(req.GetSandbox().GetEnvdVersion()),
+ 	)
+ 
++	sandboxConfig := req.GetSandbox()
++	if sandboxConfig.GetVcpu() < 1 || int64(sandboxConfig.GetVcpu()) > s.admission.MaxVCPU {
++		return nil, status.Errorf(codes.InvalidArgument, "sandbox vCPU must be between 1 and %d", s.admission.MaxVCPU)
++	}
++	if sandboxConfig.GetRamMb() < 1 || int64(sandboxConfig.GetRamMb()) > s.admission.MaxRAMMB {
++		return nil, status.Errorf(codes.InvalidArgument, "sandbox RAM must be between 1 MiB and %d MiB", s.admission.MaxRAMMB)
++	}
++	if sandboxConfig.GetTotalDiskSizeMb() < 1 || int64(sandboxConfig.GetTotalDiskSizeMb()) > s.admission.MaxDiskMB {
++		return nil, status.Errorf(codes.InvalidArgument, "sandbox disk must be between 1 MiB and %d MiB", s.admission.MaxDiskMB)
++	}
++
+ 	// setup launch darkly
+ 	ctx = featureflags.AddToContext(
+ 		ctx,
+@@ -146,7 +159,7 @@ func (s *Server) Create(ctx context.Context, req *orchestrator.SandboxCreateRequ
+ 		}
+ 	}
+ 
+-	maxRunningSandboxesPerNode := s.featureFlags.IntFlag(ctx, featureflags.MaxSandboxesPerNode)
++	maxRunningSandboxesPerNode := min(s.featureFlags.IntFlag(ctx, featureflags.MaxSandboxesPerNode), s.admission.MaxLiveSandboxes)
+ 
+ 	runningSandboxes := s.sandboxFactory.Sandboxes.Count()
+ 	if runningSandboxes >= maxRunningSandboxesPerNode {
+diff --git a/orchestrator/pkg/template/server/main.go b/orchestrator/pkg/template/server/main.go
+index 2d9bbdb..989191d 100644
+--- a/orchestrator/pkg/template/server/main.go
++++ b/orchestrator/pkg/template/server/main.go
+@@ -13,5 +13,6 @@ import (
+ 	"go.uber.org/zap"
+ 
++	"github.com/e2b-dev/infra/packages/orchestrator/pkg/admission"
+ 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/cfg"
+ 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/proxy"
+ 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/sandbox"
+@@ -42,5 +43,6 @@ type ServerStore struct {
+ 
+ 	logger            logger.Logger
++	admission         admission.Config
+ 	builder           *build.Builder
+ 	buildCache        *cache.BuildCache
+ 	buildLogger       logger.Logger
+@@ -73,6 +75,11 @@ func New(
+ ) (s *ServerStore, e error) {
+ 	logger.Info(ctx, "Initializing template manager")
+ 
++	admissionConfig, err := admission.Load()
++	if err != nil {
++		return nil, fmt.Errorf("invalid host admission configuration: %w", err)
++	}
++
+ 	closers := make([]closeable, 0)
+ 	defer func() {
+ 		if e == nil {
+@@ -121,6 +128,7 @@ func New(
+ 
+ 	store := &ServerStore{
+ 		logger:            logger,
++		admission:         admissionConfig,
+ 		builder:           builder,
+ 		buildCache:        buildCache,
+ 		buildLogger:       buildLogger,
+diff --git a/orchestrator/pkg/template/server/create_template.go b/orchestrator/pkg/template/server/create_template.go
+index 3cc6a80..8445362 100644
+--- a/orchestrator/pkg/template/server/create_template.go
++++ b/orchestrator/pkg/template/server/create_template.go
+@@ -10,8 +10,11 @@ import (
+ 	"go.opentelemetry.io/otel/trace"
+ 	"go.uber.org/zap"
+ 	"go.uber.org/zap/zapcore"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/status"
+ 	"google.golang.org/protobuf/types/known/emptypb"
+ 
++	"github.com/e2b-dev/infra/packages/orchestrator/pkg/admission"
+ 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/template/build/builderrors"
+ 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/template/build/buildlogger"
+ 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/template/build/config"
+@@ -32,5 +35,25 @@ func (s *ServerStore) TemplateCreate(ctx context.Context, templateRequest *templ
+ 	cfg := templateRequest.GetTemplate()
+ 
++	if cfg.GetVCpuCount() < 1 || int64(cfg.GetVCpuCount()) > s.admission.MaxVCPU {
++		return nil, status.Errorf(codes.InvalidArgument, "template build vCPU must be between 1 and %d", s.admission.MaxVCPU)
++	}
++	if cfg.GetMemoryMB() < 1 || int64(cfg.GetMemoryMB()) > s.admission.MaxRAMMB {
++		return nil, status.Errorf(codes.InvalidArgument, "template build RAM must be between 1 MiB and %d MiB", s.admission.MaxRAMMB)
++	}
++	if cfg.GetDiskSizeMB() < 1 || int64(cfg.GetDiskSizeMB()) > s.admission.MaxDiskMB {
++		return nil, status.Errorf(codes.InvalidArgument, "template build disk must be between 1 MiB and %d MiB", s.admission.MaxDiskMB)
++	}
++
++	releaseBuildSlot, acquired := admission.Acquire(&s.activeBuilds, int64(s.admission.MaxConcurrentBuilds))
++	if !acquired {
++		return nil, status.Error(codes.ResourceExhausted, "host template build slot is occupied, please retry")
++	}
++	defer func() {
++		if releaseBuildSlot != nil {
++			releaseBuildSlot()
++		}
++	}()
++
+ 	metadata := storage.Paths{
+ 		BuildID: cfg.GetBuildID(),
+ 	}
+@@ -123,10 +145,11 @@ func (s *ServerStore) TemplateCreate(ctx context.Context, templateRequest *templ
+ 	)
+ 
+ 	s.wg.Add(1)
+-	s.activeBuilds.Add(1)
++	backgroundRelease := releaseBuildSlot
++	releaseBuildSlot = nil
+ 	go func(ctx context.Context) {
+ 		defer s.wg.Done()
+-		defer s.activeBuilds.Add(-1)
++		defer backgroundRelease()
+ 
+ 		ctx, cancel := context.WithCancel(ctx)
+ 		defer cancel()

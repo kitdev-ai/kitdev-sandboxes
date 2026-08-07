@@ -58,6 +58,7 @@ install_lifecycle_assets() {
   ensure_directory "$INSTALLED_SCRIPT_DIR/e2e-typescript-sdk" root root 755
   for name in \
     acquire-source.sh backup-restore.sh bootstrap-network.sh bootstrap-private-env.sh build-control-plane-images.sh \
+    converge-admission-policy.sh \
     build-envd.sh build-orchestrator.sh build-snapshot-tools.sh common.sh configure-firewall.sh \
     install-orchestrator-service.sh install-runtime-artifacts.sh lifecycle.sh \
     preflight-orchestrator.sh prepare-layout.sh replay-compose.sh seed-local-template.sh \
@@ -87,6 +88,8 @@ install_lifecycle_assets() {
   (( sdk_file_count >= 3 )) || control_plane_die sdk_source_count_invalid 65
   publish_exact_file "$SCRIPT_DIR/../../systemd/orchestrator.env.template" \
     "$INSTALLED_SCRIPT_DIR/orchestrator.env.template" root root 644
+  publish_exact_file "$SCRIPT_DIR/../../patches/e2b-infra/882a3b4-host-admission.patch" \
+    "$INSTALLED_SCRIPT_DIR/882a3b4-host-admission.patch" root root 644
   publish_exact_file "$SCRIPT_DIR/../../systemd/kitdev-e2b-orchestrator.service" \
     "$INSTALLED_SCRIPT_DIR/orchestrator.service.expected" root root 644
 }
