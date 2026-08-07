@@ -87,4 +87,3 @@ service, and then revoke this exact key ID with duplicate confirmation and the
 metadata-bound `--delete-key-file` flow. Revocation invalidates upstream
 authentication immediately; source-file deletion happens only after the
 durable revoked metadata transition.
-
