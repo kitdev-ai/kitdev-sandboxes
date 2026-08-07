@@ -10,6 +10,7 @@ STATE_PATH = ROOT / "scripts" / "control-plane" / "template-publication-state.py
 RUNNER = (ROOT / "scripts" / "control-plane" / "publish-stable-template.sh").read_text()
 CODING = (ROOT / "scripts" / "control-plane" / "e2e-typescript-sdk" / "coding-template.ts").read_text()
 BROWSER = (ROOT / "scripts" / "control-plane" / "e2e-typescript-sdk" / "browser-template.ts").read_text()
+CONSUMER = (ROOT / "scripts" / "control-plane" / "e2e-typescript-sdk" / "stable-template-consumer.ts").read_text()
 
 
 def load_state_module():
@@ -69,6 +70,12 @@ class TemplatePublicationTests(unittest.TestCase):
             self.assertIn('{ tags: ["stable"] }', source)
             self.assertIn('[publication.version, "stable"]', source)
             self.assertIn("publication?.version", source)
+
+    def test_consumer_uses_only_stable_alias_and_sdk_sandbox_operations(self) -> None:
+        self.assertIn("Sandbox.create(`${config.alias}:stable`", CONSUMER)
+        self.assertIn("await sandbox.commands.run(", CONSUMER)
+        self.assertIn("await sandbox.kill()", CONSUMER)
+        self.assertNotIn("Template.", CONSUMER)
 
 
 if __name__ == "__main__":

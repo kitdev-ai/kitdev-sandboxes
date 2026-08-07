@@ -25,6 +25,14 @@ Both commands build with `e2b@2.38.0`, boot and qualify a sandbox, publish the
 bare alias, verify the exact database relationships, and atomically commit the
 ownership journal. A successful rerun reports `result=unchanged`.
 
+Verify each alias with the product key, without template-management calls:
+
+```console
+sudo env KITDEV_LIFECYCLE=development \
+  ./scripts/control-plane/publish-stable-template.sh verify-consumer \
+  --product coding --version v1 --api-key-file <product-key-file>
+```
+
 To withdraw the first release's default pointer without deleting its immutable
 versioned build:
 

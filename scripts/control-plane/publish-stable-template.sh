@@ -338,6 +338,20 @@ rollback_template() {
     "$product" "$template_id" "$build_id"
 }
 
+verify_consumer() {
+  local product="$1" alias="$2" version="$3"
+  prepare_stage "$product" "$alias" "$version"
+  install -o root -g root -m 0600 "$CLIENT_DIR/stable-template-consumer.ts" \
+    "$stage/client/stable-template-consumer.ts"
+  install_sdk
+  docker run --rm --pull never --platform linux/amd64 --network host --user 0:0 \
+    --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=32m \
+    --volume "$stage/client:/workspace:ro" \
+    --volume "$api_key_file:/run/secrets/e2b-api-key:ro" \
+    --volume "$stage/config:/run/config:ro" --workdir /workspace \
+    "$NODE_IMAGE" node stable-template-consumer.ts
+}
+
 main() {
   local operation product version alias digest journal
   [[ $# == 7 && "$2" == --product && "$4" == --version && "$6" == --api-key-file ]] ||
@@ -346,7 +360,8 @@ main() {
   product="$3"
   version="$5"
   api_key_file="$7"
-  [[ "$operation" == publish || "$operation" == rollback ]] || control_plane_die invalid_operation 64
+  [[ "$operation" == publish || "$operation" == rollback || "$operation" == verify-consumer ]] ||
+    control_plane_die invalid_operation 64
   [[ "$version" =~ ^v[1-9][0-9]{0,5}$ ]] || control_plane_die publication_version_invalid 64
   case "$product" in
     coding) alias=kitdev-coding ;;
@@ -372,15 +387,20 @@ main() {
   acquire_locks
   require_idle_legacy_host
   [[ "$product" != browser-heavy ]] || require_heavy_profile "$api_key_file"
-  digest="$(definition_hash "$product")"
-  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || control_plane_die publication_definition_hash_invalid 65
-  journal="$JOURNAL_ROOT/$product-$version.json"
   trap cleanup EXIT
   trap 'exit 130' INT TERM
   if [[ "$operation" == publish ]]; then
+    digest="$(definition_hash "$product")"
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || control_plane_die publication_definition_hash_invalid 65
+    journal="$JOURNAL_ROOT/$product-$version.json"
     publish_template "$product" "$alias" "$version" "$journal" "$digest"
-  else
+  elif [[ "$operation" == rollback ]]; then
+    digest="$(definition_hash "$product")"
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || control_plane_die publication_definition_hash_invalid 65
+    journal="$JOURNAL_ROOT/$product-$version.json"
     rollback_template "$product" "$alias" "$version" "$journal" "$digest"
+  else
+    verify_consumer "$product" "$alias" "$version"
   fi
 }
 
