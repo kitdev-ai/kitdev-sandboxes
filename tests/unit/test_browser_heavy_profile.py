@@ -74,6 +74,14 @@ class BrowserHeavyProfileTests(unittest.TestCase):
         self.assertIn("api_key_hash", source)
         self.assertNotIn("print(value)", source)
 
+    def test_live_container_discovery_is_untruncated_and_legacy_database_aware(self) -> None:
+        for path in (RUNNER, PROVISIONER):
+            source = path.read_text(encoding="ascii")
+            self.assertIn("docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$'", source)
+            self.assertIn("docker ps --no-trunc --quiet --filter name='^/kitdev-redis$'", source)
+            self.assertIn("for user in kitdev postgres", source)
+            self.assertIn("to_regclass('public.teams')", source)
+
     def test_shell_assets_parse(self) -> None:
         for script in (RUNNER, PROVISIONER):
             completed = subprocess.run(

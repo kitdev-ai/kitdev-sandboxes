@@ -128,6 +128,22 @@ print("$sha256$" + base64.b64encode(hashlib.sha256(value).digest()).decode("asci
 PY_API_KEY_HASH
 }
 
+postgres_identity() {
+  local container="$1" user database result
+  for user in kitdev postgres; do
+    database="$user"
+    result="$(docker exec -- "$container" psql --no-psqlrc --tuples-only --no-align \
+      --username "$user" --dbname "$database" --command \
+      "SELECT to_regclass('public.teams') IS NOT NULL AND to_regclass('public.team_api_keys') IS NOT NULL;" \
+      2>/dev/null)" || continue
+    if [[ "$result" == t ]]; then
+      printf '%s|%s\n' "$user" "$database"
+      return
+    fi
+  done
+  return 1
+}
+
 require_heavy_capacity() {
   local available_kib huge_free huge_total
   huge_total="$(awk '$1 == "HugePages_Total:" {print $2}' /proc/meminfo)"
@@ -141,16 +157,17 @@ require_heavy_capacity() {
 }
 
 require_heavy_team_profile() {
-  local api_key_file="$1" key_hash postgres_container redis_container row team_id
+  local api_key_file="$1" identity key_hash postgres_container postgres_database postgres_user
+  local redis_container row team_id
   key_hash="$(api_key_hash "$api_key_file")" || control_plane_die heavy_api_key_hash_failed 65
   [[ "$key_hash" =~ ^\$sha256\$[A-Za-z0-9+/]{43}$ ]] || control_plane_die heavy_api_key_hash_invalid 65
-  postgres_container="$(docker ps --quiet \
-    --filter label=com.docker.compose.project=kitdev-control-plane \
-    --filter label=com.docker.compose.service=postgres)"
+  postgres_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$')"
   [[ "$postgres_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
+  identity="$(postgres_identity "$postgres_container")" || control_plane_die postgres_identity_invalid 65
+  IFS='|' read -r postgres_user postgres_database <<<"$identity"
   row="$(docker exec --interactive "$postgres_container" \
     psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
-      --field-separator='|' --username kitdev --dbname kitdev --command "
+      --field-separator='|' --username "$postgres_user" --dbname "$postgres_database" --command "
 SELECT t.id, t.slug, l.max_vcpu, l.max_ram_mb, l.disk_mb,
        l.default_free_disk_size_mb, l.max_disk_size_mb
 FROM public.team_api_keys k
@@ -160,9 +177,7 @@ WHERE k.api_key_hash = '$key_hash';")" || control_plane_die heavy_team_query_fai
   [[ "$row" =~ ^([0-9a-f-]{36})\|kitdev-browser-heavy-team\|2\|8192\|16384\|16384\|25600$ ]] ||
     control_plane_die heavy_team_profile_invalid 65
   team_id="${BASH_REMATCH[1]}"
-  redis_container="$(docker ps --quiet \
-    --filter label=com.docker.compose.project=kitdev-control-plane \
-    --filter label=com.docker.compose.service=redis)"
+  redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die redis_container_invalid 65
   [[ "$(docker exec -- "$redis_container" redis-cli --raw DEL \
     "auth:team:$key_hash" "auth:team:team-$team_id")" =~ ^[0-9]+$ ]] ||
@@ -170,16 +185,16 @@ WHERE k.api_key_hash = '$key_hash';")" || control_plane_die heavy_team_query_fai
 }
 
 verify_heavy_build_metadata() {
-  local build_id postgres_container row
+  local build_id identity postgres_container postgres_database postgres_user row
   build_id="$(read_state_id "$stage/state/build-id" '[0-9a-f-]{36}\n' 37)" ||
     control_plane_die heavy_build_id_invalid 65
-  postgres_container="$(docker ps --quiet \
-    --filter label=com.docker.compose.project=kitdev-control-plane \
-    --filter label=com.docker.compose.service=postgres)"
+  postgres_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$')"
   [[ "$postgres_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
+  identity="$(postgres_identity "$postgres_container")" || control_plane_die postgres_identity_invalid 65
+  IFS='|' read -r postgres_user postgres_database <<<"$identity"
   row="$(docker exec --interactive "$postgres_container" \
     psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
-      --field-separator='|' --username kitdev --dbname kitdev --command "
+      --field-separator='|' --username "$postgres_user" --dbname "$postgres_database" --command "
 SELECT vcpu, ram_mb, free_disk_size_mb, total_disk_size_mb, status_group
 FROM public.env_builds WHERE id = '$build_id'::uuid;")" ||
     control_plane_die heavy_build_query_failed 65

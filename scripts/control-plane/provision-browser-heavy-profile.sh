@@ -19,6 +19,22 @@ cleanup() {
   exit "$status"
 }
 
+postgres_identity() {
+  local container="$1" user database result
+  for user in kitdev postgres; do
+    database="$user"
+    result="$(docker exec -- "$container" psql --no-psqlrc --tuples-only --no-align \
+      --username "$user" --dbname "$database" --command \
+      "SELECT to_regclass('public.teams') IS NOT NULL AND to_regclass('public.team_api_keys') IS NOT NULL;" \
+      2>/dev/null)" || continue
+    if [[ "$result" == t ]]; then
+      printf '%s|%s\n' "$user" "$database"
+      return
+    fi
+  done
+  return 1
+}
+
 create_or_read_key_metadata() {
   /usr/bin/python3 -I -B -S - "$1" <<'PY_KEY'
 import base64
@@ -67,7 +83,8 @@ PY_KEY
 }
 
 main() {
-  local key_metadata key_hash mask_prefix mask_suffix parent postgres_container redis_container row team_id
+  local key_metadata key_hash mask_prefix mask_suffix parent postgres_container postgres_database
+  local postgres_user redis_container row team_id identity
   [[ $# == 2 && "$1" == --api-key-file && "$2" == /* ]] || control_plane_die invalid_arguments 64
   api_key_file="$2"
   require_root
@@ -105,12 +122,13 @@ main() {
     "$mask_prefix" =~ ^[0-9a-f]{2}$ && "$mask_suffix" =~ ^[0-9a-f]{4}$ ]] ||
     control_plane_die profile_api_key_metadata_invalid 65
 
-  postgres_container="$(docker ps --quiet \
-    --filter label=com.docker.compose.project=kitdev-control-plane \
-    --filter label=com.docker.compose.service=postgres)"
+  postgres_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$')"
   [[ "$postgres_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
+  identity="$(postgres_identity "$postgres_container")" || control_plane_die postgres_identity_invalid 65
+  IFS='|' read -r postgres_user postgres_database <<<"$identity"
   docker exec --interactive "$postgres_container" \
-    psql --no-psqlrc --set=ON_ERROR_STOP=1 --username kitdev --dbname kitdev \
+    psql --no-psqlrc --set=ON_ERROR_STOP=1 \
+      --username "$postgres_user" --dbname "$postgres_database" \
       --set=key_hash="$key_hash" --set=mask_prefix="$mask_prefix" \
       --set=mask_suffix="$mask_suffix" <<'SQL_PROFILE' >/dev/null
 BEGIN;
@@ -179,7 +197,7 @@ SQL_PROFILE
 
   row="$(docker exec --interactive "$postgres_container" \
     psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
-      --field-separator='|' --username kitdev --dbname kitdev --command "
+      --field-separator='|' --username "$postgres_user" --dbname "$postgres_database" --command "
 SELECT t.id, l.max_vcpu, l.max_ram_mb, l.disk_mb,
        l.default_free_disk_size_mb, l.max_disk_size_mb
 FROM public.teams t JOIN public.team_limits l ON l.id = t.id
@@ -190,9 +208,7 @@ WHERE t.slug = '$TEAM_SLUG' AND k.api_key_hash = '$key_hash';")" ||
     control_plane_die profile_verification_failed 65
   team_id="${BASH_REMATCH[1]}"
 
-  redis_container="$(docker ps --quiet \
-    --filter label=com.docker.compose.project=kitdev-control-plane \
-    --filter label=com.docker.compose.service=redis)"
+  redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die redis_container_invalid 65
   [[ "$(docker exec -- "$redis_container" redis-cli --raw DEL \
     "auth:team:$key_hash" "auth:team:team-$team_id")" =~ ^[0-9]+$ ]] ||
