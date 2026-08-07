@@ -39,12 +39,15 @@ and key are present.
 
 ## Live staging result
 
-Ingress release `401a45b` was staged on the OVH host without certificate
+Ingress release `3b772f1` was staged on the OVH host without certificate
 issuance, listener startup, or firewall mutation. Two earlier staging attempts
 refused safely and produced follow-up fixes: Git executable modes for lifecycle
 scripts, explicit lego executable normalization, and lego verification on the
 trusted executable `/opt` filesystem rather than the host's `noexec` `/run`.
-All fixes were committed and pushed before the successful exact-revision stage.
+The final follow-up also captured the artifact cleanup path at trap registration
+time; its guarded rollout removed the retained 90 MB temporary directory. All
+fixes were committed and pushed, and artifact verification then passed with no
+temporary directories remaining.
 
 The successful stage verified the pinned lego binary and Nginx image. Live
 nonsecret configuration now contains the selected domain, provider, email, and
