@@ -60,21 +60,40 @@ def normalize_source_cidr(
 class FirewallSourceResult:
     action: str
     sources: tuple[dict[str, object], ...]
+    mode: str = "closed"
     outcome: str = "converged"
 
     def as_dict(self) -> dict[str, object]:
+        command = (
+            f"firewall mode {self.mode}"
+            if self.action.startswith("mode-")
+            else f"firewall source {self.action}"
+        )
         return {
             "schema_version": 1,
-            "command": f"firewall source {self.action}",
+            "command": command,
             "status": "pass",
             "outcome": self.outcome,
+            "mode": self.mode,
             "sources": list(self.sources),
+            **(
+                {"warnings": ["TCP 443 is open to every IPv4 and IPv6 source"]}
+                if self.mode == "public"
+                else {}
+            ),
         }
 
     def render_text(self) -> str:
+        command = (
+            f"firewall-mode-{self.mode}"
+            if self.action.startswith("mode-")
+            else f"firewall-source-{self.action}"
+        )
         lines = [
-            f"command=firewall-source-{self.action} status=pass outcome={self.outcome}"
+            f"command={command} status=pass outcome={self.outcome} mode={self.mode}"
         ]
+        if self.mode == "public":
+            lines.append("warning=TCP-443-is-open-to-all-IPv4-and-IPv6-sources")
         for source in self.sources:
             lines.append(
                 f"cidr={source['cidr']} non_public_override="
@@ -153,34 +172,9 @@ def _default_runner(arguments: Sequence[str]) -> subprocess.CompletedProcess[str
     return subprocess.CompletedProcess(list(arguments), returncode, stdout, stderr)
 
 
-def run_firewall_source_operation(
-    action: str,
-    *,
-    cidr: str | None = None,
-    allow_non_public: bool = False,
-    allow_broad_range: bool = False,
-    backend: Path = DEFAULT_BACKEND,
-    runner: Runner = _default_runner,
+def _run_backend(
+    arguments: Sequence[str], action: str, runner: Runner
 ) -> FirewallSourceResult:
-    if action not in {"add", "list", "remove"}:
-        raise FirewallSourceOperationError("firewall_source_action_invalid", 64)
-    arguments = [str(backend), f"source-{action}"]
-    if action == "list":
-        if cidr is not None or allow_non_public or allow_broad_range:
-            raise FirewallSourceOperationError("firewall_source_arguments_invalid", 64)
-    else:
-        if cidr is None:
-            raise FirewallSourceOperationError("source_cidr_required", 64)
-        canonical = normalize_source_cidr(
-            cidr,
-            allow_non_public=allow_non_public if action == "add" else True,
-            allow_broad_range=allow_broad_range if action == "add" else True,
-        )
-        arguments.extend(["--cidr", canonical])
-        if action == "add" and allow_non_public:
-            arguments.append("--allow-non-public")
-        if action == "add" and allow_broad_range:
-            arguments.append("--allow-broad-range")
     completed = runner(arguments)
     if completed.returncode != 0:
         reason = "firewall_source_backend_failed"
@@ -193,14 +187,15 @@ def run_firewall_source_operation(
         document = json.loads(completed.stdout)
         if (
             not isinstance(document, dict)
-            or set(document) != {"schema_version", "command", "status", "sources"}
+            or set(document) != {"schema_version", "command", "status", "mode", "sources"}
             or document["schema_version"] != 1
             or document["command"] != "firewall source list"
             or document["status"] != "pass"
         ):
             raise TypeError
         raw_sources = document["sources"]
-        if not isinstance(raw_sources, list):
+        mode = document["mode"]
+        if not isinstance(raw_sources, list) or mode not in {"closed", "public", "restricted"}:
             raise TypeError
         checked: list[dict[str, object]] = []
         networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
@@ -253,4 +248,46 @@ def run_firewall_source_operation(
         sources = tuple(checked)
     except (KeyError, TypeError, json.JSONDecodeError) as error:
         raise FirewallSourceOperationError("firewall_source_backend_invalid", 69) from error
-    return FirewallSourceResult(action=action, sources=sources)
+    return FirewallSourceResult(action=action, sources=sources, mode=mode)
+
+
+def run_firewall_source_operation(
+    action: str,
+    *,
+    cidr: str | None = None,
+    allow_non_public: bool = False,
+    allow_broad_range: bool = False,
+    backend: Path = DEFAULT_BACKEND,
+    runner: Runner = _default_runner,
+) -> FirewallSourceResult:
+    if action not in {"add", "list", "remove"}:
+        raise FirewallSourceOperationError("firewall_source_action_invalid", 64)
+    arguments = [str(backend), f"source-{action}"]
+    if action == "list":
+        if cidr is not None or allow_non_public or allow_broad_range:
+            raise FirewallSourceOperationError("firewall_source_arguments_invalid", 64)
+    else:
+        if cidr is None:
+            raise FirewallSourceOperationError("source_cidr_required", 64)
+        canonical = normalize_source_cidr(
+            cidr,
+            allow_non_public=allow_non_public if action == "add" else True,
+            allow_broad_range=allow_broad_range if action == "add" else True,
+        )
+        arguments.extend(["--cidr", canonical])
+        if action == "add" and allow_non_public:
+            arguments.append("--allow-non-public")
+        if action == "add" and allow_broad_range:
+            arguments.append("--allow-broad-range")
+    return _run_backend(arguments, action, runner)
+
+
+def run_firewall_mode_operation(
+    mode: str,
+    *,
+    backend: Path = DEFAULT_BACKEND,
+    runner: Runner = _default_runner,
+) -> FirewallSourceResult:
+    if mode not in {"closed", "public", "restricted"}:
+        raise FirewallSourceOperationError("firewall_mode_invalid", 64)
+    return _run_backend([str(backend), "mode", mode], f"mode-{mode}", runner)

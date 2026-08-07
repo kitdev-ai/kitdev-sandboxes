@@ -419,9 +419,13 @@ sudoedit /etc/kitdev-sandboxes/ingress/ingress.env
 sudoedit /etc/kitdev-sandboxes/ingress/acme-provider.env
 ```
 
-Set the domain, ACME email, lego DNS provider code, and staging ACME server in
-`ingress.env`. Put only the selected provider's required variables in
-`acme-provider.env`; the scripts parse this file as data and never source it.
+For this deployment set `sandbox.kitdev.ai`, `mohitagrwl97@gmail.com`, provider
+`cloudflare`, and the staging ACME server in `ingress.env`. Put exactly
+`CLOUDFLARE_DNS_API_TOKEN_FILE=/etc/kitdev-sandboxes/ingress/cloudflare-dns-api-token`
+in `acme-provider.env`. Put only the token in that separate root-owned mode
+`0600` file. Use a Cloudflare API token limited to `Zone:DNS:Edit` and
+`Zone:Zone:Read` for `kitdev.ai`; do not use the Global API Key. The scripts
+parse provider configuration as data and never source it.
 
 Prove DNS automation against Let's Encrypt staging:
 
@@ -447,9 +451,19 @@ sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
   /usr/bin/bash scripts/ingress/install-ingress.sh verify
 ```
 
-Apply adds only project-commented UFW rules for TCP 80 and 443, starts the
-read-only Nginx ingress container, and enables the renewal timer. Internal API,
-proxy, database, and orchestrator ports remain non-public.
+Apply starts the read-only Nginx ingress container, enables the renewal timer,
+and converges the persisted firewall mode. TCP 80 always stays closed. Before
+the external gate, deliberately enable temporary public HTTPS:
+
+```console
+sudo kitdev firewall mode public
+```
+
+This opens only TCP 443 to all IPv4/IPv6 sources and emits a warning. Return to
+the saved CIDRs with `sudo kitdev firewall mode restricted`, or close external
+HTTPS with `sudo kitdev firewall mode closed`. Internal API, proxy, database,
+and orchestrator ports remain non-public. See the
+[firewall mode guide](firewall-source-allowlist-guide.md).
 
 External SDK clients use:
 

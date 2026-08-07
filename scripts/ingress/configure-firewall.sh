@@ -6,8 +6,10 @@ readonly SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd 
 source "$SCRIPT_DIR/../control-plane/common.sh"
 
 readonly SOURCE_STATE="$SCRIPT_DIR/firewall_source_state.py"
+readonly SOURCE_MANIFEST=/etc/kitdev-sandboxes/ingress/allowed-sources.json
 readonly FIREWALL_LOCK=/run/kitdev-sandboxes/ingress-firewall.lock
 readonly UFW_COMMENT='kitdev restricted ingress https'
+readonly PUBLIC_UFW_COMMENT='kitdev public ingress https explicit'
 readonly GUARD_CHAIN=KITDEV-INGRESS
 readonly GUARD_COMMENT='kitdev restricted ingress docker guard'
 readonly ALLOW_COMMENT='kitdev restricted ingress docker allow'
@@ -35,6 +37,16 @@ with open(sys.argv[1], "r", encoding="ascii") as stream:
     document = json.load(stream)
 print(sum(ipaddress.ip_network(item["cidr"]).version == int(sys.argv[2]) for item in document["sources"]))
 PY_SOURCE_FAMILY_COUNT
+}
+
+firewall_mode() {
+  /usr/bin/python3 -I -B -S - "$1" <<'PY_FIREWALL_MODE'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="ascii") as stream:
+    print(json.load(stream)["mode"])
+PY_FIREWALL_MODE
 }
 
 outbound_interface() {
@@ -81,6 +93,11 @@ verify_ufw_defaults() {
   grep -Fx 'Default: deny (incoming), allow (outgoing), deny (routed)' <<<"$status" >/dev/null
 }
 
+verify_ufw_ipv6() {
+  [[ ! -L /etc/default/ufw && -f /etc/default/ufw ]] || return 1
+  grep -Fx 'IPV6=yes' /etc/default/ufw >/dev/null
+}
+
 verify_ufw_rules() {
   local policy="$1" sources_file="$2" rules ports
   rules="$(ufw show added)" || return 1
@@ -100,10 +117,17 @@ policy, source_path, comment, ssh_text = sys.argv[1:]
 with open(source_path, "r", encoding="ascii") as stream:
     document = json.load(stream)
 sources = [item["cidr"] for item in document["sources"]]
-expected = Counter(
-    ("ufw", "allow", "proto", "tcp", "from", source, "to", "any", "port", "443", "comment", comment)
-    for source in sources
-)
+if policy == "restricted":
+    expected = Counter(
+        ("ufw", "allow", "proto", "tcp", "from", source, "to", "any", "port", "443", "comment", comment)
+        for source in sources
+    )
+elif policy == "public":
+    expected = Counter({("ufw", "allow", "443/tcp", "comment", "kitdev public ingress https explicit"): 1})
+elif policy in {"closed", "absent"}:
+    expected = Counter()
+else:
+    raise SystemExit(1)
 observed = Counter()
 ssh_ports = {int(value) for value in ssh_text.splitlines()}
 ssh_allowed = set()
@@ -138,12 +162,7 @@ for line in os.fdopen(3, encoding="utf-8"):
                 raise SystemExit(1)
 if ssh_allowed != ssh_ports:
     raise SystemExit(1)
-if policy == "exact":
-    valid = observed == expected
-elif policy == "absent":
-    valid = not observed
-else:
-    valid = False
+valid = observed == expected
 raise SystemExit(0 if valid else 1)
 PY_VERIFY_INGRESS_UFW
 }
@@ -235,7 +254,8 @@ guard_required() {
 
 verify_guard_tool() {
   local tool="$1" family="$2" policy="$3" sources_file="$4" interface="$5"
-  local source expected_count=2 observed_count references
+  local source mode expected_count=2 observed_count references
+  mode="$(firewall_mode "$sources_file")" || return 1
   mapfile -t family_sources < <(family_sources "$sources_file" "$family")
   if [[ "$policy" == absent ]]; then
     ! "$tool" -S "$GUARD_CHAIN" >/dev/null 2>&1 || return 1
@@ -252,11 +272,17 @@ verify_guard_tool() {
   done
   references="$("$tool" -S DOCKER-USER | grep -Fc -- "-j $GUARD_CHAIN" || true)"
   [[ "$references" == 2 ]] || return 1
-  for source in "${family_sources[@]}"; do
-    "$tool" -C "$GUARD_CHAIN" -s "$source" -p tcp -m conntrack --ctorigdstport 443 \
+  if [[ "$mode" == public ]]; then
+    "$tool" -C "$GUARD_CHAIN" -p tcp -m conntrack --ctorigdstport 443 \
       -m comment --comment "$ALLOW_COMMENT" -j RETURN || return 1
     ((expected_count += 1))
-  done
+  elif [[ "$mode" == restricted ]]; then
+    for source in "${family_sources[@]}"; do
+      "$tool" -C "$GUARD_CHAIN" -s "$source" -p tcp -m conntrack --ctorigdstport 443 \
+        -m comment --comment "$ALLOW_COMMENT" -j RETURN || return 1
+      ((expected_count += 1))
+    done
+  fi
   "$tool" -C "$GUARD_CHAIN" -p tcp -m conntrack --ctorigdstport 80 \
     -m comment --comment "$HTTP_DENY_COMMENT" -j DROP || return 1
   "$tool" -C "$GUARD_CHAIN" -p tcp -m conntrack --ctorigdstport 443 \
@@ -276,15 +302,21 @@ verify_guards() {
 }
 
 add_guard_tool() {
-  local tool="$1" family="$2" sources_file="$3" interface="$4" source
+  local tool="$1" family="$2" sources_file="$3" interface="$4" source mode
+  mode="$(firewall_mode "$sources_file")" || return 1
   mapfile -t family_sources < <(family_sources "$sources_file" "$family")
   "$tool" -S DOCKER-USER >/dev/null 2>&1 || return 1
   ! "$tool" -S "$GUARD_CHAIN" >/dev/null 2>&1 || return 1
   "$tool" -N "$GUARD_CHAIN" || return 1
-  for source in "${family_sources[@]}"; do
-    "$tool" -A "$GUARD_CHAIN" -s "$source" -p tcp -m conntrack --ctorigdstport 443 \
+  if [[ "$mode" == public ]]; then
+    "$tool" -A "$GUARD_CHAIN" -p tcp -m conntrack --ctorigdstport 443 \
       -m comment --comment "$ALLOW_COMMENT" -j RETURN || return 1
-  done
+  elif [[ "$mode" == restricted ]]; then
+    for source in "${family_sources[@]}"; do
+      "$tool" -A "$GUARD_CHAIN" -s "$source" -p tcp -m conntrack --ctorigdstport 443 \
+        -m comment --comment "$ALLOW_COMMENT" -j RETURN || return 1
+    done
+  fi
   "$tool" -A "$GUARD_CHAIN" -p tcp -m conntrack --ctorigdstport 80 \
     -m comment --comment "$HTTP_DENY_COMMENT" -j DROP || return 1
   "$tool" -A "$GUARD_CHAIN" -p tcp -m conntrack --ctorigdstport 443 \
@@ -315,30 +347,38 @@ delete_owned_guard() {
 }
 
 add_system_rules() {
-  local sources_file="$1" interface="$2" source
-  [[ "$(source_count "$sources_file")" != 0 ]] || return 0
+  local sources_file="$1" interface="$2" source mode
+  mode="$(firewall_mode "$sources_file")" || return 1
   verify_ufw_rules absent "$sources_file" || return 1
   verify_guards absent "$sources_file" "$interface" || return 1
-  while IFS= read -r source; do
-    ufw allow proto tcp from "$source" to any port 443 comment "$UFW_COMMENT" || return 1
-  done < <(/usr/bin/python3 -I -B -S "$SOURCE_STATE" get-file "$sources_file")
+  if [[ "$mode" == public ]]; then
+    ufw allow 443/tcp comment "$PUBLIC_UFW_COMMENT" || return 1
+  elif [[ "$mode" == restricted ]]; then
+    while IFS= read -r source; do
+      ufw allow proto tcp from "$source" to any port 443 comment "$UFW_COMMENT" || return 1
+    done < <(/usr/bin/python3 -I -B -S "$SOURCE_STATE" get-file "$sources_file")
+  fi
   add_guard_tool iptables 4 "$sources_file" "$interface" || return 1
   if guard_required ip6tables "$sources_file"; then
     add_guard_tool ip6tables 6 "$sources_file" "$interface" || return 1
   fi
-  verify_ufw_rules exact "$sources_file" || return 1
+  verify_ufw_rules "$mode" "$sources_file" || return 1
   verify_guards exact "$sources_file" "$interface"
 }
 
 remove_system_rules() {
-  local sources_file="$1" interface="$2" source
-  [[ "$(source_count "$sources_file")" != 0 ]] || return 0
-  verify_ufw_rules exact "$sources_file" || return 1
+  local sources_file="$1" interface="$2" source mode
+  mode="$(firewall_mode "$sources_file")" || return 1
+  verify_ufw_rules "$mode" "$sources_file" || return 1
   verify_guards exact "$sources_file" "$interface" || return 1
-  while IFS= read -r source; do
-    ufw --force delete allow proto tcp from "$source" to any port 443 \
-      comment "$UFW_COMMENT" || return 1
-  done < <(/usr/bin/python3 -I -B -S "$SOURCE_STATE" get-file "$sources_file")
+  if [[ "$mode" == public ]]; then
+    ufw --force delete allow 443/tcp comment "$PUBLIC_UFW_COMMENT" || return 1
+  elif [[ "$mode" == restricted ]]; then
+    while IFS= read -r source; do
+      ufw --force delete allow proto tcp from "$source" to any port 443 \
+        comment "$UFW_COMMENT" || return 1
+    done < <(/usr/bin/python3 -I -B -S "$SOURCE_STATE" get-file "$sources_file")
+  fi
   delete_owned_guard iptables "$interface" || return 1
   if guard_required ip6tables "$sources_file"; then
     delete_owned_guard ip6tables "$interface" || return 1
@@ -353,30 +393,34 @@ cleanup_candidate_rules() {
     ufw --force delete allow proto tcp from "$source" to any port 443 \
       comment "$UFW_COMMENT" >/dev/null 2>&1 || true
   done < <(/usr/bin/python3 -I -B -S "$SOURCE_STATE" get-file "$sources_file")
+  ufw --force delete allow 443/tcp comment "$PUBLIC_UFW_COMMENT" >/dev/null 2>&1 || true
   delete_owned_guard iptables "$interface" >/dev/null 2>&1 || true
   delete_owned_guard ip6tables "$interface" >/dev/null 2>&1 || true
 }
 
 verify_system_rules() {
-  local sources_file="$1" interface="$2"
-  if [[ "$(source_count "$sources_file")" == 0 ]]; then
+  local sources_file="$1" interface="$2" policy="${3:-exact}" mode
+  if [[ "$policy" == absent ]]; then
     verify_ufw_rules absent "$sources_file" && verify_guards absent "$sources_file" "$interface"
   else
-    verify_ufw_rules exact "$sources_file" && verify_guards exact "$sources_file" "$interface"
+    mode="$(firewall_mode "$sources_file")" || return 1
+    verify_ufw_rules "$mode" "$sources_file" && verify_guards exact "$sources_file" "$interface"
   fi
 }
 
 transition_system_rules() {
-  local old_file="$1" new_file="$2" interface="$3"
-  verify_system_rules "$old_file" "$interface" || return 1
-  if ! remove_system_rules "$old_file" "$interface"; then
+  local old_file="$1" new_file="$2" interface="$3" old_policy="${4:-exact}"
+  verify_system_rules "$old_file" "$interface" "$old_policy" || return 1
+  if [[ "$old_policy" == exact ]] && ! remove_system_rules "$old_file" "$interface"; then
     cleanup_candidate_rules "$old_file" "$interface"
     add_system_rules "$old_file" "$interface" || return 2
     return 1
   fi
   if ! add_system_rules "$new_file" "$interface"; then
     cleanup_candidate_rules "$new_file" "$interface"
-    add_system_rules "$old_file" "$interface" || return 2
+    if [[ "$old_policy" == exact ]]; then
+      add_system_rules "$old_file" "$interface" || return 2
+    fi
     return 1
   fi
   verify_system_rules "$new_file" "$interface"
@@ -384,12 +428,13 @@ transition_system_rules() {
 
 mutate_sources() {
   local action="$1" cidr="$2" allow_non_public="$3" allow_broad="$4" interface="$5"
-  local old_file new_file transition_status
+  local old_file new_file transition_status old_policy=exact
   local -a arguments
   old_file="$(mktemp /run/kitdev-sandboxes/ingress-sources-old.XXXXXXXX)"
   new_file="$(mktemp /run/kitdev-sandboxes/ingress-sources-new.XXXXXXXX)"
   trap "/usr/bin/unlink -- '$old_file' >/dev/null 2>&1 || true; /usr/bin/unlink -- '$new_file' >/dev/null 2>&1 || true" RETURN EXIT
   /usr/bin/python3 -I -B -S "$SOURCE_STATE" export >"$old_file"
+  [[ -e "$SOURCE_MANIFEST" || -L "$SOURCE_MANIFEST" ]] || old_policy=absent
   if [[ "$action" == add ]]; then
     arguments=(candidate-add "$cidr")
     [[ "$allow_non_public" == yes ]] && arguments+=(--allow-non-public)
@@ -399,7 +444,7 @@ mutate_sources() {
   fi
   /usr/bin/python3 -I -B -S "$SOURCE_STATE" "${arguments[@]}" >"$new_file"
   if ! cmp --silent -- "$old_file" "$new_file"; then
-    if transition_system_rules "$old_file" "$new_file" "$interface"; then
+    if transition_system_rules "$old_file" "$new_file" "$interface" "$old_policy"; then
       :
     else
       transition_status="$?"
@@ -419,13 +464,43 @@ mutate_sources() {
   /usr/bin/python3 -I -B -S "$SOURCE_STATE" list
 }
 
+mutate_mode() {
+  local mode="$1" interface="$2" old_file new_file old_policy=exact transition_status
+  old_file="$(mktemp /run/kitdev-sandboxes/ingress-mode-old.XXXXXXXX)"
+  new_file="$(mktemp /run/kitdev-sandboxes/ingress-mode-new.XXXXXXXX)"
+  trap "/usr/bin/unlink -- '$old_file' >/dev/null 2>&1 || true; /usr/bin/unlink -- '$new_file' >/dev/null 2>&1 || true" RETURN EXIT
+  /usr/bin/python3 -I -B -S "$SOURCE_STATE" export >"$old_file"
+  [[ -e "$SOURCE_MANIFEST" || -L "$SOURCE_MANIFEST" ]] || old_policy=absent
+  /usr/bin/python3 -I -B -S "$SOURCE_STATE" candidate-mode "$mode" >"$new_file"
+  if ! cmp --silent -- "$old_file" "$new_file" || [[ "$old_policy" == absent ]]; then
+    if transition_system_rules "$old_file" "$new_file" "$interface" "$old_policy"; then
+      :
+    else
+      transition_status="$?"
+      [[ "$transition_status" != 2 ]] || control_plane_die source_firewall_rollback_failed 70
+      control_plane_die source_firewall_transaction_failed 70
+    fi
+    if ! /usr/bin/python3 -I -B -S "$SOURCE_STATE" install-file "$new_file"; then
+      transition_system_rules "$new_file" "$old_file" "$interface" exact ||
+        control_plane_die source_firewall_rollback_failed 70
+      control_plane_die source_manifest_commit_failed 70
+    fi
+  else
+    verify_system_rules "$old_file" "$interface" || control_plane_die source_firewall_mismatch 65
+  fi
+  /usr/bin/python3 -I -B -S "$SOURCE_STATE" list
+}
+
 main() {
   local mode="${1:-}" cidr='' allow_non_public=no allow_broad=no interface state_file
-  case "$mode" in apply|verify|remove|source-add|source-list|source-remove) ;;
+  case "$mode" in apply|verify|remove|source-add|source-list|source-remove|mode) ;;
     *) control_plane_die invalid_operation 64 ;;
   esac
   shift || true
-  if [[ "$mode" == source-add || "$mode" == source-remove ]]; then
+  if [[ "$mode" == mode ]]; then
+    [[ $# == 1 && "$1" =~ ^(closed|public|restricted)$ ]] || control_plane_die firewall_mode_invalid 64
+    cidr="$1"; shift
+  elif [[ "$mode" == source-add || "$mode" == source-remove ]]; then
     while (( $# )); do
       case "$1" in
         --cidr) [[ $# -ge 2 && -z "$cidr" ]] || control_plane_die invalid_operation 64; cidr="$2"; shift 2 ;;
@@ -445,15 +520,24 @@ main() {
   open_firewall_lock || control_plane_die ingress_firewall_lock_untrusted 65
   flock -x 9
   verify_ufw_defaults || control_plane_die ufw_default_policy_mismatch 65
+  verify_ufw_ipv6 || control_plane_die ufw_ipv6_required 65
   verify_control_plane_firewall || control_plane_die control_plane_firewall_mismatch 65
   verify_listeners || control_plane_die public_internal_listener_detected 65
   verify_docker_publications || control_plane_die public_docker_ingress_detected 65
   interface="$(outbound_interface)" || control_plane_die outbound_interface_invalid 65
+  if [[ "$mode" == mode ]]; then
+    mutate_mode "$cidr" "$interface"
+    return
+  fi
   if [[ "$mode" == source-list ]]; then
     state_file="$(mktemp /run/kitdev-sandboxes/ingress-sources.XXXXXXXX)"
     trap "/usr/bin/unlink -- '$state_file' >/dev/null 2>&1 || true" EXIT
     /usr/bin/python3 -I -B -S "$SOURCE_STATE" export >"$state_file"
-    verify_system_rules "$state_file" "$interface" || control_plane_die source_firewall_mismatch 65
+    if [[ -e "$SOURCE_MANIFEST" || -L "$SOURCE_MANIFEST" ]]; then
+      verify_system_rules "$state_file" "$interface" || control_plane_die source_firewall_mismatch 65
+    else
+      verify_system_rules "$state_file" "$interface" absent || control_plane_die source_firewall_mismatch 65
+    fi
     /usr/bin/python3 -I -B -S "$SOURCE_STATE" list
     return
   fi
@@ -470,14 +554,22 @@ main() {
   /usr/bin/python3 -I -B -S "$SOURCE_STATE" export >"$state_file"
   case "$mode" in
     apply)
-      if ! verify_system_rules "$state_file" "$interface"; then
-        if [[ "$(source_count "$state_file")" == 0 ]]; then
-          control_plane_die ingress_firewall_conflict 65
-        fi
+      if [[ ! -e "$SOURCE_MANIFEST" && ! -L "$SOURCE_MANIFEST" ]]; then
         if ! add_system_rules "$state_file" "$interface"; then
           cleanup_candidate_rules "$state_file" "$interface"
           control_plane_die ingress_firewall_conflict 65
         fi
+        /usr/bin/python3 -I -B -S "$SOURCE_STATE" install-file "$state_file" ||
+          control_plane_die source_manifest_commit_failed 70
+      elif verify_system_rules "$state_file" "$interface"; then
+        :
+      elif verify_system_rules "$state_file" "$interface" absent; then
+        if ! add_system_rules "$state_file" "$interface"; then
+          cleanup_candidate_rules "$state_file" "$interface"
+          control_plane_die ingress_firewall_conflict 65
+        fi
+      else
+        control_plane_die ingress_firewall_conflict 65
       fi
       verify_system_rules "$state_file" "$interface" || control_plane_die ingress_firewall_mismatch 65
       ;;
@@ -485,7 +577,11 @@ main() {
       verify_system_rules "$state_file" "$interface" || control_plane_die ingress_firewall_mismatch 65
       ;;
     remove)
-      remove_system_rules "$state_file" "$interface" || control_plane_die ingress_firewall_conflict 65
+      if [[ -e "$SOURCE_MANIFEST" || -L "$SOURCE_MANIFEST" ]]; then
+        remove_system_rules "$state_file" "$interface" || control_plane_die ingress_firewall_conflict 65
+      else
+        verify_system_rules "$state_file" "$interface" absent || control_plane_die ingress_firewall_conflict 65
+      fi
       ;;
   esac
   printf 'status=pass operation=%s-ingress-firewall\n' "$mode"

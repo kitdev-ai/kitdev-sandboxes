@@ -50,13 +50,17 @@ def normalize_cidr(
 
 
 def empty_document() -> dict[str, Any]:
-    return {"schema_version": 1, "sources": []}
+    return {"schema_version": 2, "mode": "closed", "sources": []}
 
 
 def validate_document(value: object) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != {"schema_version", "sources"}:
+    if not isinstance(value, dict) or set(value) != {"schema_version", "mode", "sources"}:
         die("source_manifest_invalid")
-    if value["schema_version"] != 1 or not isinstance(value["sources"], list):
+    if (
+        value["schema_version"] != 2
+        or value["mode"] not in {"closed", "public", "restricted"}
+        or not isinstance(value["sources"], list)
+    ):
         die("source_manifest_invalid")
     sources: list[dict[str, object]] = []
     previous: tuple[int, int, int] | None = None
@@ -100,7 +104,7 @@ def validate_document(value: object) -> dict[str, Any]:
                 "broad_range_override": broad_override,
             }
         )
-    return {"schema_version": 1, "sources": sources}
+    return {"schema_version": 2, "mode": value["mode"], "sources": sources}
 
 
 def decode_document(payload: bytes) -> dict[str, Any]:
@@ -233,6 +237,7 @@ def main() -> None:
                     "schema_version": 1,
                     "command": "firewall source list",
                     "status": "pass",
+                    "mode": document["mode"],
                     "sources": document["sources"],
                 },
                 sort_keys=True,
@@ -247,6 +252,13 @@ def main() -> None:
         return
     if len(arguments) == 2 and arguments[0] == "install-file":
         install_document(secure_read(Path(arguments[1]), missing_is_empty=False))
+        return
+    if len(arguments) == 2 and arguments[0] == "candidate-mode":
+        if arguments[1] not in {"closed", "public", "restricted"}:
+            die("firewall_mode_invalid", 64)
+        document = secure_read(STATE, missing_is_empty=True)
+        document["mode"] = arguments[1]
+        render(validate_document(document))
         return
     if len(arguments) >= 2 and arguments[0] in {"candidate-add", "candidate-remove"}:
         flags = arguments[2:]

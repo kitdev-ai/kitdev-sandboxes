@@ -36,6 +36,7 @@ from kitdev_sandboxes.config import (
 from kitdev_sandboxes.firewall_sources import (
     FirewallSourceOperationError,
     FirewallSourceResult,
+    run_firewall_mode_operation,
     run_firewall_source_operation,
 )
 from kitdev_sandboxes.lifecycle import LifecycleRunner, run_lifecycle
@@ -275,6 +276,12 @@ def build_parser() -> argparse.ArgumentParser:
     source_actions.add_parser("list", parents=[common])
     remove_source = source_actions.add_parser("remove", parents=[common])
     remove_source.add_argument("--cidr", required=True)
+    mode = firewall_actions.add_parser(
+        "mode",
+        parents=[common],
+        help="set public, source-restricted, or closed HTTPS policy",
+    )
+    mode.add_argument("mode_value", choices=("public", "restricted", "closed"))
     return parser
 
 
@@ -306,6 +313,7 @@ def main(
     lifecycle_runner: LifecycleRunner = run_lifecycle,
     api_key_runner: Callable[..., ApiKeyResult] = run_api_key,
     firewall_source_runner: Callable[..., FirewallSourceResult] = run_firewall_source_operation,
+    firewall_mode_runner: Callable[..., FirewallSourceResult] = run_firewall_mode_operation,
 ) -> int:
     parser = build_parser()
     raw_arguments = list(argv) if argv is not None else sys.argv[1:]
@@ -408,26 +416,35 @@ def main(
         return 0
 
     if arguments.command == "firewall":
-        action = str(arguments.firewall_source_action)
+        is_mode = arguments.firewall_action == "mode"
+        action = (
+            str(arguments.mode_value)
+            if is_mode
+            else str(arguments.firewall_source_action)
+        )
+        command = f"firewall mode {action}" if is_mode else f"firewall source {action}"
         if bool(getattr(arguments, "dry_run", False)):
             payload = {
                 "schema_version": 1,
-                "command": f"firewall source {action}",
+                "command": command,
                 "status": "planned",
                 "changes": 0,
             }
             if json_output:
                 print(json.dumps(payload, indent=2, sort_keys=True))
             else:
-                print(f"command=firewall-source-{action} status=planned changes=0")
+                print(f"command={command.replace(' ', '-')} status=planned changes=0")
             return 0
         try:
-            firewall_result = firewall_source_runner(
-                action,
-                cidr=getattr(arguments, "cidr", None),
-                allow_non_public=bool(getattr(arguments, "allow_non_public", False)),
-                allow_broad_range=bool(getattr(arguments, "allow_broad_range", False)),
-            )
+            if is_mode:
+                firewall_result = firewall_mode_runner(action)
+            else:
+                firewall_result = firewall_source_runner(
+                    action,
+                    cidr=getattr(arguments, "cidr", None),
+                    allow_non_public=bool(getattr(arguments, "allow_non_public", False)),
+                    allow_broad_range=bool(getattr(arguments, "allow_broad_range", False)),
+                )
         except KeyboardInterrupt:
             if json_output:
                 _emit_json_error("interrupted", "interrupted")

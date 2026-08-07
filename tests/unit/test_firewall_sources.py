@@ -15,6 +15,7 @@ from kitdev_sandboxes.firewall_sources import (
     FirewallSourceResult,
     _default_runner,
     normalize_source_cidr,
+    run_firewall_mode_operation,
     run_firewall_source_operation,
 )
 
@@ -28,6 +29,7 @@ def backend_document(*sources: dict[str, object]) -> str:
             "schema_version": 1,
             "command": "firewall source list",
             "status": "pass",
+            "mode": "closed",
             "sources": list(sources),
         }
     )
@@ -125,6 +127,25 @@ class FirewallSourceBackendTests(unittest.TestCase):
             run_firewall_source_operation("list", runner=malicious)
         self.assertEqual(raised.exception.reason, "firewall_source_backend_invalid")
 
+    def test_mode_backend_is_explicit_and_validated(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(arguments):
+            calls.append(list(arguments))
+            document = json.loads(backend_document())
+            document["mode"] = "public"
+            return subprocess.CompletedProcess(arguments, 0, json.dumps(document), "")
+
+        result = run_firewall_mode_operation(
+            "public", backend=Path("/fixed/backend"), runner=runner
+        )
+        self.assertEqual(calls, [["/fixed/backend", "mode", "public"]])
+        self.assertEqual(result.mode, "public")
+        self.assertEqual(result.as_dict()["command"], "firewall mode public")
+        self.assertIn("warnings", result.as_dict())
+        with self.assertRaises(FirewallSourceOperationError):
+            run_firewall_mode_operation("invalid", runner=runner)
+
     def test_manifest_rejects_overlap_and_tracks_reviewed_overrides(self) -> None:
         specification = importlib.util.spec_from_file_location("firewall_state_test", HELPER)
         assert specification is not None and specification.loader is not None
@@ -133,6 +154,7 @@ class FirewallSourceBackendTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             state.STATE = Path(directory) / "allowed-sources.json"
             first = state.candidate("add", "8.8.8.0/24", False, False)
+            self.assertEqual(first["mode"], "closed")
             state.install_document(first)
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 state.candidate("add", "8.8.8.8/32", False, False)
@@ -159,6 +181,23 @@ class FirewallSourceBackendTests(unittest.TestCase):
 
 
 class FirewallSourceCliTests(unittest.TestCase):
+    def test_cli_dispatches_public_mode_explicitly(self) -> None:
+        calls: list[str] = []
+
+        def runner(mode: str) -> FirewallSourceResult:
+            calls.append(mode)
+            return FirewallSourceResult(f"mode-{mode}", (), mode=mode)
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = main(
+                ["firewall", "mode", "public", "--json"],
+                firewall_mode_runner=runner,
+            )
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ["public"])
+        self.assertEqual(json.loads(output.getvalue())["mode"], "public")
+
     def test_cli_dispatches_add_with_review_flags_and_json(self) -> None:
         calls: list[tuple[str, dict[str, object]]] = []
 

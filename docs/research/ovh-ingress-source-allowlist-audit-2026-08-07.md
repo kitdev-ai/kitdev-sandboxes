@@ -83,13 +83,32 @@ restores the old exact rules; rollback failure has a distinct hard-error code.
 `list` verifies manifest/rule equality before returning data. A missing manifest
 never adopts pre-existing project-commented rules.
 
+## Explicit temporary public mode
+
+The operator may deliberately select `kitdev firewall mode public`. This owns a
+single commented UFW `443/tcp` allow, covering IPv4 and IPv6 when UFW IPv6 is
+enabled, plus the Docker original-destination guard. It never opens TCP 80.
+Switching to `restricted` restores the saved CIDRs; switching to `closed`
+removes all external 443 allows. Foreign 80/443 rules remain a conflict in all
+modes. Public mode is persisted in the root-only manifest and produces a CLI
+warning; it is never inferred from an empty source list or `/0` CIDR.
+
 ## Remaining activation inputs
 
-Do not add a source until the external product server's stable public IPv4 or
-IPv6 CIDR is known. Certificate activation separately still needs the DNS
-provider code, least-privilege DNS-01 credentials, and ACME account email.
+Cloudflare and the ACME account email are selected. The live read-only audit
+found no ingress configuration, Cloudflare credential file, wildcard
+certificate, or private key. The operator must populate root-owned mode `0600`
+`/etc/kitdev-sandboxes/ingress/acme-provider.env` with exactly:
 
-After those inputs are supplied, run staging certificate issuance, add the
-external server CIDR, activate HTTPS ingress, and execute the official SDK gate
-from that external server. Until then the live host correctly has no 80/443
+```text
+CLOUDFLARE_DNS_API_TOKEN_FILE=/etc/kitdev-sandboxes/ingress/cloudflare-dns-api-token
+```
+
+The referenced token file must be root-owned mode `0600` and contain only the
+token. It should have `Zone:DNS:Edit` and `Zone:Zone:Read` for only `kitdev.ai`.
+No token value belongs in Git, documentation, shell history, or chat.
+
+After that input is supplied, run staging then production certificate issuance,
+activate HTTPS ingress, deliberately select public mode, and execute the
+official SDK gate externally. Until then the live host correctly has no 80/443
 listener and no public SDK API.

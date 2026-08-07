@@ -96,6 +96,15 @@ class IngressAssetTests(unittest.TestCase):
         self.assertIn("issued_certificate_invalid", manager)
         self.assertLess(manager.index("issued_certificate_invalid"), manager.index("mv -f"))
         self.assertIn("docker kill --signal HUP", manager)
+        provider_example = (ROOT / "config" / "ingress" / "acme-provider.env.example").read_text(
+            encoding="ascii"
+        )
+        self.assertIn(
+            "CLOUDFLARE_DNS_API_TOKEN_FILE="
+            "/etc/kitdev-sandboxes/ingress/cloudflare-dns-api-token",
+            provider_example,
+        )
+        self.assertNotIn("CF_DNS_API_TOKEN=", provider_example)
         for unit in (
             "kitdev-e2b-ingress.service",
             "kitdev-e2b-ingress-renew.service",
@@ -108,6 +117,7 @@ class IngressAssetTests(unittest.TestCase):
     def test_firewall_owns_rules_by_exact_comment_and_preserves_foreign_rules(self) -> None:
         firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
         self.assertIn("kitdev restricted ingress https", firewall)
+        self.assertIn("kitdev public ingress https explicit", firewall)
         self.assertIn("KITDEV-INGRESS", firewall)
         self.assertIn("observed == expected", firewall)
         self.assertIn("source_firewall_transaction_failed", firewall)
@@ -117,6 +127,8 @@ class IngressAssetTests(unittest.TestCase):
         self.assertIn("ufw_default_policy_mismatch", firewall)
         self.assertIn("public_internal_listener_detected", firewall)
         self.assertIn("public_docker_ingress_detected", firewall)
+        self.assertNotIn("ufw allow 80", firewall)
+        self.assertIn('candidate-mode "$mode"', firewall)
         self.assertIn("control_plane_firewall_mismatch", firewall)
         self.assertIn('"$CONTROL_PLANE_FIREWALL" verify', firewall)
         listener_verifier = firewall.split("<<'PY_VERIFY_INGRESS_LISTENERS'\n", 1)[1].split(
@@ -158,7 +170,7 @@ class IngressAssetTests(unittest.TestCase):
         )[0]
         self.assertIn('cleanup_candidate_rules "$new_file"', transition)
         self.assertIn('add_system_rules "$old_file"', transition)
-        failed_remove = transition.split('if ! remove_system_rules "$old_file"', 1)[1].split(
+        failed_remove = transition.split('&& ! remove_system_rules "$old_file"', 1)[1].split(
             "\n  fi", 1
         )[0]
         self.assertIn('cleanup_candidate_rules "$old_file"', failed_remove)
@@ -217,14 +229,16 @@ class IngressAssetTests(unittest.TestCase):
 
         self.assertEqual(run("absent", "ufw allow 22/tcp").returncode, 0)
         self.assertEqual(
-            run("exact", f"{https}\nufw allow 22/tcp", ("8.8.8.8/32",)).returncode,
+            run("restricted", f"{https}\nufw allow 22/tcp", ("8.8.8.8/32",)).returncode,
             0,
         )
         self.assertNotEqual(run("absent", "ufw allow 80/tcp").returncode, 0)
         self.assertNotEqual(
-            run("exact", f"{https}\n{https}\nufw allow 22/tcp", ("8.8.8.8/32",)).returncode,
+            run("restricted", f"{https}\n{https}\nufw allow 22/tcp", ("8.8.8.8/32",)).returncode,
             0,
         )
+        public = "ufw allow 443/tcp comment 'kitdev public ingress https explicit'"
+        self.assertEqual(run("public", f"{public}\nufw allow 22/tcp").returncode, 0)
         self.assertNotEqual(run("absent", "ufw allow 3000/tcp").returncode, 0)
         self.assertEqual(
             run(
