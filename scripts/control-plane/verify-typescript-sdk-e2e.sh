@@ -53,7 +53,7 @@ PY_API_CONFIG
 }
 
 read_sandbox_id() {
-  /usr/bin/python3 -I -B -S - "$stage/state/sandbox-id" <<'PY_SANDBOX_ID'
+  /usr/bin/python3 -I -B -S - "${1:-$stage/state/sandbox-id}" <<'PY_SANDBOX_ID'
 import os
 import re
 import stat
@@ -78,27 +78,63 @@ print(value, end="")
 PY_SANDBOX_ID
 }
 
+cleanup_snapshot_audit_key() {
+  local action redis_container source_id
+  [[ -f "$stage/state/snapshot-id" ]] || return 0
+  source_id="$(read_sandbox_id "$stage/state/sandbox-id")" || return 1
+  redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
+  [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || return 1
+  timeout 10 docker exec -- "$redis_container" redis-cli --raw --scan \
+    --pattern "*$source_id*" >"$stage/snapshot-audit-keys" 2>/dev/null || return 1
+  chmod 0600 -- "$stage/snapshot-audit-keys"
+  action="$(/usr/bin/python3 -I -B -S - "$stage/snapshot-audit-keys" "$source_id" <<'PY_SNAPSHOT_AUDIT'
+import sys
+
+rows = open(sys.argv[1], encoding="ascii").read().splitlines()
+expected = "snapshot:last:" + sys.argv[2]
+if not rows:
+    print("absent")
+elif rows == [expected]:
+    print("delete")
+else:
+    raise SystemExit(1)
+PY_SNAPSHOT_AUDIT
+  )" || return 1
+  rm -f -- "$stage/snapshot-audit-keys"
+  if [[ "$action" == delete ]]; then
+    [[ "$(docker exec -- "$redis_container" redis-cli --raw DEL \
+      "snapshot:last:$source_id" 2>/dev/null)" == 1 ]] || return 1
+  else
+    [[ "$action" == absent ]] || return 1
+  fi
+}
+
 terminal_state_ready() {
-  local code redis_container
+  local code redis_container candidate id_file
   [[ -n "$sandbox_id" ]] || return 0
   code="$(curl --disable --config "$stage/api.curlrc" --silent --show-error \
     --output "$stage/sandboxes.json" --write-out '%{http_code}' --max-time 15 \
     --max-filesize 1048576 -- "$API_ROOT/sandboxes" 2>/dev/null)" || return 1
   [[ "$code" == 200 ]] || return 1
-  /usr/bin/python3 -I -B -S - "$stage/sandboxes.json" "$sandbox_id" <<'PY_ABSENT' || return 1
+  /usr/bin/python3 -I -B -S - "$stage/sandboxes.json" <<'PY_ABSENT' || return 1
 import json
 import sys
 
 document = json.load(open(sys.argv[1], encoding="utf-8"))
-if not isinstance(document, list):
-    raise SystemExit(1)
-raise SystemExit(any(isinstance(item, dict) and item.get("sandboxID") == sys.argv[2] for item in document))
+raise SystemExit(0 if isinstance(document, list) and not document else 1)
 PY_ABSENT
   ! pgrep -x firecracker >/dev/null 2>&1 || return 1
   redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || return 1
-  ! timeout 10 docker exec -- "$redis_container" redis-cli --raw --scan \
-    --pattern "*$sandbox_id*" 2>/dev/null | head -n 1 | grep -q .
+  for id_file in "$stage/state/sandbox-id" "$stage/state/secondary-sandbox-id"; do
+    if [[ -f "$id_file" ]]; then
+      candidate="$(read_sandbox_id "$id_file")" || return 1
+    else
+      candidate="$sandbox_id"
+    fi
+    ! timeout 10 docker exec -- "$redis_container" redis-cli --raw --scan \
+      --pattern "*$candidate*" 2>/dev/null | head -n 1 | grep -q . || return 1
+  done
 }
 
 verify_terminal_state() {
@@ -122,25 +158,43 @@ run_sdk_group() {
     --volume "$template_id_file:/run/config/e2b-template-id:ro" \
     --volume "$stage/state:/run/state" --workdir /workspace "$NODE_IMAGE" node "$source"
   sandbox_id="$(read_sandbox_id)" || control_plane_die sdk_sandbox_state_invalid 65
+  cleanup_snapshot_audit_key || control_plane_die sdk_snapshot_audit_cleanup_invalid 65
   verify_terminal_state || control_plane_die sdk_terminal_state_invalid 65
-  rm -f -- "$stage/state/sandbox-id"
+  rm -f -- "$stage/state/sandbox-id" "$stage/state/secondary-sandbox-id" \
+    "$stage/state/snapshot-id"
 }
 
 cleanup() {
-  local status=$? code attempt
+  local status=$? code attempt candidate id_file
   trap - EXIT INT TERM
-  if [[ -z "$sandbox_id" && -n "$stage" && -f "$stage/state/sandbox-id" ]]; then
-    sandbox_id="$(read_sandbox_id 2>/dev/null)" || sandbox_id='invalid'
-  fi
-  if [[ "$sandbox_id" =~ ^i[a-z0-9]{20}$ && -f "$stage/api.curlrc" ]]; then
-    for attempt in {1..5}; do
-      code="$(curl --disable --config "$stage/api.curlrc" --silent --show-error \
-        --output /dev/null --write-out '%{http_code}' --max-time 15 \
-        --request DELETE -- "$API_ROOT/sandboxes/$sandbox_id" 2>/dev/null)" || code=''
-      [[ "$code" == 204 || "$code" == 404 ]] && break
-      sleep 1
+  if [[ -n "$stage" && -f "$stage/api.curlrc" ]]; then
+    for id_file in "$stage/state/sandbox-id" "$stage/state/secondary-sandbox-id"; do
+      if [[ -f "$id_file" ]]; then
+        candidate="$(read_sandbox_id "$id_file" 2>/dev/null)" || candidate='invalid'
+      else
+        candidate="$sandbox_id"
+      fi
+      [[ "$candidate" =~ ^i[a-z0-9]{20}$ ]] || continue
+      sandbox_id="$candidate"
+      for attempt in {1..5}; do
+        code="$(curl --disable --config "$stage/api.curlrc" --silent --show-error \
+          --output /dev/null --write-out '%{http_code}' --max-time 15 \
+          --request DELETE -- "$API_ROOT/sandboxes/$sandbox_id" 2>/dev/null)" || code=''
+        [[ "$code" == 204 || "$code" == 404 ]] && break
+        sleep 1
+      done
+      [[ "$code" == 204 || "$code" == 404 ]] || status=1
     done
-    [[ "$code" == 204 || "$code" == 404 ]] || status=1
+    if [[ -f "$stage/state/snapshot-id" && -f "$stage/client/cleanup.ts" ]]; then
+      docker run --rm --pull never --platform linux/amd64 --network host --user 0:0 \
+        --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=16m \
+        --volume "$stage/client:/workspace:ro" \
+        --volume "$api_key_file:/run/secrets/e2b-api-key:ro" \
+        --volume "$template_id_file:/run/config/e2b-template-id:ro" \
+        --volume "$stage/state:/run/state:ro" --workdir /workspace "$NODE_IMAGE" \
+        node cleanup.ts >/dev/null 2>&1 || status=1
+    fi
+    cleanup_snapshot_audit_key || status=1
     for attempt in {1..60}; do
       terminal_state_ready && break
       sleep 1
@@ -204,6 +258,8 @@ main() {
   install -o root -g root -m 0600 "$CLIENT_DIR/pty.ts" "$stage/client/pty.ts"
   install -o root -g root -m 0600 "$CLIENT_DIR/lifecycle.ts" "$stage/client/lifecycle.ts"
   install -o root -g root -m 0600 "$CLIENT_DIR/pause.ts" "$stage/client/pause.ts"
+  install -o root -g root -m 0600 "$CLIENT_DIR/snapshot.ts" "$stage/client/snapshot.ts"
+  install -o root -g root -m 0600 "$CLIENT_DIR/cleanup.ts" "$stage/client/cleanup.ts"
   write_api_config "$api_key_file" "$stage/api.curlrc" ||
     control_plane_die sdk_api_key_invalid 65
   ! pgrep -x firecracker >/dev/null 2>&1 || control_plane_die sdk_preexisting_firecracker 65
@@ -223,6 +279,7 @@ main() {
   run_sdk_group pty.ts
   run_sdk_group lifecycle.ts
   run_sdk_group pause.ts
+  run_sdk_group snapshot.ts
   printf 'status=pass operation=verify-typescript-sdk-e2e\n'
 }
 

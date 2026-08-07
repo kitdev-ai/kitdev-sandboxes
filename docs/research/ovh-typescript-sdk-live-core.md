@@ -92,14 +92,31 @@ The first cold-resume probe placed its marker in `/tmp`, which the cold boot
 correctly recreates as ephemeral state. The durable assertion uses
 `/home/user`; losing `/tmp` is not a filesystem-snapshot failure.
 
+An isolated seventh source sandbox proved snapshot lifecycle:
+
+- named snapshot creation from a durable filesystem marker
+- instance and static snapshot pagination with identity matching
+- source sandbox deletion before restoration
+- a second sandbox created from the snapshot with exact file and command checks
+- restored sandbox deletion followed by snapshot deletion
+
+Snapshot creation leaves one Redis audit key named
+`snapshot:last:<source-sandbox-id>` after the source, restore, and snapshot are
+deleted. The first full-suite terminal gate correctly rejected that residual:
+the API list was empty, the restored sandbox had zero matching keys, and zero
+Firecracker processes remained, but the source ID matched that one exact key.
+The runner now accepts no broad exception. It requires the residual set to be
+either empty or exactly that one audit key, deletes the exact key, and then
+reruns the generic zero-key terminal check for both sandbox IDs.
+
 The failed template-identifier probes left zero Firecracker processes. The
 successful run killed its sandbox. The reusable runner keeps the sandbox ID
 only in its root-owned runtime stage so an exit trap can issue an idempotent
 API delete and prove API-list absence, Redis-key absence, and zero remaining
 Firecracker processes.
 
-This result does not yet prove arbitrary guest ports, direct URL helpers, or
-snapshot lifecycle. Those remain subsequent conformance groups.
+This result does not yet prove arbitrary guest ports or direct URL helpers.
+Those depend on the public ingress and DNS path and remain a subsequent gate.
 
 ## Public-client boundary
 
