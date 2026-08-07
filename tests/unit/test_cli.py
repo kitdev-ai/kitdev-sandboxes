@@ -187,7 +187,7 @@ class CliTests(unittest.TestCase):
 
         for arguments in (
             ["--json", "invalid-command"],
-            ["install", "--json"],
+            ["install", "--phase", "identity-access", "--json"],
             ["doctor", "--json", "--config", "/definitely/missing/config.yaml"],
         ):
             with self.subTest(arguments=arguments), contextlib.redirect_stdout(
@@ -214,7 +214,7 @@ class CliTests(unittest.TestCase):
         for key in ("listeners", "interfaces", "routes", "memory", "filesystems"):
             self.assertNotIn(f'"{key}"', output.getvalue())
 
-    def test_bare_install_and_apply_like_invocation_reject_before_collection(self) -> None:
+    def test_bare_install_dispatches_lifecycle_without_fact_collection(self) -> None:
         calls = 0
 
         def forbidden() -> HostFacts:
@@ -222,14 +222,26 @@ class CliTests(unittest.TestCase):
             calls += 1
             raise AssertionError("collector must not run")
 
-        for arguments in (["install"], ["install", "--apply"]):
-            with self.subTest(arguments=arguments):
-                output = io.StringIO()
-                errors = io.StringIO()
-                with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
-                    code = main(arguments, fact_collector=forbidden)
-                self.assertEqual(code, 2)
+        lifecycle_calls = []
+
+        def lifecycle(
+            operation,
+            configuration,
+            *,
+            quiet,
+            api_key_file=None,
+            template_id_file=None,
+        ):
+            lifecycle_calls.append((operation, configuration.deployment.profile.value, quiet))
+            from kitdev_sandboxes.lifecycle import LifecycleResult
+
+            return LifecycleResult(operation, 0)
+
+        code = main(["install"], fact_collector=forbidden, lifecycle_runner=lifecycle)
+
+        self.assertEqual(code, 0)
         self.assertEqual(calls, 0)
+        self.assertEqual(lifecycle_calls, [("install", "minimal", False)])
 
     def test_install_dry_run_json_matches_schema_and_fixture_contract(self) -> None:
         output = io.StringIO()

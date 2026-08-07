@@ -5,14 +5,26 @@ readonly REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
+if [[ "$SCRIPT_DIR" == "$KITDEV_OPT_ROOT/libexec/control-plane" ]]; then
+  readonly ORCHESTRATOR_ENV_TEMPLATE="$SCRIPT_DIR/orchestrator.env.template"
+  readonly ORCHESTRATOR_UNIT_SOURCE="$SCRIPT_DIR/orchestrator.service.expected"
+else
+  readonly ORCHESTRATOR_ENV_TEMPLATE="$REPO_ROOT/systemd/orchestrator.env.template"
+  readonly ORCHESTRATOR_UNIT_SOURCE="$REPO_ROOT/systemd/kitdev-e2b-orchestrator.service"
+fi
+
 main() {
   local mode="${1:-}" stage network_values core_gateway
-  [[ "$mode" == install || "$mode" == install-start || "$mode" == verify ]] ||
+  [[ "$mode" == install || "$mode" == install-start || "$mode" == verify ||
+    "$mode" == verify-files ]] ||
     control_plane_die invalid_operation 64
   require_root
   require_lifecycle_platform
   require_exact_directory "$KITDEV_OPT_ROOT" root root 755
   if [[ "$mode" == verify ]]; then
+    require_exact_directory "$KITDEV_OPT_ROOT/libexec" root root 755
+    require_exact_directory "$KITDEV_OPT_ROOT/libexec/control-plane" root root 755
+  elif [[ "$mode" == verify-files ]]; then
     require_exact_directory "$KITDEV_OPT_ROOT/libexec" root root 755
     require_exact_directory "$KITDEV_OPT_ROOT/libexec/control-plane" root root 755
   else
@@ -32,9 +44,9 @@ main() {
   chmod 0700 -- "$stage"
   sed -e "s/@KITDEV_LIFECYCLE@/$KITDEV_LIFECYCLE/" \
     -e "s/@KITDEV_CORE_GATEWAY@/$core_gateway/g" \
-    "$REPO_ROOT/systemd/orchestrator.env.template" >"$stage/orchestrator.env"
-  [[ "$(grep -c '@KITDEV_LIFECYCLE@' "$REPO_ROOT/systemd/orchestrator.env.template")" == 1 &&
-    "$(grep -c '@KITDEV_CORE_GATEWAY@' "$REPO_ROOT/systemd/orchestrator.env.template")" == 2 ]] ||
+    "$ORCHESTRATOR_ENV_TEMPLATE" >"$stage/orchestrator.env"
+  [[ "$(grep -c '@KITDEV_LIFECYCLE@' "$ORCHESTRATOR_ENV_TEMPLATE")" == 1 &&
+    "$(grep -c '@KITDEV_CORE_GATEWAY@' "$ORCHESTRATOR_ENV_TEMPLATE")" == 2 ]] ||
     control_plane_die orchestrator_template_invalid 65
   [[ "$({ grep -c '@' "$stage/orchestrator.env" || true; })" == 0 ]] ||
     control_plane_die orchestrator_template_render_failed 65
@@ -54,7 +66,7 @@ main() {
       /etc/kitdev-sandboxes/orchestrator.env root root 600
     publish_exact_file "$stage/orchestrator.env" \
       "$KITDEV_OPT_ROOT/libexec/control-plane/orchestrator.env.expected" root root 600
-    publish_exact_file "$REPO_ROOT/systemd/kitdev-e2b-orchestrator.service" \
+    publish_exact_file "$ORCHESTRATOR_UNIT_SOURCE" \
       /etc/systemd/system/kitdev-e2b-orchestrator.service root root 644
     systemctl daemon-reload
     systemctl enable kitdev-e2b-orchestrator.service
@@ -76,7 +88,7 @@ main() {
     /etc/kitdev-sandboxes/orchestrator.env root root 600
   require_exact_file "$stage/orchestrator.env" \
     "$KITDEV_OPT_ROOT/libexec/control-plane/orchestrator.env.expected" root root 600
-  require_exact_file "$REPO_ROOT/systemd/kitdev-e2b-orchestrator.service" \
+  require_exact_file "$ORCHESTRATOR_UNIT_SOURCE" \
     /etc/systemd/system/kitdev-e2b-orchestrator.service root root 644
   systemctl is-enabled --quiet kitdev-e2b-orchestrator.service ||
     control_plane_die orchestrator_service_not_enabled 65

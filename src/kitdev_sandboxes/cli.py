@@ -23,9 +23,11 @@ from kitdev_sandboxes.composition import (
 from kitdev_sandboxes.config import (
     Configuration,
     ConfigurationError,
+    DeploymentProfile,
     LifecycleMode,
     load_configuration,
 )
+from kitdev_sandboxes.lifecycle import LifecycleRunner, run_lifecycle
 from kitdev_sandboxes.planning import ResourceFact
 from kitdev_sandboxes.identity import (
     IdentityFacts,
@@ -143,14 +145,46 @@ def build_parser() -> argparse.ArgumentParser:
     install = commands.add_parser(
         "install",
         parents=[common],
-        help="calculate an installation plan; apply is not implemented",
-        description="Calculate a read-only plan. The --dry-run flag is mandatory.",
+        help="converge the control plane on a prepared host, or calculate a dry-run plan",
+        description="Converge reviewed control-plane assets after strict host prerequisite checks.",
     )
     install.add_argument(
         "--phase",
         choices=("identity-access",),
         default=None,
         help="calculate one explicitly selected installation phase",
+    )
+    install.add_argument(
+        "--profile",
+        choices=tuple(profile.value for profile in DeploymentProfile),
+        default=argparse.SUPPRESS,
+        help="deployment profile; only minimal is implemented for apply",
+    )
+    for name, help_text in (
+        ("up", "start and verify installed control-plane services"),
+        ("down", "quiesce and stop services without deleting state"),
+        ("restart", "safely stop, start, and verify services"),
+        ("status", "read installed service health without mutation"),
+    ):
+        commands.add_parser(name, parents=[common], help=help_text, description=help_text)
+    test = commands.add_parser(
+        "test",
+        parents=[common],
+        help="run an explicit mutating post-install test",
+        description="Run a named post-install test. Smoke testing is disabled in production mode.",
+    )
+    test.add_argument("suite", choices=("core", "sdk", "smoke"))
+    test.add_argument(
+        "--api-key-file",
+        type=Path,
+        required=False,
+        help="absolute root-owned mode-0600 E2B API key file",
+    )
+    test.add_argument(
+        "--template-id-file",
+        type=Path,
+        required=False,
+        help="absolute root-owned mode-0600 E2B template ID file",
     )
     return parser
 
@@ -180,6 +214,7 @@ def main(
     directory_fact_collector: Callable[[Configuration], tuple[ResourceFact, ...]] | None = None,
     identity_fact_collector: Callable[[Configuration], IdentityFacts] | None = None,
     identity_prerequisites: IdentityPrerequisites = IdentityPrerequisites(),
+    lifecycle_runner: LifecycleRunner = run_lifecycle,
 ) -> int:
     parser = build_parser()
     raw_arguments = list(argv) if argv is not None else sys.argv[1:]
@@ -191,16 +226,26 @@ def main(
         _invocation_error(str(error), json_output=json_requested)
         return 2
     json_output = bool(getattr(arguments, "json_output", False))
-    if arguments.command == "install" and not bool(getattr(arguments, "dry_run", False)):
+    if (
+        arguments.command == "install"
+        and getattr(arguments, "phase", None) is not None
+        and not bool(getattr(arguments, "dry_run", False))
+    ):
         _invocation_error(
-            "install requires --dry-run; applying changes is not implemented",
+            "install --phase is available only with --dry-run",
             json_output=json_output,
         )
         return 2
     overrides: dict[str, object] = {}
     lifecycle_override = getattr(arguments, "lifecycle_mode", None)
+    deployment_overrides: dict[str, object] = {}
     if lifecycle_override is not None:
-        overrides = {"deployment": {"lifecycle_mode": lifecycle_override}}
+        deployment_overrides["lifecycle_mode"] = lifecycle_override
+    profile_override = getattr(arguments, "profile", None)
+    if profile_override is not None:
+        deployment_overrides["profile"] = profile_override
+    if deployment_overrides:
+        overrides = {"deployment": deployment_overrides}
     try:
         loaded = load_configuration(
             config_path=getattr(arguments, "config", None),
@@ -209,6 +254,52 @@ def main(
     except ConfigurationError as error:
         _configuration_error(str(error), json_output=json_output)
         return 2
+
+    lifecycle_commands = {"install", "up", "down", "restart", "status", "test"}
+    is_install_dry_run = arguments.command == "install" and bool(
+        getattr(arguments, "dry_run", False)
+    )
+    if arguments.command in lifecycle_commands and not is_install_dry_run:
+        if bool(getattr(arguments, "dry_run", False)):
+            payload = {
+                "schema_version": 1,
+                "command": arguments.command,
+                "status": "planned",
+                "changes": 0,
+            }
+            if json_output:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                print(f"command={arguments.command} status=planned changes=0")
+            return 0
+        operation = (
+            f"test-{arguments.suite}" if arguments.command == "test" else arguments.command
+        )
+        api_key_file = getattr(arguments, "api_key_file", None)
+        template_id_file = getattr(arguments, "template_id_file", None)
+        try:
+            result = lifecycle_runner(
+                operation,
+                loaded.configuration,
+                quiet=json_output,
+                api_key_file=api_key_file,
+                template_id_file=template_id_file,
+            )
+        except KeyboardInterrupt:
+            if json_output:
+                _emit_json_error("interrupted", "interrupted")
+            else:
+                _emit_human_error("interrupted")
+            return 130
+        except (OSError, RuntimeError, ValueError) as error:
+            if json_output:
+                _emit_json_error("lifecycle_error", "lifecycle command could not be started")
+            else:
+                _emit_human_error("lifecycle command could not be started", type(error).__name__)
+            return 10
+        if json_output:
+            print(json.dumps(result.as_dict(), indent=2, sort_keys=True))
+        return result.exit_code
 
     try:
         facts = fact_collector()

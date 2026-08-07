@@ -5,9 +5,13 @@ readonly REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
-readonly SOURCE_ROOT="$REPO_ROOT/compose/control-plane"
 readonly COMPOSE_ROOT="$KITDEV_OPT_ROOT/compose/control-plane"
 readonly COMPOSE_FILE="$COMPOSE_ROOT/compose.yaml"
+if [[ "$SCRIPT_DIR" == "$KITDEV_OPT_ROOT/libexec/control-plane" ]]; then
+  readonly SOURCE_ROOT="$COMPOSE_ROOT"
+else
+  readonly SOURCE_ROOT="$REPO_ROOT/compose/control-plane"
+fi
 
 compose() {
   docker compose --project-name kitdev-control-plane \
@@ -290,7 +294,7 @@ PY_RUNTIME_CONTRACT
 
 main() {
   local mode="${1:-}"
-  case "$mode" in install|validate|pull|up|verify) ;;
+  case "$mode" in install|validate|pull|up|quiesce|down|verify) ;;
     *) control_plane_die invalid_operation 64 ;;
   esac
   require_root
@@ -316,6 +320,16 @@ main() {
       verify_migrations
       compose up --detach --wait --wait-timeout 300 api client-proxy
       verify_runtime_contract || control_plane_die compose_runtime_contract_invalid 65
+      ;;
+    quiesce)
+      compose stop --timeout 60 api client-proxy
+      [[ -z "$(compose ps --status running --quiet api client-proxy)" ]] ||
+        control_plane_die control_plane_quiesce_failed 65
+      ;;
+    down)
+      compose stop --timeout 60
+      [[ -z "$(compose ps --status running --quiet)" ]] ||
+        control_plane_die control_plane_stop_failed 65
       ;;
     verify)
       verify_runtime_contract || control_plane_die compose_runtime_contract_invalid 65

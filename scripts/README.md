@@ -13,6 +13,11 @@ neither value belongs in the repository. The script does not use `sudo` or
 change packages, services, identities, firewall rules, kernel settings, or
 disks.
 
+`control-plane/lifecycle.sh` is the fixed host-operation dispatcher used by the
+public CLI. Install publishes reviewed day-two assets under `/opt`; down
+quiesces admission before stopping the orchestrator and refuses active
+Firecracker processes. See [`docs/operations.md`](../docs/operations.md).
+
 `control-plane/verify-typescript-sdk-e2e.sh` is a development/migration-only
 live gate for the official TypeScript SDK. It requires root-owned mode-0600 API
 key and template-ID files, installs the exact lockfile with a digest-pinned

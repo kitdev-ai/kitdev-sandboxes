@@ -8,6 +8,8 @@ Milestone 0 establishes contracts before implementation:
 - `dependency-management.md` defines pinning and lock generation policy.
 - `adr/` contains decisions whose consequences span multiple components.
 - `research/` contains dated host, upstream, and compatibility evidence.
+- `operations.md` documents the implemented prepared-host control-plane
+  lifecycle and its remaining fresh-install boundary.
 - `../experiments/ovh-lab/` contains the gated disposable-host experiment
   harness; it is not production installation automation.
 

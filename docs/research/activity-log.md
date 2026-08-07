@@ -990,3 +990,36 @@ untracked, and must never be quoted into tracked documentation.
 - **Support:** Ubuntu 25.04 remains development/migration-only and Ubuntu 26.04
   is the production target. Ubuntu 24.04 is unsupported.
 - **Commit:** Pending in this change set.
+
+## 2026-08-07 - Prepared-host CLI lifecycle integration
+
+- **Intent:** Connect the reviewed control-plane replay assets to the public
+  repository-local CLI without claiming that fresh-host prerequisite apply is
+  complete.
+- **Implementation:** Added minimal-profile prepared-host `install`, `up`,
+  quiesced `down`, `restart`, structured `status`, and explicit `test core`,
+  `test sdk`, and combined `test smoke` dispatch. Install publishes day-two
+  assets below `/opt`; later operations re-execute those installed copies.
+- **Production gate:** Install refuses production before mutation because the
+  only current template seed is explicitly development/migration-only.
+  Production day-two lifecycle remains supported for a previously installed
+  control plane; production template publication remains a release blocker.
+- **Shutdown safety:** Down refuses active Firecracker processes, stops new
+  API/proxy admission, checks again for a racing sandbox, stops the host
+  orchestrator before Compose, and attempts to restore the running service set
+  when a later stop step fails.
+- **Evidence boundary:** This implementation and its tests were local only. It
+  made no SSH connection or server mutation and contains no endpoint,
+  credential, host identifier, or secret.
+- **Verification:** The complete local suite passed 312 tests with two expected
+  platform/tool skips. Python compilation, Bash syntax for every tracked shell
+  entrypoint, diff whitespace, and lifecycle credential/endpoint pattern scans
+  passed. Ruff, mypy, and ShellCheck were not available locally; the repository
+  also has no selected/pinned development-tool versions yet, so those gates
+  were not installed ad hoc and remain pending.
+- **Remaining gates:** Fresh-host package/identity/kernel/Docker preparation,
+  standalone installed Python CLI, complete manifest/journal ownership,
+  non-minimal profiles, update/uninstall, restore, and clean Ubuntu 26.04
+  replay remain pending. Ubuntu 25.04 is development/migration-only; Ubuntu
+  24.04 is unsupported.
+- **Commit:** Pending in this change set.

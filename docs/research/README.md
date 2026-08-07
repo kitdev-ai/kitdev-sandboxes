@@ -20,6 +20,8 @@ private keys, secret values, or unnecessary personal/host identifiers.
   ledger updated before each commit and review or deployment gate.
 - [`cloud-options.md`](cloud-options.md): GCP, AWS, hosted bare-metal, and local
   nested-virtualization deployment comparison.
+- [`cli-lifecycle-slice.md`](cli-lifecycle-slice.md): prepared-host install,
+  service lifecycle, structured status, safe shutdown, and E2E CLI integration.
 - [`control-plane-replay-slice.md`](control-plane-replay-slice.md): pinned
   Compose, host-runtime, firewall, identity, and persistent orchestrator replay
   derived from the successful disposable-host control-plane run.

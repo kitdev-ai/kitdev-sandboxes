@@ -6,18 +6,19 @@ runtime uses Firecracker microVMs and assumes sandbox workloads are hostile.
 
 ## Project status
 
-The production installer remains in **Milestone 1: preflight and host
+The fresh-host installer remains in **Milestone 1: preflight and host
 preparation (in progress)**. Its dependency-free `doctor` and `install
---dry-run` foundations are strictly read-only. In parallel, explicitly approved
+--dry-run` foundations are strictly read-only. A prepared-host minimal-profile
+lifecycle now wires the pinned control-plane assets into `install`, `up`,
+`down`, `restart`, `status`, and explicit post-install tests. In parallel, explicitly approved
 work on a disposable Ubuntu 26.04 bare-metal lab has validated pinned Docker
 Engine, the containerized control plane, the privileged host orchestrator, and
 a first Firecracker template build plus snapshot/resume cycle.
 
-The repository now contains reproducible control-plane assets derived from
-that lab evidence, but they are not yet integrated into `sudo ./kitdev install`
-and have not passed clean-host apply/apply, rollback, reboot, or reinstall
-qualification. Do not use the current tree to qualify or operate a production
-host yet.
+The prepared-host lifecycle has not passed clean-host prerequisite apply,
+apply/apply, rollback, reboot, or reinstall qualification. It supports only the
+minimal profile and does not yet install a standalone CLI. Do not use the
+current tree to qualify or operate a production host yet.
 
 Version 0.1 recognizes this host matrix:
 
@@ -39,8 +40,8 @@ an explicit development or migration lifecycle mode:
 ```
 
 The repository-local `./kitdev` launcher is the only supported entrypoint in
-this slice. An installed package console script will not be provided until its
-configuration assets and installation layout have a complete contract.
+this slice. Day-two shell assets are published under `/opt`, but an installed
+package console script is still pending.
 
 Use `--json` for the versioned machine-readable report and `--verbose` to include
 bounded evidence. `--dry-run` is accepted for CLI consistency, but `doctor` is
@@ -58,9 +59,12 @@ as full host qualification. A deterministic `install --dry-run` is available:
 ./kitdev install --dry-run --json
 ```
 
-It remains blocked while required-port policy is unapproved. Bare `kitdev
-install` still performs no mutation. Separately reviewed lab/bootstrap and
-control-plane replay scripts are not a substitute for the journaled installer.
+The dry-run remains blocked while required-port policy is unapproved. Bare
+`kitdev install` now applies only the minimal development/migration control
+plane after strict prepared-host gates. Production install refuses before
+mutation until production template publication is implemented. It does not
+prepare a fresh host or replace the pending
+journaled prerequisite installer. See [control-plane lifecycle](docs/operations.md).
 
 ## Design priorities
 
@@ -94,9 +98,10 @@ The complete product brief is kept in `PROMPT.md`.
 ## Development
 
 See `CONTRIBUTING.md` before contributing. Both `kitdev doctor` and
-`kitdev install --dry-run` retain read-only safety contracts; there is no
-top-level apply or host-preparation command. Standalone replay assets require
-their own documented gates and remain pending clean-host qualification. The
+`kitdev install --dry-run` retain read-only safety contracts. Prepared-host
+control-plane apply and day-two operations now have a top-level CLI, while
+fresh-host preparation remains unavailable. The lifecycle remains pending
+clean-host qualification. The
 dependency-free unit-test command is documented in
 [`tests/README.md`](tests/README.md).
 
