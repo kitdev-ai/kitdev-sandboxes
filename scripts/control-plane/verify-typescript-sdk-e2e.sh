@@ -203,6 +203,7 @@ main() {
   install -o root -g root -m 0600 "$CLIENT_DIR/files.ts" "$stage/client/files.ts"
   install -o root -g root -m 0600 "$CLIENT_DIR/pty.ts" "$stage/client/pty.ts"
   install -o root -g root -m 0600 "$CLIENT_DIR/lifecycle.ts" "$stage/client/lifecycle.ts"
+  install -o root -g root -m 0600 "$CLIENT_DIR/pause.ts" "$stage/client/pause.ts"
   write_api_config "$api_key_file" "$stage/api.curlrc" ||
     control_plane_die sdk_api_key_invalid 65
   ! pgrep -x firecracker >/dev/null 2>&1 || control_plane_die sdk_preexisting_firecracker 65
@@ -221,6 +222,7 @@ main() {
   run_sdk_group files.ts
   run_sdk_group pty.ts
   run_sdk_group lifecycle.ts
+  run_sdk_group pause.ts
   printf 'status=pass operation=verify-typescript-sdk-e2e\n'
 }
 

@@ -79,14 +79,27 @@ An isolated fifth sandbox proved the basic lifecycle surface:
 - metrics retrieval and per-sample resource validation
 - `getHost()` using the expected self-host wildcard naming convention
 
+An isolated sixth sandbox proved both pause modes:
+
+- full-memory pause, paused-state info/list, `Sandbox.connect()`, and retention
+  of a running process
+- filesystem-only pause, paused-state info/list, cold `Sandbox.connect()`, and
+  removal of the pre-pause process
+- rootfs file persistence across both resume paths, plus timeout and running
+  state after the cold resume
+
+The first cold-resume probe placed its marker in `/tmp`, which the cold boot
+correctly recreates as ephemeral state. The durable assertion uses
+`/home/user`; losing `/tmp` is not a filesystem-snapshot failure.
+
 The failed template-identifier probes left zero Firecracker processes. The
 successful run killed its sandbox. The reusable runner keeps the sandbox ID
 only in its root-owned runtime stage so an exit trap can issue an idempotent
 API delete and prove API-list absence, Redis-key absence, and zero remaining
 Firecracker processes.
 
-This result does not yet prove arbitrary guest ports, direct URL helpers,
-pause/resume, or snapshot lifecycle. Those remain subsequent conformance groups.
+This result does not yet prove arbitrary guest ports, direct URL helpers, or
+snapshot lifecycle. Those remain subsequent conformance groups.
 
 ## Public-client boundary
 

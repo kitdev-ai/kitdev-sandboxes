@@ -430,6 +430,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         files = (client_dir / "files.ts").read_text(encoding="ascii")
         pty = (client_dir / "pty.ts").read_text(encoding="ascii")
         lifecycle = (client_dir / "lifecycle.ts").read_text(encoding="ascii")
+        pause = (client_dir / "pause.ts").read_text(encoding="ascii")
 
         self.assertEqual(package["engines"]["node"], "22.18.0")
         self.assertEqual(package["dependencies"]["e2b"], "2.38.0")
@@ -477,6 +478,11 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn("sandbox.getMetrics", lifecycle)
         self.assertIn("sandbox.getHost", lifecycle)
         self.assertIn("run_sdk_group lifecycle.ts", runner)
+        self.assertIn("keepMemory: true", pause)
+        self.assertIn("keepMemory: false", pause)
+        self.assertIn("Sandbox.connect", pause)
+        self.assertIn('query: { state: ["paused"] }', pause)
+        self.assertIn("run_sdk_group pause.ts", runner)
         self.assertLess(
             smoke.index('writeFile("/run/state/sandbox-id"'), smoke.index('pass("sandbox-create")')
         )
