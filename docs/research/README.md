@@ -38,6 +38,9 @@ private keys, secret values, or unnecessary personal/host identifiers.
   exact `e2b@2.38.0` artifact/runtime pin, self-host authentication, API-key,
   `sandbox.kitdev.ai` ingress/TLS, public feature surface, and live
   compatibility gates.
+- [`external-ingress-readiness-2026-08-07.md`](external-ingress-readiness-2026-08-07.md):
+  credential-free public DNS, TCP, TLS, and health readiness result for the API
+  and wildcard SDK hostname before external TypeScript testing.
 - [`host-discovery.md`](host-discovery.md): read-only `kit@pc` capability and
   coexistence inventory.
 - [`milestone-1-pc-doctor.md`](milestone-1-pc-doctor.md): temporary read-only
