@@ -426,6 +426,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         package = json.loads((client_dir / "package.json").read_text(encoding="ascii"))
         lock = json.loads((client_dir / "package-lock.json").read_text(encoding="ascii"))
         smoke = (client_dir / "smoke.ts").read_text(encoding="ascii")
+        commands = (client_dir / "commands.ts").read_text(encoding="ascii")
 
         self.assertEqual(package["engines"]["node"], "22.18.0")
         self.assertEqual(package["dependencies"]["e2b"], "2.38.0")
@@ -447,14 +448,27 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn("redis-cli --raw --scan", runner)
         self.assertNotIn("E2B_DEBUG", smoke)
         self.assertNotIn("apiKey:", runner)
+        self.assertIn('background: true, stdin: true', commands)
+        self.assertIn("await stdin.closeStdin()", commands)
+        self.assertIn("await detached.disconnect()", commands)
+        self.assertIn("sandbox.commands.connect(detachedPid)", commands)
+        self.assertIn("sandbox.commands.kill(sleepingPid)", commands)
+        self.assertIn("run_sdk_group smoke.ts", runner)
+        self.assertIn("run_sdk_group commands.ts", runner)
         self.assertLess(
             smoke.index('writeFile("/run/state/sandbox-id"'), smoke.index('pass("sandbox-create")')
         )
         self.assertLess(runner.index("trap cleanup EXIT"), runner.index('stage="$(mktemp'))
-        post_run = runner.rsplit("node smoke.ts", maxsplit=1)[1]
+        group_runner = runner.split("run_sdk_group() {", maxsplit=1)[1].split(
+            "\n}\n", maxsplit=1
+        )[0]
         self.assertLess(
-            post_run.index('sandbox_id="$(read_sandbox_id)"'),
-            post_run.index("verify_terminal_state ||"),
+            group_runner.index('sandbox_id="$(read_sandbox_id)"'),
+            group_runner.index("verify_terminal_state ||"),
+        )
+        self.assertLess(
+            group_runner.index("verify_terminal_state ||"),
+            group_runner.index('rm -f -- "$stage/state/sandbox-id"'),
         )
 
     def test_all_control_plane_shell_entrypoints_parse_and_are_strict(self) -> None:

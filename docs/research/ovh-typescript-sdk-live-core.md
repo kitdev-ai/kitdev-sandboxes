@@ -44,15 +44,27 @@ The following official SDK calls passed:
 - `sandbox.files.write()` followed by byte-exact `sandbox.files.read()`
 - `sandbox.kill()`
 
+An isolated second sandbox proved the advanced command surface:
+
+- background command start and active-process listing
+- handle-bound `sendStdin()` followed by `closeStdin()` and exact output
+- `disconnect()`, `commands.connect(pid)`, stdin after reconnect, and wait
+- `commands.kill(pid)` followed by list absence
+
+The EOF test deliberately sends a partial line before `closeStdin()`. Sending
+a newline first lets the shell's `read` complete and the process exit, after
+which `closeStdin()` correctly returns `NotFoundError`; that is a client-test
+race rather than an unsupported EOF operation.
+
 The failed template-identifier probes left zero Firecracker processes. The
 successful run killed its sandbox. The reusable runner keeps the sandbox ID
 only in its root-owned runtime stage so an exit trap can issue an idempotent
 API delete and prove API-list absence, Redis-key absence, and zero remaining
 Firecracker processes.
 
-This core result does not yet prove PTY, filesystem watch, background process
-reconnection, arbitrary guest ports, pause/resume, or snapshot lifecycle.
-Those remain subsequent conformance groups.
+This result does not yet prove PTY, filesystem CRUD/read formats/watch,
+arbitrary guest ports, pause/resume, or snapshot lifecycle. Those remain
+subsequent conformance groups.
 
 ## Public-client boundary
 

@@ -110,6 +110,22 @@ verify_terminal_state() {
   return 1
 }
 
+run_sdk_group() {
+  local source="$1"
+  sandbox_id=''
+  [[ ! -e "$stage/state/sandbox-id" && ! -L "$stage/state/sandbox-id" ]] ||
+    control_plane_die sdk_stale_sandbox_state 65
+  docker run --rm --pull never --platform linux/amd64 --network host --user 0:0 \
+    --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=16m \
+    --volume "$stage/client:/workspace:ro" \
+    --volume "$api_key_file:/run/secrets/e2b-api-key:ro" \
+    --volume "$template_id_file:/run/config/e2b-template-id:ro" \
+    --volume "$stage/state:/run/state" --workdir /workspace "$NODE_IMAGE" node "$source"
+  sandbox_id="$(read_sandbox_id)" || control_plane_die sdk_sandbox_state_invalid 65
+  verify_terminal_state || control_plane_die sdk_terminal_state_invalid 65
+  rm -f -- "$stage/state/sandbox-id"
+}
+
 cleanup() {
   local status=$? code attempt
   trap - EXIT INT TERM
@@ -136,7 +152,8 @@ cleanup() {
 }
 
 main() {
-  local api_key_file template_id_file
+  api_key_file=''
+  template_id_file=''
   [[ $# == 4 && "$1" == --api-key-file && "$3" == --template-id-file ]] ||
     control_plane_die invalid_arguments 64
   api_key_file="$2"
@@ -181,6 +198,8 @@ main() {
   install -o root -g root -m 0600 "$CLIENT_DIR/package.json" "$stage/client/package.json"
   install -o root -g root -m 0600 "$CLIENT_DIR/package-lock.json" "$stage/client/package-lock.json"
   install -o root -g root -m 0600 "$CLIENT_DIR/smoke.ts" "$stage/client/smoke.ts"
+  install -o root -g root -m 0600 "$CLIENT_DIR/harness.ts" "$stage/client/harness.ts"
+  install -o root -g root -m 0600 "$CLIENT_DIR/commands.ts" "$stage/client/commands.ts"
   write_api_config "$api_key_file" "$stage/api.curlrc" ||
     control_plane_die sdk_api_key_invalid 65
   ! pgrep -x firecracker >/dev/null 2>&1 || control_plane_die sdk_preexisting_firecracker 65
@@ -194,14 +213,8 @@ main() {
     node -p "require('./node_modules/e2b/package.json').version")" == 2.38.0 ]] ||
     control_plane_die sdk_installed_version_invalid 65
 
-  docker run --rm --pull never --platform linux/amd64 --network host --user 0:0 \
-    --read-only --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777,size=16m \
-    --volume "$stage/client:/workspace:ro" \
-    --volume "$api_key_file:/run/secrets/e2b-api-key:ro" \
-    --volume "$template_id_file:/run/config/e2b-template-id:ro" \
-    --volume "$stage/state:/run/state" --workdir /workspace "$NODE_IMAGE" node smoke.ts
-  sandbox_id="$(read_sandbox_id)" || control_plane_die sdk_sandbox_state_invalid 65
-  verify_terminal_state || control_plane_die sdk_terminal_state_invalid 65
+  run_sdk_group smoke.ts
+  run_sdk_group commands.ts
   printf 'status=pass operation=verify-typescript-sdk-e2e\n'
 }
 
