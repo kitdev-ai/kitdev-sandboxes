@@ -201,6 +201,7 @@ main() {
   install -o root -g root -m 0600 "$CLIENT_DIR/harness.ts" "$stage/client/harness.ts"
   install -o root -g root -m 0600 "$CLIENT_DIR/commands.ts" "$stage/client/commands.ts"
   install -o root -g root -m 0600 "$CLIENT_DIR/files.ts" "$stage/client/files.ts"
+  install -o root -g root -m 0600 "$CLIENT_DIR/pty.ts" "$stage/client/pty.ts"
   write_api_config "$api_key_file" "$stage/api.curlrc" ||
     control_plane_die sdk_api_key_invalid 65
   ! pgrep -x firecracker >/dev/null 2>&1 || control_plane_die sdk_preexisting_firecracker 65
@@ -217,6 +218,7 @@ main() {
   run_sdk_group smoke.ts
   run_sdk_group commands.ts
   run_sdk_group files.ts
+  run_sdk_group pty.ts
   printf 'status=pass operation=verify-typescript-sdk-e2e\n'
 }
 

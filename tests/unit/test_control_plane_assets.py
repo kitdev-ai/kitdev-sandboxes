@@ -428,6 +428,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         smoke = (client_dir / "smoke.ts").read_text(encoding="ascii")
         commands = (client_dir / "commands.ts").read_text(encoding="ascii")
         files = (client_dir / "files.ts").read_text(encoding="ascii")
+        pty = (client_dir / "pty.ts").read_text(encoding="ascii")
 
         self.assertEqual(package["engines"]["node"], "22.18.0")
         self.assertEqual(package["dependencies"]["e2b"], "2.38.0")
@@ -462,6 +463,12 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn("watchDir", files)
         self.assertIn("includeEntry: true", files)
         self.assertIn("run_sdk_group files.ts", runner)
+        self.assertIn("sandbox.pty.create", pty)
+        self.assertIn("sandbox.pty.resize", pty)
+        self.assertIn("sandbox.pty.sendInput", pty)
+        self.assertIn("sandbox.pty.connect", pty)
+        self.assertIn("sandbox.pty.kill", pty)
+        self.assertIn("run_sdk_group pty.ts", runner)
         self.assertLess(
             smoke.index('writeFile("/run/state/sandbox-id"'), smoke.index('pass("sandbox-create")')
         )

@@ -63,15 +63,21 @@ An isolated third sandbox proved the filesystem surface:
 - directory list, file metadata, existence, rename, file removal, and tree removal
 - recursive directory watch with entry information and a bounded event deadline
 
+An isolated fourth sandbox proved the PTY surface:
+
+- interactive PTY creation, input, exit, and output callbacks
+- terminal resize with exact `stty size` verification
+- process listing, stream disconnect, `pty.connect(pid)`, and continued input
+- `pty.kill(pid)` followed by process-list absence
+
 The failed template-identifier probes left zero Firecracker processes. The
 successful run killed its sandbox. The reusable runner keeps the sandbox ID
 only in its root-owned runtime stage so an exit trap can issue an idempotent
 API delete and prove API-list absence, Redis-key absence, and zero remaining
 Firecracker processes.
 
-This result does not yet prove PTY, arbitrary guest ports, direct URL helpers,
-pause/resume, or snapshot lifecycle. Those remain subsequent conformance
-groups.
+This result does not yet prove arbitrary guest ports, direct URL helpers,
+pause/resume, or snapshot lifecycle. Those remain subsequent conformance groups.
 
 ## Public-client boundary
 
