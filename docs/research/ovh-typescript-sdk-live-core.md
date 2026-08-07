@@ -70,6 +70,15 @@ An isolated fourth sandbox proved the PTY surface:
 - process listing, stream disconnect, `pty.connect(pid)`, and continued input
 - `pty.kill(pid)` followed by process-list absence
 
+An isolated fifth sandbox proved the basic lifecycle surface:
+
+- instance and static running-state information with exact deployed resources
+- timeout extension and updated expiration time
+- active sandbox pagination and identity match
+- `Sandbox.connect()` followed by command execution through the new client
+- metrics retrieval and per-sample resource validation
+- `getHost()` using the expected self-host wildcard naming convention
+
 The failed template-identifier probes left zero Firecracker processes. The
 successful run killed its sandbox. The reusable runner keeps the sandbox ID
 only in its root-owned runtime stage so an exit trap can issue an idempotent
