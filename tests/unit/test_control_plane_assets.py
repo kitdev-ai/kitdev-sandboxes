@@ -427,6 +427,7 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         lock = json.loads((client_dir / "package-lock.json").read_text(encoding="ascii"))
         smoke = (client_dir / "smoke.ts").read_text(encoding="ascii")
         commands = (client_dir / "commands.ts").read_text(encoding="ascii")
+        files = (client_dir / "files.ts").read_text(encoding="ascii")
 
         self.assertEqual(package["engines"]["node"], "22.18.0")
         self.assertEqual(package["dependencies"]["e2b"], "2.38.0")
@@ -455,6 +456,12 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
         self.assertIn("sandbox.commands.kill(sleepingPid)", commands)
         self.assertIn("run_sdk_group smoke.ts", runner)
         self.assertIn("run_sdk_group commands.ts", runner)
+        self.assertIn("writeFiles", files)
+        self.assertIn('format: "blob"', files)
+        self.assertIn('format: "stream"', files)
+        self.assertIn("watchDir", files)
+        self.assertIn("includeEntry: true", files)
+        self.assertIn("run_sdk_group files.ts", runner)
         self.assertLess(
             smoke.index('writeFile("/run/state/sandbox-id"'), smoke.index('pass("sandbox-create")')
         )

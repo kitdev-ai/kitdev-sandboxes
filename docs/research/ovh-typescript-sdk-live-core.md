@@ -56,15 +56,22 @@ a newline first lets the shell's `read` complete and the process exit, after
 which `closeStdin()` correctly returns `NotFoundError`; that is a client-test
 race rather than an unsupported EOF operation.
 
+An isolated third sandbox proved the filesystem surface:
+
+- multi-file text and binary upload with user metadata
+- text, byte-array, Blob, and streaming download with byte-exact assertions
+- directory list, file metadata, existence, rename, file removal, and tree removal
+- recursive directory watch with entry information and a bounded event deadline
+
 The failed template-identifier probes left zero Firecracker processes. The
 successful run killed its sandbox. The reusable runner keeps the sandbox ID
 only in its root-owned runtime stage so an exit trap can issue an idempotent
 API delete and prove API-list absence, Redis-key absence, and zero remaining
 Firecracker processes.
 
-This result does not yet prove PTY, filesystem CRUD/read formats/watch,
-arbitrary guest ports, pause/resume, or snapshot lifecycle. Those remain
-subsequent conformance groups.
+This result does not yet prove PTY, arbitrary guest ports, direct URL helpers,
+pause/resume, or snapshot lifecycle. Those remain subsequent conformance
+groups.
 
 ## Public-client boundary
 
