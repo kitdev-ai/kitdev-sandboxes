@@ -93,6 +93,7 @@ journaled prerequisite installer. See [control-plane lifecycle](docs/operations.
 Start with [the architecture](docs/architecture.md), [the preflight design](docs/preflight-design.md),
 and [the milestone plan](docs/milestone-plan.md). Collected evidence and
 compatibility findings are kept separately in [research](docs/research/README.md).
+Operators should use the [bare-metal operator guide](docs/bare-metal-operator-guide.md).
 The complete product brief is kept in `PROMPT.md`.
 
 ## Development
