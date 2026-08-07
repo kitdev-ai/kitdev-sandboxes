@@ -5,6 +5,13 @@ AI agent. Host installation remains in the
 [bare-metal operator guide](bare-metal-operator-guide.md); client setup remains
 in the [TypeScript SDK integration guide](typescript-sdk-integration-guide.md).
 
+The live development catalog currently contains:
+
+| Workload | Stable reference | Pinned reference | Status |
+| --- | --- | --- | --- |
+| Coding | `kitdev-coding:stable` | `kitdev-coding:v1` | Published and product-key verified |
+| Browser | `kitdev-browser-heavy:stable` | `kitdev-browser-heavy:v1` | Published and product-key verified |
+
 ## Bare-metal operator
 
 On the current Ubuntu 25.04 development lab, publish serially with the

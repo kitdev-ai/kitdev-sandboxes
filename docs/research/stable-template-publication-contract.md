@@ -89,3 +89,38 @@ Before implementation, a read-only database query found no global or
 namespaced aliases named `kitdev-coding` or `kitdev-browser-heavy`. The live
 publication result and exact non-secret identifiers must be appended only
 after the committed runner completes and post-publication SDK creation passes.
+
+## Live publication evidence
+
+The Ubuntu 25.04 OVH development host completed publication on 2026-08-07.
+The implementation checkpoints were pushed as `e349da1`, `845bf7f`,
+`db2be21`, and `12b5af4`; the final consumer gate ran from exact commit
+`12b5af4`.
+
+| Product | Template ID | Build ID | Observed profile |
+| --- | --- | --- | --- |
+| Coding | `sl5spwrzkw3awhh37ru6` | `1b40c8e6-5efa-40b7-ba40-cae7ee0fe677` | 2 vCPU, 2,048 MiB RAM, ready |
+| Browser heavy | `x4d3c7e4ckl2jx01l7pr` | `550366b7-6f2a-45df-b8db-0ec3cc9cbe49` | 2 vCPU, 8,192 MiB RAM, 16,384 MiB free disk, ready |
+
+For each template, PostgreSQL showed `public=true`, one global intended alias,
+and both `v1` and `stable` resolving to the exact ready build. Both journals
+were `root:root`, mode `0600`, single-link, and state `published`. Immediate
+publication reruns returned `result=unchanged` without new builds.
+
+The dedicated external product key then used official `e2b@2.38.0` consumer
+calls to create `kitdev-coding:stable` and `kitdev-browser-heavy:stable`.
+Coding identity/Node/command execution passed. Browser Playwright navigation,
+loopback CDP, DOM assertion, and screenshot generation passed. Both sandboxes
+were killed through the SDK. Final state was zero Firecracker processes and
+12,288 free hugepages.
+
+The first coding promotion attempt correctly stopped at the database gate. It
+had called the legacy v1 PATCH by opaque template ID, which made the template
+public but derived a redundant global alias equal to that ID. The corrected
+committed runner PATCHes by the owned name and resumed the exact journaled
+candidate. The redundant ID alias is retained as non-destructive audit residue;
+it points to the same owned template and no unrelated row or build was deleted.
+
+Four root-only release stages totaling about 13 MiB and their upload archives
+were removed after the final checks. The two publication journals and template
+data are the only intentional new persistent state.

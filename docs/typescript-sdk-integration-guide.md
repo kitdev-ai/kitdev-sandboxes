@@ -541,8 +541,8 @@ wildcard ingress remains unproven. See the
 | Guest ports, streaming, WebSockets | Ingress-dependent | Wildcard proxy unproven |
 | Direct URL upload/download | Ingress-dependent | Caller-managed URL unproven |
 | Template SDK build/status/exists/tags | Live-proven | Official SDK, loopback API/template manager |
-| Coding template toolchain/files/commands/PTY | Live-proven | Ephemeral official-SDK build and sandbox; stable deployment alias pending |
-| Browser/CDP/Playwright | Live-proven (loopback) | Ephemeral Chromium qualification template; stable alias and public CDP pending |
+| Coding template toolchain/files/commands/PTY | Live-proven | `kitdev-coding:v1` and `:stable` published; product-key consumer launch passed |
+| Browser/CDP/Playwright | Live-proven (loopback) | `kitdev-browser-heavy:v1` and `:stable` published; product-key consumer launch passed; public CDP remains pending |
 | Desktop/stream/screen/input | Pending | Product template and live test incomplete |
 | Persistent volumes | Pending | Volume service not deployed |
 
