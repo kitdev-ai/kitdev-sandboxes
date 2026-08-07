@@ -391,18 +391,19 @@ secrets, credential files, authenticated URLs, or unredacted request logs.
 
 | Operation | Current status |
 | --- | --- |
-| Backup | Planned; no consistent `kitdev backup` command exists |
-| Restore | Planned and unqualified; no clean-install restore test exists |
+| Backup | Low-level offline coordinator implemented; public `kitdev backup` and live qualification pending |
+| Restore | Low-level clean-target restore implemented; destructive clean-install rehearsal pending |
 | Update/rollback | Planned; no `kitdev update` command or release rollback workflow exists |
 | Full uninstall | Planned; no `kitdev uninstall` command exists |
 | Ingress removal | Implemented by `scripts/ingress/install-ingress.sh remove` |
 
 Do not treat a live filesystem copy as a verified database/template backup.
-Until coordinated quiesce, backup manifests, integrity checks, secret handling,
-and restore tests are implemented, the only authoritative whole-lab reset is
-an operating-system reinstall. Preserve `/etc/kitdev-sandboxes` and durable
-`/var/lib/kitdev-sandboxes` data only through an operator-controlled encrypted
-backup process whose restore has been tested separately.
+The first coordinator now performs quiesce, integrity manifests, exact-release
+gating, and restartable clean-target publication, but it has not passed a live
+destructive rehearsal. The only authoritative whole-lab reset remains an
+operating-system reinstall until that gate passes. See
+[`disaster-recovery.md`](disaster-recovery.md). Preserve excluded secrets only
+through an operator-controlled encrypted backup or deliberate reissuance.
 
 ## Troubleshooting
 
@@ -460,7 +461,7 @@ Before production use, this project still needs:
 - concurrent sandbox, security isolation, and external TLS/SDK acceptance;
 - coding, browser, and desktop template acceptance;
 - persistent workspace semantics;
-- backup/restore, update/rollback, and full uninstall;
+- public and live-qualified backup/restore, update/rollback, and full uninstall;
 - capacity limits, observability, alerting, and containerd data-root policy.
 
 Treat every unchecked item as a release blocker, not an optional enhancement.

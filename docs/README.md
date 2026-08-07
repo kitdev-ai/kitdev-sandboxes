@@ -14,6 +14,8 @@ Milestone 0 establishes contracts before implementation:
   exact official SDK configuration, proven examples, and ingress limitations.
 - `bare-metal-operator-guide.md` is the practical operator runbook, including
   exact implemented commands and clearly labeled unimplemented workflows.
+- `disaster-recovery.md` defines the implemented offline backup format, secret
+  boundary, restore gates, and remaining live qualification.
 - `../experiments/ovh-lab/` contains the gated disposable-host experiment
   harness; it is not production installation automation.
 

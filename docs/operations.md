@@ -70,6 +70,9 @@ contains their values.
 
 Fresh-host package, identity, kernel, Docker, and firewall prerequisite apply;
 the standalone installed CLI; complete manifest/journal integration; update,
-uninstall, backup/restore, and non-minimal profiles remain unimplemented. The
-slice requires clean Ubuntu 26.04 apply/apply, reboot, restart, failure
-recovery, and reinstall qualification before production use.
+uninstall, public backup/restore commands, and non-minimal profiles remain
+unimplemented. A low-level offline backup/clean-target restore coordinator is
+available for qualification as described in `disaster-recovery.md`; it has not
+passed a destructive host rehearsal. The slice requires clean Ubuntu 26.04
+apply/apply, reboot, restart, failure recovery, restore, and reinstall
+qualification before production use.

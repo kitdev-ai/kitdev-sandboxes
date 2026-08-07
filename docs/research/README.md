@@ -16,6 +16,9 @@ private keys, secret values, or unnecessary personal/host identifiers.
 
 ## Reports
 
+- [`backup-restore-contract.md`](backup-restore-contract.md): first offline
+  physical backup format, durable-state inventory, integrity and compatibility
+  gates, secret exclusion, interrupted-run recovery, and live test plan.
 - [`host-prerequisite-ansible-contract.md`](host-prerequisite-ansible-contract.md):
   pinned Ansible controller, fresh-host role boundaries, kernel persistence,
   rollback ownership and local verification for Ubuntu 26.04/25.04.

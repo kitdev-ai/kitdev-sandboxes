@@ -1075,3 +1075,35 @@ untracked, and must never be quoted into tracked documentation.
   persistence, remove/remove and post-removal reboot evidence on clean Ubuntu
   26.04 production and Ubuntu 25.04 development/migration hosts remain pending.
 - **Commit:** Pending in this change set.
+
+## 2026-08-07 - Offline backup and clean-target restore slice
+
+- **Intent:** Implement the first reproducible backup/restore format for the
+  project-owned minimal control-plane state without claiming an untested live
+  restore.
+- **Implementation:** Added a lifecycle-lock-serialized coordinator for a
+  quiesced physical backup of PostgreSQL, Redis, ClickHouse, Loki, and local
+  template/snapshot storage. Canonical manifests bind archive hashes and sizes
+  to the installed Compose/image locks, architecture, backup schema, and pinned
+  upstream commit. Restore validates every input, secret compatibility, stopped
+  service state, free space, and empty targets before journaled publication.
+- **Safety:** Active Firecracker processes, partial service state, symlinks,
+  nested mounts, special files, path traversal, foreign backup entries,
+  archive tampering, incompatible releases, and non-clean targets fail closed.
+  Backup restores the prior running/stopped state on success and failure.
+  Pre-publication restore interruptions remove staging; publication resumes
+  from a root-only journal.
+- **Secret boundary:** `/etc`, DNS API tokens, ACME/TLS material, and SDK keys
+  are excluded. Operators must use separate encrypted storage or reissue them;
+  the root-only manifest records an exact high-entropy private-environment
+  digest for restore compatibility, never the secret values.
+- **Evidence boundary:** Implementation and validation were local only. No SSH
+  connection or OVH mutation occurred and no destructive restore is claimed.
+- **Verification:** Ten focused unit tests and the complete 336-test suite
+  passed, with two expected platform/tool skips. Ruff, Python compilation,
+  Bash syntax, and Git whitespace checks passed. ShellCheck was unavailable.
+- **Remaining gates:** Seeded live backup, off-host round trip, clean-release
+  restore, fault injection at every publication step, service health, and
+  official TypeScript SDK/template/snapshot verification must pass before the
+  public `kitdev backup` and `kitdev restore` commands are exposed.
+- **Commit:** Pending in this change set.

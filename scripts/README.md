@@ -18,6 +18,14 @@ public CLI. Install publishes reviewed day-two assets under `/opt`; down
 quiesces admission before stopping the orchestrator and refuses active
 Firecracker processes. See [`docs/operations.md`](../docs/operations.md).
 
+`control-plane/backup-restore.sh` implements the first offline physical backup
+format for the minimal control plane. It preserves the pre-backup service state,
+excludes secrets, validates component archives through
+`control-plane/backup_manifest.py`, and restores only to an empty compatible
+release layout. It is installed as a low-level qualification surface; public
+`kitdev backup` and `kitdev restore` remain gated on a live destructive restore
+rehearsal. See [`docs/disaster-recovery.md`](../docs/disaster-recovery.md).
+
 `control-plane/verify-typescript-sdk-e2e.sh` is a development/migration-only
 live gate for the official TypeScript SDK. It requires root-owned mode-0600 API
 key and template-ID files, installs the exact lockfile with a digest-pinned

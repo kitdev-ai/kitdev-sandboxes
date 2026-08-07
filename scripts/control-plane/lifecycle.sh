@@ -57,14 +57,14 @@ install_lifecycle_assets() {
   ensure_directory "$INSTALLED_SCRIPT_DIR/e2e-process-client" root root 755
   ensure_directory "$INSTALLED_SCRIPT_DIR/e2e-typescript-sdk" root root 755
   for name in \
-    acquire-source.sh bootstrap-network.sh bootstrap-private-env.sh build-control-plane-images.sh \
+    acquire-source.sh backup-restore.sh bootstrap-network.sh bootstrap-private-env.sh build-control-plane-images.sh \
     build-envd.sh build-orchestrator.sh build-snapshot-tools.sh common.sh configure-firewall.sh \
     install-orchestrator-service.sh install-runtime-artifacts.sh lifecycle.sh \
     preflight-orchestrator.sh prepare-layout.sh replay-compose.sh seed-local-template.sh \
     verify-api-proxy-e2e.sh verify-typescript-sdk-e2e.sh; do
     publish_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_SCRIPT_DIR/$name" root root 755
   done
-  for name in normalize-copy-sql.py private_env.py publish-template-dirs.py; do
+  for name in backup_manifest.py normalize-copy-sql.py private_env.py publish-template-dirs.py; do
     publish_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_SCRIPT_DIR/$name" root root 755
   done
   publish_exact_file "$SCRIPT_DIR/e2e-process-client/main.go" \
