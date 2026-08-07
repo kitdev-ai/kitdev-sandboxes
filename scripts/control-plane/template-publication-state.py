@@ -35,7 +35,9 @@ def validate_record(record: object) -> dict[str, object]:
     if not isinstance(record, dict):
         raise StateError("record_not_object")
     required = {"schema_version", "product", "alias", "version", "state", "definition_sha256", "created_at"}
-    allowed = required | {"template_id", "build_id", "published_at", "rolled_back_at"}
+    allowed = required | {
+        "template_id", "build_id", "published_at", "rolled_back_at", "definition_migrated_at"
+    }
     if not required <= set(record) or not set(record) <= allowed:
         raise StateError("record_keys_invalid")
     product = record["product"]
@@ -128,16 +130,36 @@ def require_match(record: dict[str, object], args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=("reserve", "candidate", "publish", "show", "rollback"))
+    parser.add_argument(
+        "operation", choices=("reserve", "candidate", "publish", "show", "rollback", "migrate-definition")
+    )
     parser.add_argument("--journal", type=Path, required=True)
     parser.add_argument("--product", choices=tuple(ALIASES), required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--definition-sha256", required=True)
+    parser.add_argument("--prior-definition-sha256")
     parser.add_argument("--template-id")
     parser.add_argument("--build-id")
     args = parser.parse_args()
     alias, version, digest = expected(args)
     record = load(args.journal)
+
+    if args.operation == "migrate-definition":
+        if record is None:
+            raise StateError("journal_missing")
+        if (
+            record["product"] != args.product
+            or record["alias"] != alias
+            or record["version"] != version
+            or record["state"] != "qualified_private"
+            or record["definition_sha256"] != args.prior_definition_sha256
+            or not HASH_RE.fullmatch(args.prior_definition_sha256 or "")
+        ):
+            raise StateError("definition_migration_not_authorized")
+        record.update(definition_sha256=digest, definition_migrated_at=now())
+        write(args.journal, record)
+        print(json.dumps(record, sort_keys=True, separators=(",", ":")))
+        return
 
     if args.operation == "reserve":
         if record is None:

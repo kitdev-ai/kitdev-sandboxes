@@ -145,7 +145,7 @@ definition_hash() {
   local product="$1"
   if [[ "$product" == coding ]]; then
     sha256sum -- "$CLIENT_DIR/package.json" "$CLIENT_DIR/package-lock.json" \
-      "$CLIENT_DIR/coding-template.ts" | sha256sum | awk '{print $1}'
+      "$CLIENT_DIR/coding-template.ts" | awk '{print $1}' | sha256sum | awk '{print $1}'
   else
     sha256sum -- "$CLIENT_DIR/package.json" "$CLIENT_DIR/package-lock.json" \
       "$CLIENT_DIR/browser-template.ts" \
@@ -154,7 +154,7 @@ definition_hash() {
       "$CLIENT_DIR/browser-template-assets/package.json" \
       "$CLIENT_DIR/browser-template-assets/package-lock.json" \
       "$CLIENT_DIR/browser-template-assets/start-browser.mjs" |
-      sha256sum | awk '{print $1}'
+      awk '{print $1}' | sha256sum | awk '{print $1}'
   fi
 }
 

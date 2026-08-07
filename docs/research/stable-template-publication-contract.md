@@ -59,6 +59,11 @@ and build ID. Writes use a mode-0600 temporary file, `fsync`, atomic rename, and
 directory `fsync`. An existing mismatch fails closed. A rerun verifies and
 returns unchanged instead of creating another build.
 
+Definition digests hash the ordered content hashes, not checkout or staging
+paths. The state tool has an explicit `migrate-definition` recovery operation
+limited to a `qualified_private` candidate and requiring its exact prior hash;
+normal publication never migrates a journal implicitly.
+
 Rollback of a qualified private candidate may soft-delete only its exact
 journaled template ID. Rollback of the first published release removes only the
 `stable` tag through the official SDK and retains the immutable `v1` build.

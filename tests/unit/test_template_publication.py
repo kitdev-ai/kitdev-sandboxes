@@ -61,6 +61,7 @@ class TemplatePublicationTests(unittest.TestCase):
         self.assertIn("publication_alias_not_owned", RUNNER)
         self.assertIn("publication_firecracker_running", RUNNER)
         self.assertIn("publication_build_running", RUNNER)
+        self.assertIn("| awk '{print $1}' | sha256sum", RUNNER)
 
     def test_builders_use_version_and_stable_tags_only_in_publication_mode(self) -> None:
         for source, alias in ((CODING, "kitdev-coding"), (BROWSER, "kitdev-browser-heavy")):
