@@ -22,6 +22,14 @@
     "nbd_devices_minimum": {{ kitdev_nbd_devices | int }},
     "nbd_max_partitions_minimum": {{ kitdev_nbd_max_partitions | int }},
     "hugepages_2m": {{ kitdev_hugepages_2m | int }},
+    "capacity": {
+      "max_sandbox_memory_mib": {{ kitdev_capacity_max_sandbox_memory_mib | int }},
+      "concurrent_hugepage_sandboxes": {{ kitdev_capacity_concurrent_hugepage_sandboxes | int }},
+      "build_snapshot_headroom_mib": {{ kitdev_capacity_build_snapshot_headroom_mib | int }},
+      "hugepage_pool_mib": {{ kitdev_capacity_plan.hugepage_pool_mib | int }},
+      "normal_memory_reserve_mib": {{ kitdev_hugepages_min_available_mb_after | int }},
+      "max_ram_percent": {{ kitdev_hugepages_max_ram_percent | int }}
+    },
     "ipv4_forwarding": 1
   },
   "rollback": {

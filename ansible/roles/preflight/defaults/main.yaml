@@ -30,9 +30,11 @@ kitdev_prerequisite_packages:
   - qemu-utils
   - util-linux
 
-kitdev_hugepages_2m: 512
-kitdev_hugepages_max_ram_percent: 25
-kitdev_hugepages_min_available_mb_after: 1024
+kitdev_capacity_max_sandbox_memory_mib: 8192
+kitdev_capacity_concurrent_hugepage_sandboxes: 2
+kitdev_capacity_build_snapshot_headroom_mib: 8192
+kitdev_hugepages_max_ram_percent: 50
+kitdev_hugepages_min_available_mb_after: 16384
 kitdev_nbd_devices: 64
 kitdev_nbd_max_partitions: 8
 kitdev_prerequisite_state_root: /var/lib/kitdev-sandboxes/host-prerequisites

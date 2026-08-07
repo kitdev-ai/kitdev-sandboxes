@@ -138,16 +138,54 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
                 validator.validate_deb822(source, "resolute")
 
     def test_kernel_settings_are_parameterized_and_capacity_gated(self) -> None:
-        defaults = (ANSIBLE / "roles" / "preflight" / "defaults" / "main.yaml").read_text(
-            encoding="utf-8"
+        defaults = yaml.safe_load(
+            (ANSIBLE / "roles" / "preflight" / "defaults" / "main.yaml").read_text(
+                encoding="utf-8"
+            )
         )
         tasks = (ANSIBLE / "roles" / "preflight" / "tasks" / "main.yaml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("kitdev_hugepages_2m:", defaults)
-        self.assertIn("kitdev_hugepages_max_ram_percent:", defaults)
+        self.assertEqual(defaults["kitdev_capacity_max_sandbox_memory_mib"], 8192)
+        self.assertEqual(defaults["kitdev_capacity_concurrent_hugepage_sandboxes"], 2)
+        self.assertEqual(defaults["kitdev_capacity_build_snapshot_headroom_mib"], 8192)
+        self.assertEqual(defaults["kitdev_hugepages_min_available_mb_after"], 16384)
+        self.assertEqual(defaults["kitdev_hugepages_max_ram_percent"], 50)
         self.assertIn("validate_host_capacity.py", tasks)
+        self.assertIn("Publish derived hugepage capacity", tasks)
         self.assertIn("Refuse unsafe live NBD reconfiguration", tasks)
+
+    def test_hugepage_capacity_is_derived_from_workload_profile(self) -> None:
+        validator = load_capacity_validator()
+        pool_mib, pages = validator.required_hugepages_2m(8192, 2, 8192)
+        self.assertEqual(pool_mib, 24576)
+        self.assertEqual(pages, 12288)
+
+        with self.assertRaisesRegex(ValueError, "headroom"):
+            validator.required_hugepages_2m(8192, 2, 4096)
+        self.assertEqual(validator.required_hugepages_2m(512, 1, 512), (1024, 512))
+        with self.assertRaisesRegex(ValueError, "maximum sandbox memory"):
+            validator.required_hugepages_2m(256, 2, 8192)
+
+    def test_default_hugepage_profile_preserves_host_reserve(self) -> None:
+        validator = load_capacity_validator()
+        _, pages = validator.required_hugepages_2m(8192, 2, 8192)
+        values = {
+            "MemTotal": 64 * 1024 * 1024,
+            "MemAvailable": 48 * 1024 * 1024,
+            "HugePages_Total": 0,
+            "Hugepagesize": 2048,
+        }
+        validator.validate_capacity(values, pages, 50, 16384)
+
+        with self.assertRaisesRegex(ValueError, "total-RAM budget"):
+            validator.validate_capacity(
+                {**values, "MemTotal": 32 * 1024 * 1024}, pages, 50, 16384
+            )
+        with self.assertRaisesRegex(ValueError, "currently available"):
+            validator.validate_capacity(
+                {**values, "MemAvailable": 32 * 1024 * 1024}, pages, 50, 16384
+            )
 
     def test_hugepage_capacity_uses_available_and_current_pool_memory(self) -> None:
         validator = load_capacity_validator()
@@ -177,6 +215,10 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
         self.assertIn("host-prerequisites-reboot-required", defaults)
         self.assertIn("kitdev_prerequisite_reboot_marker", removal)
         self.assertIn('"module_runtime_restore": "controlled-reboot"', manifest)
+        self.assertIn('"max_sandbox_memory_mib"', manifest)
+        self.assertIn('"concurrent_hugepage_sandboxes"', manifest)
+        self.assertIn('"build_snapshot_headroom_mib"', manifest)
+        self.assertIn('"hugepage_pool_mib"', manifest)
 
 
 if __name__ == "__main__":

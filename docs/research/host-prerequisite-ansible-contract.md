@@ -63,13 +63,22 @@ number of partitions per device. Both values are bounded operator inputs. If
 NBD is already loaded below the requested capacity, convergence stops before
 mutation instead of trying to unload an in-use block-device module.
 
-Linux exposes persistent HugeTLB pool size through `vm.nr_hugepages`. The
-requested 2 MiB page count is parameterized and must fit within an explicit
-percentage of detected RAM. A second pre-mutation gate calculates only the
-additional pages above the current pool against `MemAvailable` and preserves a
-configured post-allocation reserve. The default remains the currently proven
-runtime gate of 512 pages, but it is not forced on a host that fails either
-capacity guard.
+Linux exposes persistent HugeTLB pool size through `vm.nr_hugepages`. The role
+derives the page count from the declared maximum sandbox memory, concurrent
+hugepage-backed sandbox count, and build/snapshot overlap allowance. The
+initial profile is two 8 GiB live-sandbox slots plus one 8 GiB transient
+mapping, producing a 24 GiB pool (`12288` 2 MiB pages). This covers either two
+live guests plus one snapshot mapping, or one live guest plus a build requiring
+two guest-sized mappings; it does not cover two live guests and that build at
+the same time. The pool must not exceed 50% of detected RAM. A second
+pre-mutation gate calculates only the additional pages above the current pool
+against `MemAvailable` and requires 16 GiB of normal memory to remain. The
+derived inputs and result are recorded in the ownership manifest.
+
+This reservation does not enforce a runtime concurrency limit. Admission
+control and sustained workload qualification remain separate work; this gate
+only prevents the prerequisite role from converging a host that cannot meet its
+declared memory policy.
 
 ## Rollback contract
 
@@ -100,7 +109,7 @@ ownership manifest before it restores their prior values.
 - hash-complete install from an empty Python virtual environment;
 - `ansible-playbook [core 2.21.2]` verification;
 - syntax check of apply and removal playbooks;
-- seven unit/structural tests for platform, role, identity, lock, APT and
+- eleven unit/structural tests for platform, role, identity, lock, APT and
   kernel-capacity contracts;
 - Bash syntax, Python compile and Git whitespace checks.
 

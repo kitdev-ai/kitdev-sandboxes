@@ -22,6 +22,9 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`host-prerequisite-ansible-contract.md`](host-prerequisite-ansible-contract.md):
   pinned Ansible controller, fresh-host role boundaries, kernel persistence,
   rollback ownership and local verification for Ubuntu 26.04/25.04.
+- [`hugepage-capacity-model.md`](hugepage-capacity-model.md): derived 24 GiB
+  HugeTLB profile for 8 GiB heavy sandboxes, transient build/snapshot mapping
+  semantics, normal-memory guards, upstream evidence, and remaining load gates.
 - [`activity-log.md`](activity-log.md): append-only, redacted project activity
   ledger updated before each commit and review or deployment gate.
 - [`cloud-options.md`](cloud-options.md): GCP, AWS, hosted bare-metal, and local

@@ -28,3 +28,14 @@ sudo ./scripts/host-prerequisites.sh remove production
 Ubuntu 25.04 requires `development` or `migration`; production is rejected by
 the shell gate and the Ansible gate before mutation. Ubuntu 24.04 is not
 supported.
+
+The default workload profile provides two 8 GiB live-sandbox slots plus one
+8 GiB transient-mapping allowance. The resulting 24 GiB pool covers either two
+live guests plus one snapshot mapping, or one live guest plus a build requiring
+two guest-sized mappings. It does not cover two live guests and such a build at
+the same time. Preflight derives `12288` 2 MiB pages, refuses a pool above 50%
+of total RAM, and requires at least 16 GiB of normal memory to remain available
+after any additional allocation. The five policy inputs live in
+`roles/preflight/defaults/main.yaml`; derived values are recorded in the
+root-owned host prerequisite manifest. These are host-reservation guards, not
+a runtime admission controller.

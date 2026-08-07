@@ -36,18 +36,48 @@ def validate_capacity(
         raise ValueError("insufficient currently available memory for hugepage allocation")
 
 
+def required_hugepages_2m(
+    max_sandbox_memory_mib: int,
+    concurrent_sandboxes: int,
+    build_snapshot_headroom_mib: int,
+) -> tuple[int, int]:
+    if not 512 <= max_sandbox_memory_mib <= 262144:
+        raise ValueError("maximum sandbox memory is outside the supported policy")
+    if not 1 <= concurrent_sandboxes <= 32:
+        raise ValueError("invalid sandbox capacity policy")
+    if not max_sandbox_memory_mib <= build_snapshot_headroom_mib <= 262144:
+        raise ValueError("build/snapshot headroom must cover one maximum sandbox")
+    pool_mib = max_sandbox_memory_mib * concurrent_sandboxes + build_snapshot_headroom_mib
+    return pool_mib, (pool_mib + 1) // 2
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--hugepages", type=int, required=True)
+    parser.add_argument("--max-sandbox-memory-mib", type=int, required=True)
+    parser.add_argument("--concurrent-sandboxes", type=int, required=True)
+    parser.add_argument("--build-snapshot-headroom-mib", type=int, required=True)
     parser.add_argument("--max-ram-percent", type=int, required=True)
     parser.add_argument("--min-available-mb-after", type=int, required=True)
     parser.add_argument("--meminfo", type=Path, default=Path("/proc/meminfo"))
     args = parser.parse_args()
-    if args.hugepages < 0 or not 1 <= args.max_ram_percent <= 50 or args.min_available_mb_after < 512:
+    if not 1 <= args.max_ram_percent <= 50 or args.min_available_mb_after < 4096:
         raise ValueError("invalid capacity policy")
+    pool_mib, hugepages = required_hugepages_2m(
+        args.max_sandbox_memory_mib,
+        args.concurrent_sandboxes,
+        args.build_snapshot_headroom_mib,
+    )
     values = parse_meminfo(args.meminfo.read_text(encoding="ascii"))
-    validate_capacity(values, args.hugepages, args.max_ram_percent, args.min_available_mb_after)
-    print(json.dumps({"hugepages": args.hugepages, "status": "pass"}, sort_keys=True))
+    validate_capacity(values, hugepages, args.max_ram_percent, args.min_available_mb_after)
+    print(json.dumps({
+        "build_snapshot_headroom_mib": args.build_snapshot_headroom_mib,
+        "concurrent_sandboxes": args.concurrent_sandboxes,
+        "hugepage_pool_mib": pool_mib,
+        "hugepages_2m": hugepages,
+        "max_sandbox_memory_mib": args.max_sandbox_memory_mib,
+        "normal_memory_reserve_mib": args.min_available_mb_after,
+        "status": "pass",
+    }, sort_keys=True))
     return 0
 
 

@@ -200,10 +200,15 @@
       - kitdev_nbd_devices | int <= 256
       - kitdev_nbd_max_partitions | int >= 0
       - kitdev_nbd_max_partitions | int <= 16
-      - kitdev_hugepages_2m | int >= 0
+      - kitdev_capacity_max_sandbox_memory_mib | int >= 512
+      - kitdev_capacity_max_sandbox_memory_mib | int <= 262144
+      - kitdev_capacity_concurrent_hugepage_sandboxes | int >= 1
+      - kitdev_capacity_concurrent_hugepage_sandboxes | int <= 32
+      - (kitdev_capacity_build_snapshot_headroom_mib | int) >= (kitdev_capacity_max_sandbox_memory_mib | int)
+      - kitdev_capacity_build_snapshot_headroom_mib | int <= 262144
       - kitdev_hugepages_max_ram_percent | int >= 1
       - kitdev_hugepages_max_ram_percent | int <= 50
-      - kitdev_hugepages_min_available_mb_after | int >= 512
+      - kitdev_hugepages_min_available_mb_after | int >= 4096
     fail_msg: Requested NBD/hugepage settings are invalid or exceed the configured RAM budget.
 
 - name: Validate current hugepage allocation against available memory
@@ -211,14 +216,33 @@
     argv:
       - /usr/bin/python3
       - "{{ playbook_dir }}/files/validate_host_capacity.py"
-      - --hugepages
-      - "{{ kitdev_hugepages_2m }}"
+      - --max-sandbox-memory-mib
+      - "{{ kitdev_capacity_max_sandbox_memory_mib }}"
+      - --concurrent-sandboxes
+      - "{{ kitdev_capacity_concurrent_hugepage_sandboxes }}"
+      - --build-snapshot-headroom-mib
+      - "{{ kitdev_capacity_build_snapshot_headroom_mib }}"
       - --max-ram-percent
       - "{{ kitdev_hugepages_max_ram_percent }}"
       - --min-available-mb-after
       - "{{ kitdev_hugepages_min_available_mb_after }}"
   register: kitdev_capacity_validation
   changed_when: false
+
+- name: Publish derived hugepage capacity for convergence
+  ansible.builtin.set_fact:
+    kitdev_capacity_plan: "{{ kitdev_capacity_validation.stdout | from_json }}"
+    kitdev_hugepages_2m: "{{ (kitdev_capacity_validation.stdout | from_json).hugepages_2m }}"
+
+- name: Verify derived capacity model
+  ansible.builtin.assert:
+    that:
+      - (kitdev_capacity_plan.max_sandbox_memory_mib | int) == (kitdev_capacity_max_sandbox_memory_mib | int)
+      - (kitdev_capacity_plan.concurrent_sandboxes | int) == (kitdev_capacity_concurrent_hugepage_sandboxes | int)
+      - (kitdev_capacity_plan.build_snapshot_headroom_mib | int) == (kitdev_capacity_build_snapshot_headroom_mib | int)
+      - kitdev_capacity_plan.hugepage_pool_mib == ((kitdev_capacity_max_sandbox_memory_mib | int) * (kitdev_capacity_concurrent_hugepage_sandboxes | int) + (kitdev_capacity_build_snapshot_headroom_mib | int))
+      - (kitdev_capacity_plan.hugepages_2m | int) == (kitdev_hugepages_2m | int)
+    fail_msg: Derived hugepage capacity output is inconsistent.
 
 - name: Validate enabled APT source ownership and trust
   ansible.builtin.command:

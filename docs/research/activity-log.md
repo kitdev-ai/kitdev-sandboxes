@@ -1107,3 +1107,36 @@ untracked, and must never be quoted into tracked documentation.
   official TypeScript SDK/template/snapshot verification must pass before the
   public `kitdev backup` and `kitdev restore` commands are exposed.
 - **Commit:** Pending in this change set.
+
+## 2026-08-07 - Heavy-sandbox hugepage capacity correction
+
+- **Intent:** Replace the 1 GiB prerequisite floor with a derived capacity
+  profile suitable for 8 GiB browser/heavy sandboxes without hard-coding 8 GiB
+  as the reusable platform minimum.
+- **Implementation:** The default now derives a 24 GiB persistent HugeTLB pool
+  (`12288` 2 MiB pages) from two 8 GiB live-sandbox slots and one 8 GiB
+  transient-mapping allowance. Validation caps the pool at 50% of physical RAM,
+  requires 16 GiB of normal memory after any additional page allocation, and
+  records every input and derived result in the ownership manifest. Explicit
+  profiles remain valid down to 512 MiB per sandbox.
+- **Capacity boundary:** The default covers either two live guests plus one
+  snapshot mapping, or one live guest plus a build requiring two guest-sized
+  mappings. It does not cover two live guests and that build simultaneously;
+  that workload needs a 32 GiB pool. The reservation is not runtime admission
+  control.
+- **Research:** Pinned upstream E2B source at commit
+  `882a3b4786755db9e94be3297de6827f9100ce5e` was inspected over read-only SSH
+  to confirm host allocation, Firecracker hugepage, template-build, and empty
+  memory-file behavior. No server state was changed. Evidence and remaining
+  qualification are in
+  [`hugepage-capacity-model.md`](hugepage-capacity-model.md).
+- **Verification:** Eleven focused prerequisite tests and the complete
+  330-test local suite passed with two expected platform/tool skips. Both
+  Ansible playbooks passed syntax check under pinned `ansible-core==2.21.2`;
+  Python compilation and Git whitespace checks passed.
+- **Remaining gates:** Clean-host apply/reboot/idempotency/removal, 24 GiB live
+  allocation, the two supported workload combinations, failure cleanup, and
+  runtime admission control remain unqualified. Ubuntu 26.04 is the production
+  target; Ubuntu 25.04 remains development/migration-only; Ubuntu 24.04 is
+  unsupported.
+- **Commit:** Pending in this change set.

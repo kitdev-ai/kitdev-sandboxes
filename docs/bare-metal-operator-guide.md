@@ -1,18 +1,22 @@
 # Bare-metal operator guide
 
-This guide describes what an operator can do with the repository today and
-what is still planned. It is not a production-readiness declaration.
+This guide is for the end user responsible for preparing, installing,
+qualifying, operating, and recovering the complete sandbox system on one bare
+metal server. It describes what that operator can do with the repository today
+and what is still planned. It is not a production-readiness declaration.
 
 ## Read this first
 
 The current system has a working pinned control plane, Firecracker runtime,
-local template, official TypeScript SDK tests, and optional HTTPS ingress. It
-does **not** yet have a complete fresh-host installer.
+local template, official TypeScript SDK and template-build tests, a live-proven
+coding-template gate, and optional HTTPS ingress. It does **not** yet have a
+complete fresh-host installer or a production-published coding template.
 
-`sudo ./kitdev install` currently applies only the minimal control plane on an
-already prepared host in explicit `development` or `migration` mode. It does
-not install packages, create service identities, configure the kernel, format
-or mount disks, install Docker, or provision production templates. Production
+`sudo ./kitdev install` itself applies only the minimal control plane on an
+already prepared host in explicit `development` or `migration` mode. A separate
+partial prerequisite flow installs host packages, creates service identities,
+and configures required kernel state. Neither flow formats or mounts storage,
+installs Docker, or completes production template publication. Production
 install refuses before mutation. Do not bypass these gates.
 
 The disposable lab was prepared manually to discover the correct host state.
@@ -40,11 +44,17 @@ development lab uses a 4-core/8-thread CPU, 64 GB RAM, mirrored NVMe system
 storage, and a dedicated 4 TB data disk; that is a tested reference, not a
 minimum or production sizing promise.
 
-The current runtime gate requires at least 512 free 2 MiB hugepages when the
-orchestrator starts. Default sandbox configuration requests 2 vCPUs, 2 GiB
-memory, and a 10 GiB disk, but the seeded development template currently has a
-different measured build contract. Size a host from measured concurrent
-workloads, not by multiplying defaults alone.
+The prerequisite profile provides two 8 GiB live-sandbox slots plus one 8 GiB
+transient-mapping allowance. Its 24 GiB persistent pool (`12288` 2 MiB
+hugepages) covers either two live guests plus one snapshot mapping, or one live
+guest plus a build requiring two guest-sized mappings. It does not cover two
+live guests and that build together; that needs 32 GiB. The role refuses to
+reserve more than 50% of total RAM and requires 16 GiB of normal memory to
+remain available after new pages are allocated. The runtime startup gate still
+checks only its older 512-page free floor, so this profile is a host
+reservation, not runtime admission control. Do not treat it as proof that a
+third sandbox will be rejected or that the profile has passed sustained load
+qualification.
 
 ## Storage layout
 
@@ -94,7 +104,8 @@ and delete TXT records below `_acme-challenge.sandbox.kitdev.ai`.
 2. Keep the Git checkout and installed assets non-writable by service users.
 3. Never put API keys, ACME credentials, private keys, or provider tokens in
    Git, command arguments, chat, shell history, or copied logs.
-4. Store operator secret files as `root:root`, mode `0600`, with one hard link.
+4. Store operator secret files as `root:root`, mode `0600`, with link count one
+   so no additional hard link aliases exist.
 5. Give DNS credentials only the zone permissions required for ACME TXT
    records; use provider-supported token-file variables where possible.
 
@@ -286,6 +297,32 @@ sudo ./kitdev status --lifecycle-mode development --json
 
 There is no stable automated API-key/template-ID provisioning command yet.
 
+### Template qualification gates
+
+The top-level `kitdev test` command does not expose the template-build or
+product-template gates. From the same reviewed checkout, an operator can run
+the two currently passing low-level gates explicitly:
+
+```console
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/control-plane/verify-typescript-sdk-template-build.sh \
+  --api-key-file /run/kitdev-sandboxes/e2e-api-key
+
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/control-plane/verify-typescript-sdk-coding-template.sh \
+  --api-key-file /run/kitdev-sandboxes/e2e-api-key
+```
+
+These development-only tests use the same shared SDK lock, refuse a preexisting
+Firecracker process, build uniquely named templates, create real sandboxes, and
+attempt cleanup on every exit. The generic gate proves background/blocking SDK
+builds, status, tags, and boot from the result. The coding gate proves its
+pinned toolchain, unprivileged workspace, TypeScript and shell execution,
+SDK-managed files, and PTY. Both remove their test aliases; neither publishes a
+stable product template. Confirm `kitdev status` after each run.
+
 ## Public HTTPS ingress
 
 Ingress is implemented as a separate reviewed script flow; it is not wired
@@ -454,12 +491,13 @@ internal ports.
 
 Before production use, this project still needs:
 
-- fresh Ubuntu 26.04 prerequisite automation and clean reinstall replay;
+- remaining fresh-host storage, Docker, and firewall automation plus clean
+  reinstall replay;
 - production template build/publication and complete profile support;
 - apply/apply, reboot, restart, failure-recovery, and rollback qualification;
 - a standalone installed CLI and installation manifest/journal ownership;
 - concurrent sandbox, security isolation, and external TLS/SDK acceptance;
-- coding, browser, and desktop template acceptance;
+- stable coding-template publication and complete browser/desktop acceptance;
 - persistent workspace semantics;
 - public and live-qualified backup/restore, update/rollback, and full uninstall;
 - capacity limits, observability, alerting, and containerd data-root policy.
