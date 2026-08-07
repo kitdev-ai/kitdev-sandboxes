@@ -11,6 +11,24 @@ alias. Do not guess a template name or substitute a template-build UUID. The
 SDK create call accepts a template ID such as the backend `envs.id`, or an
 operator-published alias; an `env_builds.id` UUID is not a template ID.
 
+## Current deployment checkpoint
+
+The operator has issued a dedicated project key for the external product on
+the exact `kitdev-browser-heavy-team` slug. Its protected source path and
+nonsecret revocation handle are:
+
+```text
+source key: /etc/kitdev-sandboxes/secrets/external-sdk-product.key
+metadata:   /etc/kitdev-sandboxes/secrets/external-sdk-product.key.metadata.json
+key ID:     d63b17ec-07cb-4577-b33d-e576b01be5e9
+```
+
+The key passed host-local authentication and idempotency checks. It has not
+been printed or committed. Public TCP 80 and 443 are still unreachable, so the
+key is ready for secure installation but external SDK authentication is not
+yet proved. No stable coding or heavy-browser template alias is published;
+the operator must supply one after the template publication gate passes.
+
 ## Exact client
 
 Pin the client and runtime exactly:
@@ -54,9 +72,14 @@ Configure the external product server with:
 ```dotenv
 E2B_API_URL=https://api.sandbox.kitdev.ai
 E2B_DOMAIN=sandbox.kitdev.ai
-E2B_API_KEY=<secret injected at runtime>
+E2B_API_KEY_FILE=/etc/my-product/secrets/e2b-api-key
 E2B_VALIDATE_API_KEY=true
+E2B_TEMPLATE=<operator-published-alias-or-id>
 ```
+
+`E2B_API_KEY_FILE` is the product application's file-based secret input; the
+example below reads it and passes `apiKey` explicitly to the SDK. Do not export
+the raw value as `E2B_API_KEY` when a protected file mount is available.
 
 Do not set `E2B_SANDBOX_URL` externally. It is a fixed-origin development
 override used by the server-side verifier. Do not enable `E2B_DEBUG`; it
@@ -70,6 +93,14 @@ The repository has proved the equivalent loopback SDK path, but not this
 external HTTPS path. Do not deploy a product integration until the operator
 confirms that public DNS, TLS, API authentication, ConnectRPC streaming, and
 wildcard sandbox routing have passed from a separate client host.
+
+The operator selected unrestricted public TCP 443 as a temporary development
+posture after valid TLS is installed. It is not live yet: current probes still
+time out on both 80 and 443. Public mode exposes the authenticated API and
+wildcard ingress to every Internet source, increasing scanning, brute-force,
+and denial-of-service risk. It must keep TCP 80 and every internal port closed,
+retain rate limits and monitoring, and be replaced by source-restricted mode
+as soon as the product server has a stable public address.
 
 ## Credentials
 
@@ -117,6 +148,128 @@ the operator revokes the old key using its exact key ID and confirmation ID.
 Revocation invalidates upstream authentication immediately. Treat a retained
 local key file as a residual secret until the operator uses the metadata-bound
 `--delete-key-file` flow or removes it under an equivalent controlled process.
+
+### Secure installation on the product server
+
+A managed secret store with audited delivery is preferred. When one is not
+available, run the following once on the product server from a trusted
+administrator session. Replace the SSH host and service identity placeholders.
+The source SSH host key must already be independently verified. Disable shell
+tracing and do not run this through a job system that captures pipeline data.
+
+```console
+set +x
+set -euo pipefail
+service_user='replace-with-product-service-user'
+service_group='replace-with-product-service-group'
+secret_dir=/etc/my-product/secrets
+destination=$secret_dir/e2b-api-key
+
+sudo install -d -o root -g "$service_group" -m 0750 "$secret_dir"
+sudo test ! -e "$destination"
+temporary="$(sudo mktemp -p "$secret_dir" .e2b-api-key.XXXXXX)"
+trap 'sudo rm -f -- "$temporary"' EXIT
+
+ssh -T sandbox-operator-ssh-host \
+  'sudo -n dd if=/etc/kitdev-sandboxes/secrets/external-sdk-product.key iflag=nofollow status=none' \
+  | sudo tee "$temporary" >/dev/null
+
+sudo grep -Eq '^e2b_[0-9a-f]{40}$' "$temporary"
+sudo chown "$service_user:$service_group" "$temporary"
+sudo chmod 0400 "$temporary"
+sudo mv -T "$temporary" "$destination"
+trap - EXIT
+sudo stat -c 'type=%F owner=%U:%G mode=%a links=%h size=%s' "$destination"
+```
+
+The final stat must report a regular file, the intended service identity, mode
+`400`, link count one, and size 45. The pipeline directs the raw bytes from one
+SSH channel into the protected temporary file; it never writes them to the
+terminal, command arguments, shell variables, or an intermediate unprotected
+copy. Remove the product server's ability to read the source host after the
+one-time transfer if it is not needed operationally.
+
+Configure only the nonsecret URLs and the destination filename in the product
+service environment. Restart the service, then confirm through its service
+manager that it runs as the intended identity. Do not inspect the environment
+with commands that dump all process variables, and never use `cat`, clipboard,
+chat, or a command-line `--api-key` value to move the credential.
+
+### Authentication-only smoke test
+
+This smoke test requires public TLS/API reachability but does not require a
+template or create a sandbox. Save it as `sdk-auth-smoke.ts` in the product
+repository and run it with the pinned Node 22.18.0 environment after
+`npm ci`:
+
+```ts
+import { readFile } from "node:fs/promises";
+import { Sandbox, type ConnectionOpts } from "e2b";
+
+const keyFile = process.env.E2B_API_KEY_FILE;
+if (!keyFile) throw new Error("E2B_API_KEY_FILE is required");
+const apiKey = (await readFile(keyFile, "ascii")).trim();
+if (!/^e2b_[0-9a-f]{40}$/.test(apiKey)) throw new Error("invalid E2B API key");
+
+const connection: ConnectionOpts = {
+  apiKey,
+  apiUrl: "https://api.sandbox.kitdev.ai",
+  domain: "sandbox.kitdev.ai",
+  requestTimeoutMs: 30_000,
+};
+
+const page = await Sandbox.list(connection).nextItems();
+console.log(JSON.stringify({ status: "authenticated", visible: page.length }));
+```
+
+```console
+sudo -u replace-with-product-service-user \
+  env E2B_API_KEY_FILE=/etc/my-product/secrets/e2b-api-key \
+  node sdk-auth-smoke.ts
+```
+
+Do not log the connection object or caught HTTP headers. A connection timeout
+before ingress is deployed is expected and is not an authentication result.
+After a stable `E2B_TEMPLATE` is supplied, run the create/command/kill example
+below as the first sandbox mutation.
+
+### Rotation and revocation
+
+On the sandbox host, create a replacement at a new path and label. Never
+overwrite the active file or its metadata:
+
+```console
+sudo ./kitdev api-key create --lifecycle-mode development \
+  --team-slug kitdev-browser-heavy-team \
+  --name external-sdk-product-next \
+  --output /etc/kitdev-sandboxes/secrets/external-sdk-product-next.key \
+  --private-env-file /etc/kitdev-sandboxes/e2b-lab.env
+sudo ./kitdev api-key verify --lifecycle-mode development \
+  --key-file /etc/kitdev-sandboxes/secrets/external-sdk-product-next.key \
+  --metadata-file /etc/kitdev-sandboxes/secrets/external-sdk-product-next.key.metadata.json
+```
+
+Securely install the replacement, restart the product, and prove the external
+authentication smoke before revoking the old key. For a file-based rotation,
+change the transfer's source to `external-sdk-product-next.key` and destination
+to `e2b-api-key.next`; run the smoke against that path, atomically replace the
+service's `e2b-api-key`, restart it, and smoke again. Then use the exact old ID
+in both confirmation fields:
+
+```console
+sudo ./kitdev api-key revoke --lifecycle-mode development \
+  --team-slug kitdev-browser-heavy-team \
+  --key-id d63b17ec-07cb-4577-b33d-e576b01be5e9 \
+  --confirm-key-id d63b17ec-07cb-4577-b33d-e576b01be5e9 \
+  --metadata-file /etc/kitdev-sandboxes/secrets/external-sdk-product.key.metadata.json \
+  --delete-key-file \
+  --private-env-file /etc/kitdev-sandboxes/e2b-lab.env
+```
+
+Retain the revoked metadata as the nonsecret audit record. Remove the obsolete
+product-server copy through its secret-management process and verify that the
+replacement still authenticates. A revoke cannot be undone; recovery is key
+replacement, not restoration of the old value.
 
 ## Minimal runnable example
 
@@ -377,6 +530,7 @@ wildcard ingress remains unproven. See the
 | Surface | Status | Evidence boundary |
 |---|---|---|
 | Package/auth and self-host options | Live-proven | Official SDK, loopback API/proxy |
+| Dedicated external product key | Live-proven (host-local) | Active heavy-team key, masked listing, exact ID; public use pending |
 | List/create/connect/info/metrics/timeout/kill | Live-proven | Ubuntu 26.04 OVH lab |
 | Commands, stdin/EOF, process list/connect/kill | Live-proven | Isolated SDK sandbox |
 | PTY create/input/resize/connect/kill | Live-proven | Isolated SDK sandbox |
@@ -393,6 +547,7 @@ wildcard ingress remains unproven. See the
 | Persistent volumes | Pending | Volume service not deployed |
 
 See the [live result](research/ovh-typescript-sdk-live-core.md),
+[external product-key result](research/external-sdk-product-key-qualification-2026-08-07.md),
 [template-build result](research/ovh-typescript-sdk-template-build.md),
 [coding-template result](research/coding-template-contract.md),
 [browser-template result](research/browser-template-contract.md), and
