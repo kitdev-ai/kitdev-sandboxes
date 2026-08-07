@@ -106,6 +106,8 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
         self.assertIn("pip==26.1.1", direct)
         self.assertIn("--require-hashes", entrypoint)
         self.assertIn("pip check", entrypoint)
+        self.assertIn("dpkg-query", entrypoint)
+        self.assertIn("db:Status-Abbrev", entrypoint)
         self.assertIn("run this command through sudo", entrypoint)
 
     def test_apt_validator_accepts_ubuntu_deb822_and_rejects_foreign_origin(self) -> None:

@@ -1172,4 +1172,10 @@ untracked, and must never be quoted into tracked documentation.
   suite passed with two expected platform/tool skips. Bash and Python parse
   checks, both migration action syntax paths, and Git whitespace checks passed.
   Live apply and post-apply evidence remain pending.
+- **First staging result:** Exact commit `75c6450` was archived to a root-only
+  temporary release directory. Controller bootstrap stopped before package or
+  capacity mutation because `python3 -m venv --help` succeeded although the
+  distro `ensurepip` payload was absent. The reusable bootstrap was corrected
+  to query the exact `python3-venv` dpkg install state before venv creation; no
+  manual package-install bypass was used.
 - **Commit:** Pending in this change set.

@@ -87,4 +87,9 @@ migration records. It does not touch any other legacy resource.
 
 ## Live result
 
-Pending committed-automation apply.
+The first exact release archive staged successfully. Controller bootstrap then
+stopped before package or capacity mutation: the existing `venv --help` probe
+returned success even though Ubuntu's `ensurepip` payload was unavailable, so
+venv creation failed. No manual package install was used. The repository
+bootstrap now checks the exact dpkg state of `python3-venv` before creating the
+controller. Live capacity apply remains pending a new committed release.

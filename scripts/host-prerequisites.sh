@@ -43,8 +43,10 @@ verify_lock() {
 }
 
 bootstrap() {
+  local venv_package_status
   command -v /usr/bin/python3 >/dev/null || die system_python_missing 69
-  if ! /usr/bin/python3 -m venv --help >/dev/null 2>&1; then
+  venv_package_status="$(/usr/bin/dpkg-query --show --showformat='${db:Status-Abbrev}' python3-venv 2>/dev/null || true)"
+  if [[ "$venv_package_status" != 'ii ' ]]; then
     [[ "${EUID}" -eq 0 ]] || die 'python3-venv is missing; rerun bootstrap through sudo' 77
     /usr/bin/apt-get update
     /usr/bin/env DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get install \
