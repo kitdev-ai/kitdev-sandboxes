@@ -2,8 +2,8 @@
 
 Date: 2026-08-07
 
-Status: migration automation implemented and locally tested; committed live
-apply remains pending.
+Status: committed automation applied and idempotently reverified on the
+disposable lab; 8 GiB workload acceptance is a separate gate.
 
 ## Read-only audit
 
@@ -118,5 +118,34 @@ The prior record stores 2,048 pages and exact original file bytes. The final
 manifest stores the 24,576 MiB / 12,288-page target and 16,384 MiB ordinary
 reserve. Manifest publication was subsequently made create-once: reapply still
 verifies current memory but cannot rewrite initial apply evidence when
-`MemAvailable` naturally fluctuates. Idempotent reapply remains pending that
-committed correction.
+`MemAvailable` naturally fluctuates.
+
+Exact correction commit `a95f188` reapplied with `changed=0`. Its authenticated
+`remove-check` also passed, predicted restoration of the exact prior file and
+removal of only the two ownership records/state directory, and made no live
+change. The following audit still found 12,288 total/free pages, zero
+reserved/surplus, approximately 36.2 GiB `MemAvailable`, zero Firecracker,
+healthy services/endpoints, and valid single-link rollback metadata. A reboot
+was not required for live allocation or service recovery.
+
+Four superseded temporary release/controller trees were removed after
+qualification. The exact `a95f188` tree remains root-owned under `/var/tmp`,
+using approximately 62 MiB, so reapply or removal can use the same reviewed
+bytes.
+
+## Port and firewall snapshot
+
+Capacity migration did not alter ingress, listeners, Docker publications, or
+UFW. The post-apply posture matched the pre-apply snapshot:
+
+- public-address TCP listeners: 22, 5007, 5008, 5010, 5016, 5017, 5018;
+- loopback Docker publications: API 3000, proxy 3002-3003, PostgreSQL 5432,
+  ClickHouse 8123/9000;
+- Redis 6379 and Loki 3100 are container-network only;
+- UFW permits SSH from public sources, 5007/5008 only from the Docker bridge,
+  5010-5012 and 5016-5018 only from the guest CIDR on guest veth interfaces,
+  and guest forwarding only toward the uplink.
+
+The orchestrator sockets use wildcard binds but are not permitted from the
+public interface by the current UFW policy. Source-allowlisted public HTTPS is
+a separate ingress milestone and was not modified here.

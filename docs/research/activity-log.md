@@ -1199,4 +1199,20 @@ untracked, and must never be quoted into tracked documentation.
   stable desired value. Final manifest publication is now create-once so a
   reapply verifies current memory but cannot rewrite the authenticated initial
   apply record as `MemAvailable` fluctuates.
+- **Final live verification:** Exact correction commit `a95f188` reapplied with
+  `changed=0`. Authenticated `remove-check` passed and predicted the exact prior
+  file plus ownership-record removal without changing live state. A final
+  read-only audit still showed 12,288 total/free pages, zero reserved/surplus,
+  about 36.2 GiB `MemAvailable`, zero Firecracker, active Docker/orchestrator,
+  healthy API/proxy, and mode-`0600` single-link ownership records. No reboot
+  was required.
+- **Port posture:** Public-address TCP listeners remained 22, 5007, 5008, 5010,
+  5016, 5017, and 5018. UFW exposes only SSH publicly; orchestrator ports are
+  restricted to exact Docker bridge or guest-veth source/interface rules.
+  Docker publishes API/proxy/PostgreSQL/ClickHouse ports only on loopback;
+  Redis and Loki have no host publication. Capacity work changed no firewall,
+  listener, ingress, or Docker publication state.
+- **Staging cleanup:** Four superseded root-owned temporary release trees were
+  removed after verification. The exact `a95f188` release and controller remain
+  in `/var/tmp` at approximately 62 MiB for authenticated reapply/removal.
 - **Commit:** Pending in this change set.
