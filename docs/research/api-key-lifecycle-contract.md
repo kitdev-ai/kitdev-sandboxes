@@ -65,17 +65,52 @@ false. Selection accepts mutually exclusive UUID or exact slug inputs. If both
 are omitted, exactly one eligible team is accepted; zero or multiple teams fail
 closed. This supports dedicated heavy/browser teams without manual SQL.
 
-## Verification status
+## Offline verification
 
 Offline unit coverage proves response validation, authentication errors,
 atomic mode-`0600` publication, metadata secret exclusion, idempotent create,
 both interrupted-create recovery branches, strict secret-source formats,
 ambiguous-team refusal, root-owned parent enforcement, metadata-bound local
 deletion, exact slug selection, CLI dispatch, structured errors, and dry-run
-nonexecution.
+nonexecution. The focused API-key, CLI, and control-plane asset suite passed 64
+tests with one expected platform skip before live staging. Ruff passed for the
+new Python module and tests.
 
-The exact implementation revision still requires a sanitized live host gate:
-create a disposable key, rerun create, list its masked metadata, verify it,
-revoke it, prove rejected authentication, delete its local secret, and inspect
-bounded outputs and service logs for raw-key leakage. Until that gate is
-recorded, the implementation is offline-qualified rather than live-qualified.
+## Live host gate
+
+The first exact `9a1a4af` read-only discovery stopped because Docker emits
+12-character IDs. Commit `5245aed` accepted only 12- or 64-hex forms. Discovery
+then stopped because the legacy lab containers have no Compose labels. Commit
+`3b2c4df` added an exact `kitdev-postgres` legacy-name fallback alongside the
+fresh Compose label pair. It reached PostgreSQL but the legacy database does
+not use the fresh replay's `kitdev` identity. Commit `a09fcbd` changed the fixed
+in-container query to use that container's declared `POSTGRES_USER` and
+`POSTGRES_DB` without reading, printing, or passing its password. No key or
+database mutation occurred during these three fail-closed attempts.
+
+The exact `a09fcbd` archive then passed the complete development gate on the
+OVH bare-metal host:
+
+| Predicate | Result |
+|---|---|
+| eligible team discovery | pass; three teams, UUID/slug/name only |
+| exact slug selection | pass |
+| disposable create | `created`; raw value only in root-owned file |
+| key and metadata | `root:root`, mode `0600`, link count one |
+| identical create rerun | `existing`; no second POST/key |
+| list | disposable key present with UUID and mask only |
+| verify | `authenticated` through `GET /sandboxes?limit=1` |
+| exact-ID revoke | `revoked` |
+| verify after revoke | `api_key_authentication_failed`, exit 77 |
+| deletion recovery rerun | `already-revoked`; local key deleted |
+| final remote list | zero matching disposable key names |
+| metadata and recent journal scan | zero raw-key regex matches |
+
+The safe mask contains the literal `e2b_` prefix, so leakage checks use the
+complete `e2b_[0-9a-f]{40}` raw-key pattern rather than treating that public
+prefix as a secret. Final cleanup removed the disposable metadata, key, and all
+four root-only temporary release trees. No credential or live identifier is
+retained in this report.
+
+This qualifies the implemented API-key lifecycle on the current development
+lab. Fresh-host replay remains a separate whole-system gate.

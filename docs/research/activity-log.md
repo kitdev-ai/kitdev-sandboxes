@@ -1216,3 +1216,32 @@ untracked, and must never be quoted into tracked documentation.
   removed after verification. The exact `a95f188` release and controller remain
   in `/var/tmp` at approximately 62 MiB for authenticated reapply/removal.
 - **Commit:** Pending in this change set.
+
+## 2026-08-07 - API-key lifecycle CLI and live qualification
+
+- **Intent:** Give the bare-metal operator a credential-safe, reproducible way
+  to discover teams and create, list, verify, revoke, and delete project API
+  keys for external product integrations.
+- **Implementation:** Added the root-only `kitdev api-key` command group, fixed
+  loopback admin transport, exact team UUID/slug selection, strict private
+  input files, atomic mode-0600 key/metadata publication, crash recovery,
+  duplicate-ID revoke confirmation, and metadata-bound local deletion. Added
+  the root-owned secrets directory to fresh layout convergence.
+- **Offline verification:** The focused API-key, CLI, and control-plane asset
+  suite passed 64 tests with one expected platform skip; the new module/tests
+  passed Ruff and Git whitespace checks.
+- **Fail-closed live corrections:** Three read-only discovery attempts exposed
+  Docker short IDs, unlabeled legacy containers, and a legacy PostgreSQL
+  identity. Commits `5245aed`, `3b2c4df`, and `a09fcbd` added bounded support
+  without accepting arbitrary containers or database credentials. None of the
+  failed attempts created a key or changed the database.
+- **Live result:** Exact `a09fcbd` created one disposable key by exact team slug;
+  both files were root-owned, single-link, and mode 0600. Identical create,
+  masked list, and authenticated verify passed. Exact confirmed revoke passed,
+  post-revoke verify failed with exit 77, and a rerun completed local deletion.
+  Final list showed no matching remote key and recent journal/metadata scans
+  found no complete raw-key pattern.
+- **Cleanup:** Removed the disposable key and metadata plus all four temporary
+  release trees. No credential or live identifier was retained in tracked
+  evidence.
+- **Commit:** Pending in this change set.

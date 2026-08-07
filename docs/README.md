@@ -5,6 +5,8 @@ Milestone 0 establishes contracts before implementation:
 - `architecture.md` describes the proposed system and trust boundaries.
 - `preflight-design.md` specifies read-only discovery, validation, and dry-run.
 - `milestone-plan.md` defines incremental delivery and review gates.
+- `open-tasks.md` tracks the current execution backlog, dependencies, and
+  objective completion gates.
 - `dependency-management.md` defines pinning and lock generation policy.
 - `adr/` contains decisions whose consequences span multiple components.
 - `research/` contains dated host, upstream, and compatibility evidence.
