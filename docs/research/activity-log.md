@@ -1465,3 +1465,42 @@ untracked, and must never be quoted into tracked documentation.
   verification with idempotent reapply and bounded removal. Executing this
   runbook on a genuinely fresh host is the qualification that would prove it.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Fresh-host blocker audit and prerequisite corrections
+
+- **Intent:** Verify an independent audit claiming the automated fresh-host
+  path cannot complete, and correct what it found.
+- **Delegated LUNA agent:** LUNA project-lead role with a delegated read-only
+  install-path mapping agent.
+- **Verification before action:** Each claim was re-derived directly rather
+  than accepted. The `kitdev` group has five consumers in `lifecycle.sh`,
+  `prepare-layout.sh`, `preflight-orchestrator.sh`, `seed-local-template.sh`
+  and `build-envd.sh`, and no creator anywhere. `preflight-orchestrator.sh`
+  requires `iptables` and `rsync` on every orchestrator start while the
+  prerequisite package list carried neither. `local-build-smoke` appears
+  exactly once in the repository, in its own definition line.
+- **Fixed:** Added a shared `kitdev` system group at reserved GID 61003,
+  converged before the service identities and carried as a supplementary group
+  for the worker. Added `iptables`, `rsync` and `procps` to the prerequisite
+  package list. Both are covered by new focused tests.
+- **Open and recorded:** `seed-local-template.sh` requires a storage tree under
+  a hardcoded historical build ID that nothing creates, so `kitdev install`
+  runs its full sequence and then fails at the last step. This is now backlog
+  task 6 and is called out at the top of the fresh-server runbook.
+- **Runbook corrections:** `publish-stable-template.sh` takes exactly seven
+  positional arguments beginning with an operation; the documented form would
+  have failed with `invalid_arguments`. The API-key stage was ordered after the
+  template stage that consumes its output, so the two were swapped. The browser
+  product's team provisioning step was missing entirely, and its gate requires
+  the exact starting limits row, so raising limits must follow rather than
+  precede it.
+- **Files and evidence:** [fresh server installation](../fresh-server-installation.md),
+  [handover](../HANDOVER.md), `ansible/roles/preflight/defaults/main.yaml`,
+  `ansible/roles/host_identity/tasks/main.yaml`.
+- **Mutation status:** Repository only. The prerequisite playbook cannot run
+  against the legacy host, so these corrections are untested on any live host.
+- **Limitations / next gate:** All three findings came from reading code, not
+  from executing it on a fresh host. The group and package fixes are unverified
+  in practice. Executing the runbook on a genuinely clean host remains the only
+  qualification that would prove any of this.
+- **Commit:** Pending in this change set.

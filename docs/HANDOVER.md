@@ -219,24 +219,25 @@ evidence; one successful command is not completion.
 | 3 | Restricted firewall mode | Blocked on operator input | Collect the product server's stable public IPv4 `/32` and any IPv6 `/128`, move from `public` to `restricted`, prove allowed source succeeds, denied source fails, 80 stays closed, removal and rollback work |
 | 4 | Host runtime admission control | Patch committed at `bc24873`, live-unproved | Build and install the patched orchestrator, pass preflight, bind its schema-2 manifest, and prove refusal, release, and crash cleanup before mutation rather than only at the API |
 | 5 | 24 GiB hugepage migration | Apply/reapply proved; reboot and rollback open | Exact 12,288-page state survives reboot; authenticated remove restores captured prior state; second remove and post-removal reboot pass |
+| 6 | Fresh-host seed template | **Blocks fresh install** | `seed-local-template.sh` is the last step of `kitdev install` and requires a `local-build-smoke` storage tree under hardcoded build ID `2d9a8389-…`. That string appears exactly once in the repository — its own definition — so nothing creates it; it is a historical lab artifact. Make the step generate its input, or make it optional, so `install` can return success on a host that has never run a build |
 
 ### Next
 
 | # | Workstream | Status | Completion gate |
 |---:|---|---|---|
-| 6 | Fresh-host automation | Partial; end-to-end replay unproved | One reviewed flow owns storage, containerd, Docker, firewall, ingress, control plane, templates, services, verification, idempotent reapply, and bounded removal on a fresh supported host |
-| 7 | Orchestrator installer defect | Known, deferred | `install-orchestrator-service.sh` passes `require_exact_file` its arguments reversed, exactly as the ingress installer did, so it validates the release tree instead of the installed file. Latent because its staged modes match, but it never checks installed ownership |
-| 8 | Destructive backup/restore | Offline-qualified; live-unproved | Create authenticated off-host-capable artifacts, destroy disposable state, restore on a compatible clean release, pass SDK and snapshot checks, reject corruption and incompatibility |
-| 9 | Security hardening | Planned/partial | Harden SSH and IPv6; prove secret permissions and rotation, rate limits, audit logs without credential leakage, sandbox egress policy, dependency scans, adversarial isolation tests |
-| 10 | Sustained load | Unmeasured | Hold a full fleet under real work for hours; measure vCPU contention at 12 sandboxes on 8 threads; decide whether to raise the pool toward the 32 GiB policy ceiling |
+| 7 | Fresh-host automation | Partial; end-to-end replay unproved | One reviewed flow owns storage, containerd, Docker, firewall, ingress, control plane, templates, services, verification, idempotent reapply, and bounded removal on a fresh supported host |
+| 8 | Orchestrator installer defect | Known, deferred | `install-orchestrator-service.sh` passes `require_exact_file` its arguments reversed, exactly as the ingress installer did, so it validates the release tree instead of the installed file. Latent because its staged modes match, but it never checks installed ownership |
+| 9 | Destructive backup/restore | Offline-qualified; live-unproved | Create authenticated off-host-capable artifacts, destroy disposable state, restore on a compatible clean release, pass SDK and snapshot checks, reject corruption and incompatibility |
+| 10 | Security hardening | Planned/partial | Harden SSH and IPv6; prove secret permissions and rotation, rate limits, audit logs without credential leakage, sandbox egress policy, dependency scans, adversarial isolation tests |
+| 11 | Sustained load | Unmeasured | Hold a full fleet under real work for hours; measure vCPU contention at 12 sandboxes on 8 threads; decide whether to raise the pool toward the 32 GiB policy ceiling |
 
 ### Later
 
 | # | Workstream | Status | Completion gate |
 |---:|---|---|---|
-| 11 | Clean OS replay matrix | Not started | Reinstall clean Ubuntu 26.04 and complete install/reapply/reboot/restore/removal acceptance; separately qualify Ubuntu 25.04 for development only; confirm Ubuntu 24.04 rejection |
-| 12 | Second template release | Not started | Publish a v2 alongside v1, move `stable` only after the same acceptance gate, and prove rollback and retirement |
-| 13 | Final release gate | Not started | Combined unit/integration/live SDK suites, security and secret scans, docs and link validation, reproducibility checks, clean-worktree verification, one identified release revision |
+| 12 | Clean OS replay matrix | Not started | Reinstall clean Ubuntu 26.04 and complete install/reapply/reboot/restore/removal acceptance; separately qualify Ubuntu 25.04 for development only; confirm Ubuntu 24.04 rejection |
+| 13 | Second template release | Not started | Publish a v2 alongside v1, move `stable` only after the same acceptance gate, and prove rollback and retirement |
+| 14 | Final release gate | Not started | Combined unit/integration/live SDK suites, security and secret scans, docs and link validation, reproducibility checks, clean-worktree verification, one identified release revision |
 
 ### Standing exceptions
 

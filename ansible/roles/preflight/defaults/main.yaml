@@ -5,6 +5,14 @@ kitdev_supported_platforms:
   - os_version: "25.04"
     lifecycle_modes: [development, migration]
 
+# Shared group owning runtime artifacts the orchestrator reads. Five scripts
+# require it to exist (lifecycle, prepare-layout, preflight-orchestrator,
+# seed-local-template, build-envd) and nothing created it, so a fresh host
+# failed at the first control-plane step with kitdev_group_required.
+kitdev_shared_group:
+  name: kitdev
+  gid: 61003
+
 kitdev_service_identities:
   - name: kitdev-e2b
     uid: 61000
@@ -17,7 +25,7 @@ kitdev_service_identities:
   - name: kitdev-worker
     uid: 61002
     gid: 61002
-    supplementary_groups: [kvm]
+    supplementary_groups: [kvm, kitdev]
 
 kitdev_prerequisite_packages:
   - ca-certificates
@@ -25,9 +33,16 @@ kitdev_prerequisite_packages:
   - e2fsprogs
   - git
   - iproute2
+  # The orchestrator preflight requires iptables and rsync on every start, and
+  # seed-local-template requires rsync. Neither was installed here; the manual
+  # Docker bootstrap happened to pull iptables in, which hid the gap.
+  - iptables
   - jq
   - kmod
+  # procps supplies pgrep, which the prepared-host gate requires.
+  - procps
   - qemu-utils
+  - rsync
   - util-linux
 
 kitdev_capacity_max_sandbox_memory_mib: 8192

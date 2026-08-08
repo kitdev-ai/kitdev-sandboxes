@@ -19,14 +19,34 @@ hit at least one thing this document did not anticipate.
 
 Budget most of a day. The builds dominate.
 
+### Known blockers on a truly fresh host
+
+A code audit found three defects that stop the automated path before it
+completes. Two are fixed; **one is not**, and you will hit it.
+
+| Blocker | Status |
+|---|---|
+| The shared `kitdev` group had no creator, though five control-plane scripts require it. `kitdev install` died immediately with `kitdev_group_required` | **Fixed** — stage 1 now creates it |
+| `iptables`, `rsync` and `procps` are required at orchestrator start but were not installed. The reference host only worked because the manual Docker step happened to pull `iptables` in | **Fixed** — added to stage 1 |
+| `seed-local-template.sh`, the final step of `kitdev install`, requires a `local-build-smoke` storage tree under a hardcoded build ID. Nothing in the repository creates it — it is a historical lab artifact | **Open.** `install` runs all preceding steps, then fails at the last one with `source_template_missing` |
+
+The third means `kitdev install` cannot return success on a fresh host today.
+Everything before that step persists and the run is convergent, so a retry
+resumes safely — but you will need to seed a first template by another route,
+or wait for that step to be made optional. Track it in
+[`HANDOVER.md`](HANDOVER.md).
+
+These were found by reading code, not by executing it on a fresh host. Expect
+others.
+
 | Stage | What | Status |
 |---:|---|---|
 | 0 | OS install, disks, network | **Manual** |
 | 1 | Host prerequisites | Automated (Ansible) |
 | 2 | Docker Engine | **Manual**, pinned versions recorded |
 | 3 | Control plane | Automated (`kitdev install`) |
-| 4 | Templates | Scripted |
-| 5 | API key | Automated CLI |
+| 4 | API key | Automated CLI |
+| 5 | Templates | Scripted |
 | 6 | Team limits | Automated CLI |
 | 7 | DNS, TLS, ingress | Scripted, proven end to end |
 | 8 | Public firewall mode | Automated CLI |
@@ -253,38 +273,9 @@ and attempts to restore the prior service set on failure.
 
 ---
 
-## Stage 4 — Templates — *scripted*
+## Stage 4 — API key — *automated*
 
-Sandboxes need a published template. Build and qualify the coding and browser
-templates, then publish stable aliases.
-
-```console
-sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin KITDEV_LIFECYCLE=development \
-  /usr/bin/bash scripts/control-plane/verify-typescript-sdk-coding-template.sh \
-  --api-key-file /run/kitdev-sandboxes/e2e-api-key
-
-sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin KITDEV_LIFECYCLE=development \
-  /usr/bin/bash scripts/control-plane/publish-stable-template.sh --product coding
-```
-
-Repeat for the browser product. Publication takes the lifecycle and SDK locks,
-requires a healthy orchestrator, and refuses any live Firecracker process or
-in-progress build. The browser publication additionally requires the full
-hugepage pool free.
-
-Each product gets a root-only journal under
-`/var/lib/kitdev-sandboxes/template-publication` binding product, alias,
-version, definition hash, template ID and build ID. A rerun verifies and
-returns unchanged rather than building again.
-
-### Verify
-
-Both `kitdev-coding:stable` and `kitdev-browser-heavy:stable` should resolve to
-a ready build, and their journals should read `state: published`.
-
----
-
-## Stage 5 — API key — *automated*
+The template gates in stage 5 consume an API key file, so issue it first.
 
 ```console
 sudo ./kitdev api-key teams
@@ -306,6 +297,50 @@ ssh -T <sandbox-host> 'sudo -n dd if=/etc/kitdev-sandboxes/secrets/<product>.key
   iflag=nofollow status=none' | sudo tee /etc/my-product/secrets/e2b-api-key >/dev/null
 sudo chmod 0400 /etc/my-product/secrets/e2b-api-key
 ```
+
+---
+
+## Stage 5 — Templates — *scripted*
+
+Sandboxes need a published template. Qualify the build, then publish a stable
+alias. Every command below takes an **absolute** path to a key file.
+
+```console
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/control-plane/verify-typescript-sdk-coding-template.sh \
+  --api-key-file /etc/kitdev-sandboxes/secrets/<product>.key
+
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/control-plane/publish-stable-template.sh \
+  publish --product coding --version v1 \
+  --api-key-file /etc/kitdev-sandboxes/secrets/<product>.key
+```
+
+`publish-stable-template.sh` takes **exactly seven arguments** in that order —
+an operation first, then the three flag pairs. Omitting the operation or any
+pair fails with `invalid_arguments` (exit 64).
+
+### The browser product needs its team provisioned first
+
+Do not simply repeat the coding commands. `publish-stable-template.sh` gates
+the browser product on a dedicated team whose limits row matches exactly, plus
+a fully free hugepage pool and sufficient ordinary memory. Provision it first:
+
+```console
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/control-plane/provision-browser-heavy-profile.sh \
+  --api-key-file /etc/kitdev-sandboxes/secrets/<product>.key
+```
+
+Then run the browser qualification and publish with `--product browser-heavy`.
+Because the gate requires the exact starting limits row, **do stage 6 after
+this**, not before — raising limits first will make the gate refuse.
+
+Publication takes the lifecycle and SDK locks, requires a healthy orchestrator,
+and refuses any live Firecracker process or in-progress build. Each product
+gets a root-only journal under
+`/var/lib/kitdev-sandboxes/template-publication`. A rerun verifies and returns
+unchanged rather than building again.
 
 ---
 

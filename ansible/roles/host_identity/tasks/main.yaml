@@ -1,4 +1,11 @@
 ---
+- name: Converge the shared runtime artifact group
+  ansible.builtin.group:
+    name: "{{ kitdev_shared_group.name }}"
+    gid: "{{ kitdev_shared_group.gid }}"
+    system: true
+    state: present
+
 - name: Converge dedicated primary service groups
   ansible.builtin.group:
     name: "{{ item.name }}"

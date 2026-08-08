@@ -82,7 +82,39 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
         self.assertEqual([item["gid"] for item in identities], [61000, 61001, 61002])
         self.assertEqual(identities[0]["supplementary_groups"], [])
         self.assertEqual(identities[1]["supplementary_groups"], [])
-        self.assertEqual(identities[2]["supplementary_groups"], ["kvm"])
+        self.assertEqual(identities[2]["supplementary_groups"], ["kvm", "kitdev"])
+
+    def test_shared_kitdev_group_is_converged(self) -> None:
+        # Five control-plane scripts require this group and nothing created it,
+        # so a fresh host died at the first install step with
+        # kitdev_group_required. It must be created before the service users
+        # that carry it as a supplementary group.
+        defaults = yaml.safe_load(
+            (ROOT / "ansible" / "roles" / "preflight" / "defaults" / "main.yaml").read_text()
+        )
+        shared = defaults["kitdev_shared_group"]
+        self.assertEqual(shared["name"], "kitdev")
+        self.assertGreaterEqual(shared["gid"], 61000)
+        tasks = (
+            ROOT / "ansible" / "roles" / "host_identity" / "tasks" / "main.yaml"
+        ).read_text()
+        self.assertIn("kitdev_shared_group.name", tasks)
+        self.assertLess(
+            tasks.index("kitdev_shared_group.name"),
+            tasks.index("Converge locked non-login service identities"),
+        )
+
+    def test_orchestrator_runtime_commands_are_installed(self) -> None:
+        # preflight-orchestrator.sh requires these on every orchestrator start,
+        # and seed-local-template.sh requires rsync. The prepared-host gate
+        # requires pgrep from procps.
+        defaults = yaml.safe_load(
+            (ROOT / "ansible" / "roles" / "preflight" / "defaults" / "main.yaml").read_text()
+        )
+        packages = defaults["kitdev_prerequisite_packages"]
+        for required in ("iptables", "rsync", "procps"):
+            self.assertIn(required, packages)
+        self.assertEqual(packages, sorted(packages), "keep the package list sorted")
 
     def test_roles_do_not_use_shell_or_touch_unowned_security_policy(self) -> None:
         task_text = "\n".join(
