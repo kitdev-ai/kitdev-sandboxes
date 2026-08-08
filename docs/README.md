@@ -6,6 +6,9 @@ Milestone 0 establishes contracts before implementation:
   live state, capacity model, security boundaries, evidence, the
   dependency-ordered backlog, rollback, and hard-won lessons. It supersedes the
   former `PROJECT-HANDOVER.md` and `open-tasks.md`.
+- `fresh-server-installation.md` is the stage-by-stage runbook for standing the
+  platform up on a newly installed bare-metal Ubuntu server, marking which
+  stages are automated and which remain manual.
 - `architecture.md` describes the proposed system and trust boundaries.
 - `preflight-design.md` specifies read-only discovery, validation, and dry-run.
 - `milestone-plan.md` defines incremental delivery and review gates.

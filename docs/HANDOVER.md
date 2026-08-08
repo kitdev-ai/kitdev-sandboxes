@@ -372,6 +372,8 @@ rediscover them.
 
 - [`../PROMPT.md`](../PROMPT.md): original product contract.
 - [`../AGENTS.md`](../AGENTS.md): how agents must work in this repository.
+- [`fresh-server-installation.md`](fresh-server-installation.md): stage-by-stage
+  fresh-host runbook, and an explicit list of what is still manual.
 - [`bare-metal-operator-guide.md`](bare-metal-operator-guide.md): operator
   runbook and currently implemented commands.
 - [`typescript-sdk-integration-guide.md`](typescript-sdk-integration-guide.md):

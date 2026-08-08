@@ -1429,3 +1429,39 @@ untracked, and must never be quoted into tracked documentation.
 - **Limitations / next gate:** The backlog is a restatement of known work, not
   new qualification. Nothing in this change moves a gate.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Fresh-server installation runbook
+
+- **Intent:** Answer whether this platform can be stood up on a fresh bare-metal
+  Ubuntu server, and give an operator a complete stage-by-stage path where one
+  exists.
+- **Delegated LUNA agent:** LUNA project-lead role; a delegated read-only
+  install-path mapping agent was spawned but was not reachable in this
+  environment, so the inventory was performed directly.
+- **Method:** Measured which Ansible roles are implemented versus empty
+  scaffolding, read `ansible/site.yaml` for the converged role set, extracted
+  the authoritative control-plane sequence from `lifecycle.sh`, and confirmed
+  the install boundary and refusal conditions from `docs/operations.md`.
+- **Finding:** Only preflight, host_packages, host_identity, host_kernel and
+  host_manifest are implemented. The docker, e2b_api, e2b_datastores,
+  e2b_orchestrator, e2b_proxy, e2b_sources, e2b_templates, firewall,
+  networking, observability, validation and backup roles are empty. Host
+  prerequisites and the control plane are therefore automated, while storage
+  layout and Docker installation remain manual, and production mode plus the
+  standard and full profiles refuse.
+- **Implementation:** Added `docs/fresh-server-installation.md`: nine stages
+  each marked automated, scripted or manual, with commands, verification,
+  rollback, the exact pinned Docker versions, the hugepage sizing decision, an
+  explicit not-automated list, and a failure-modes section ordered by how much
+  time each cost during the original bring-up.
+- **Honesty boundary:** The document states plainly that this exact sequence
+  has never been executed start to finish on a fresh host, and that it is a
+  careful runbook rather than a proven replay.
+- **Files and evidence:** [fresh server installation](../fresh-server-installation.md),
+  indexed in `docs/README.md` and linked from `HANDOVER.md`.
+- **Mutation status:** Documentation only; no host change.
+- **Limitations / next gate:** Backlog task 6 remains the real fix — one
+  reviewed flow that owns storage, Docker, control plane, ingress and
+  verification with idempotent reapply and bounded removal. Executing this
+  runbook on a genuinely fresh host is the qualification that would prove it.
+- **Commit:** Pending in this change set.
