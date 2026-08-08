@@ -393,6 +393,23 @@ update_exact_file {tmp}/source {tmp}/target {uid} {gid} 644
             'require_exact_file "$COMPOSE_ROOT/postgres/initdb/00-upstream-roles.sql"', replay
         )
 
+    def test_orchestrator_starts_before_the_compose_stack(self) -> None:
+        # The API reports 503 until it reaches the orchestrator over gRPC, and
+        # `replay-compose.sh up` blocks on the API becoming healthy. Starting
+        # the orchestrator after compose therefore deadlocks a fresh install.
+        # Teardown must stay in the mirror order.
+        lifecycle = (SCRIPTS / "lifecycle.sh").read_text(encoding="ascii")
+        up = lifecycle.split("up_control_plane() {", 1)[1].split("\n}", 1)[0]
+        self.assertLess(
+            up.index("systemctl start kitdev-e2b-orchestrator.service"),
+            up.index('"$SCRIPT_DIR/replay-compose.sh" up'),
+        )
+        down = lifecycle.split("down_control_plane() {", 1)[1].split("\n}", 1)[0]
+        self.assertLess(
+            down.index('"$SCRIPT_DIR/replay-compose.sh" quiesce'),
+            down.index("systemctl stop kitdev-e2b-orchestrator.service"),
+        )
+
     def test_private_environment_is_nonrotating_and_parent_bound(self) -> None:
         source = (SCRIPTS / "private_env.py").read_text(encoding="ascii")
         self.assertLess(source.index("require_parent()"), source.index("os.lstat(ENV_PATH)"))

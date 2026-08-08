@@ -153,8 +153,20 @@ install_control_plane() {
 
 up_control_plane() {
   require_installed
-  "$SCRIPT_DIR/replay-compose.sh" up
+  # The orchestrator starts before the compose stack, not after. The API's
+  # health endpoint reports 503 until it can reach the orchestrator over gRPC
+  # on the core gateway, and `replay-compose.sh up` blocks until the API is
+  # healthy -- so starting the orchestrator afterwards deadlocked: compose
+  # waited on an API that could not become healthy until a service that had not
+  # been started yet. It only ever worked because the reference host already
+  # had the orchestrator running by hand.
+  #
+  # Nothing in the orchestrator's environment comes from the compose stack --
+  # it uses local paths, local ports and the core gateway address -- so there
+  # is no dependency in the other direction. down_control_plane already tears
+  # down in the mirror order: compose first, then the orchestrator.
   systemctl start kitdev-e2b-orchestrator.service
+  "$SCRIPT_DIR/replay-compose.sh" up
   "$SCRIPT_DIR/install-orchestrator-service.sh" verify
   "$SCRIPT_DIR/replay-compose.sh" verify
   printf 'status=pass operation=up-control-plane\n'
