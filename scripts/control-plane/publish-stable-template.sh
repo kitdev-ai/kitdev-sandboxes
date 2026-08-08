@@ -266,7 +266,27 @@ publish_template() {
   if [[ "$state" == qualified_private ]]; then
     :
   elif [[ "$state" == reserved ]]; then
-    alias_count="$(query_database "SELECT count(*) FROM public.env_aliases WHERE alias='$alias';")"
+    # Refuse an alias that is anyone else's, but not our own debris. A build
+    # that fails leaves its env and alias behind, so demanding the alias not
+    # exist at all meant one failed build permanently blocked every later
+    # publish of that product -- recoverable only by deleting rows by hand.
+    # An alias is reclaimable only when it is private, owned by this very API
+    # key's team, and has no build that did not fail. Anything else still
+    # refuses, including a previously published template.
+    local key_hash
+    key_hash="$(api_key_hash "$api_key_file")" ||
+      control_plane_die publication_api_key_hash_failed 65
+    [[ "$key_hash" =~ ^\$sha256\$[A-Za-z0-9+/]{43}$ ]] ||
+      control_plane_die publication_api_key_hash_invalid 65
+    alias_count="$(query_database "
+SELECT count(*) FROM public.env_aliases a JOIN public.envs e ON e.id = a.env_id
+WHERE a.alias='$alias' AND NOT (
+  e.public = false
+  AND e.team_id = (SELECT k.team_id FROM public.team_api_keys k
+                   WHERE k.api_key_hash='$key_hash')
+  AND NOT EXISTS (SELECT 1 FROM public.env_builds b
+                  WHERE b.env_id = e.id AND b.status <> 'failed')
+);")"
     [[ "$alias_count" == 0 ]] || control_plane_die publication_alias_not_owned 65
     prepare_stage "$product" "$alias" "$version"
     write_api_config "$api_key_file" "$stage/api.curlrc" || control_plane_die sdk_api_key_invalid 65

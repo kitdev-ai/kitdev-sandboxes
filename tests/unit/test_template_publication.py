@@ -38,6 +38,23 @@ class TemplatePublicationTests(unittest.TestCase):
         }
         self.assertEqual(module.validate_record(record), record)
 
+    def test_failed_build_debris_does_not_block_a_later_publish(self) -> None:
+        # A build that fails leaves its env and alias rows behind. Requiring the
+        # alias not to exist at all therefore let one failed build block every
+        # later publish of that product permanently, recoverable only by
+        # deleting rows by hand. The alias is reclaimable only when it is
+        # private, owned by this API key's own team, and carries no build that
+        # did not fail -- so a foreign or already-published alias still refuses.
+        self.assertIn("publication_alias_not_owned", RUNNER)
+        guard = RUNNER.split("SELECT count(*) FROM public.env_aliases a", 1)[1].split(";\")", 1)[0]
+        self.assertIn("e.public = false", guard)
+        self.assertIn("k.api_key_hash='$key_hash'", guard)
+        self.assertIn("b.status <> 'failed'", guard)
+        self.assertIn("NOT EXISTS", guard)
+        # The team must come from the key being used, never a caller argument.
+        self.assertIn('key_hash="$(api_key_hash "$api_key_file")"', RUNNER)
+        self.assertIn("publication_api_key_hash_invalid", RUNNER)
+
     def test_journal_schema_rejects_alias_substitution(self) -> None:
         module = load_state_module()
         record = {
