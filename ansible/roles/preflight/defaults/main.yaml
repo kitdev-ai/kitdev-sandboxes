@@ -25,7 +25,13 @@ kitdev_service_identities:
   - name: kitdev-worker
     uid: 61002
     gid: 61002
-    supplementary_groups: [kvm, kitdev]
+    # Exactly kvm. common.sh:require_worker_identity demands this identity be
+    # in exactly two groups, and that check runs immediately BEFORE the shared
+    # group check in prepare-layout, lifecycle, and the orchestrator's
+    # ExecStartPre. Adding a third made every one of them fail. Membership buys
+    # nothing anyway: the orchestrator runs as root and nothing runs as this
+    # user; the five consumers need only that the `kitdev` group exists.
+    supplementary_groups: [kvm]
 
 kitdev_prerequisite_packages:
   - ca-certificates
@@ -70,3 +76,8 @@ kitdev_managed_host_files:
   - /etc/modules-load.d/90-kitdev-sandboxes.conf
   - /etc/modprobe.d/90-kitdev-sandboxes-nbd.conf
   - /etc/sysctl.d/90-kitdev-sandboxes.conf
+
+# Uninstalling prerequisite packages can cascade: apt removes whatever depends
+# on them, and removing iptables takes the container runtime with it. Removal
+# leaves them installed unless an operator deliberately opts in.
+kitdev_remove_packages: false

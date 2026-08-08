@@ -252,3 +252,29 @@ class LifecycleAssetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LifecycleAssetPublicationTests(unittest.TestCase):
+    """The SDK asset loop globbed a tree that later gained subdirectories and
+    died on the first entry, so install could not complete on any host."""
+
+    def test_sdk_asset_loop_tolerates_subdirectories(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        script = (root / "scripts" / "control-plane" / "lifecycle.sh").read_text()
+        loop = script.split('for source in "$SCRIPT_DIR/e2e-typescript-sdk"/*; do', 1)[1]
+        loop = loop.split("done", 1)[0]
+        self.assertIn('[[ ! -d "$source" ]] || continue', loop)
+        # Exercise the guard against the real tree, which contains directories.
+        assets = root / "scripts" / "control-plane" / "e2e-typescript-sdk"
+        entries = sorted(assets.iterdir())
+        self.assertTrue(any(e.is_dir() for e in entries), "fixture must contain a directory")
+        for entry in entries:
+            if entry.is_dir():
+                continue
+            self.assertTrue(entry.is_file() and not entry.is_symlink())
+
+    def test_build_plugins_are_gated_with_reason_codes(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        script = (root / "scripts" / "control-plane" / "lifecycle.sh").read_text()
+        self.assertIn("missing_docker_buildx", script)
+        self.assertIn("missing_docker_compose", script)

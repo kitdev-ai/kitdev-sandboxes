@@ -82,7 +82,7 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
         self.assertEqual([item["gid"] for item in identities], [61000, 61001, 61002])
         self.assertEqual(identities[0]["supplementary_groups"], [])
         self.assertEqual(identities[1]["supplementary_groups"], [])
-        self.assertEqual(identities[2]["supplementary_groups"], ["kvm", "kitdev"])
+        self.assertEqual(identities[2]["supplementary_groups"], ["kvm"])
 
     def test_shared_kitdev_group_is_converged(self) -> None:
         # Five control-plane scripts require this group and nothing created it,
@@ -103,6 +103,36 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
             tasks.index("kitdev_shared_group.name"),
             tasks.index("Converge locked non-login service identities"),
         )
+
+    def test_package_removal_is_opt_in(self) -> None:
+        # apt removes reverse dependencies too, so uninstalling iptables would
+        # take the container runtime with it and report success.
+        defaults = yaml.safe_load(
+            (ROOT / "ansible" / "roles" / "preflight" / "defaults" / "main.yaml").read_text()
+        )
+        self.assertIs(defaults["kitdev_remove_packages"], False)
+        remove = (ROOT / "ansible" / "roles" / "host_remove" / "tasks" / "main.yaml").read_text()
+        self.assertIn("when: kitdev_remove_packages and", remove)
+        self.assertIn("kitdev_removable_packages", remove)
+
+    def test_worker_group_contract_matches_the_runtime_gate(self) -> None:
+        # The two contracts drifted once and made every control-plane entry
+        # point fail. require_worker_identity demands the worker be in exactly
+        # two groups, so the converged supplementary set must stay at one entry.
+        defaults = yaml.safe_load(
+            (ROOT / "ansible" / "roles" / "preflight" / "defaults" / "main.yaml").read_text()
+        )
+        worker = next(
+            item
+            for item in defaults["kitdev_service_identities"]
+            if item["name"] == "kitdev-worker"
+        )
+        self.assertEqual(len(worker["supplementary_groups"]), 1, "runtime gate allows exactly two")
+        common = (ROOT / "scripts" / "control-plane" / "common.sh").read_text()
+        self.assertIn('[[ "${#group_ids[@]}" == 2 ]]', common)
+        # The shared group must NOT be granted to the worker; the consumers only
+        # require that it exists.
+        self.assertNotIn("kitdev", worker["supplementary_groups"])
 
     def test_apt_allowlist_carries_no_provider_mirror(self) -> None:
         # A provider mirror in the built-in set silently made this validator

@@ -34,11 +34,15 @@ completes. Two are fixed; **one is not**, and you will hit it.
 | Eight scripts looked up PostgreSQL and Redis by container names that Compose never creates, breaking stages 4-6 on a fresh install | **Fixed** — a shared resolver now accepts both Compose labels and legacy names |
 | The ingress domain is hard-refused in two scripts and baked into `nginx.conf` six times | **Open.** Only `sandbox.kitdev.ai` works without code changes |
 
-The third means `kitdev install` cannot return success on a fresh host today.
-Everything before that step persists and the run is convergent, so a retry
-resumes safely — but you will need to seed a first template by another route,
-or wait for that step to be made optional. Track it in
-[`HANDOVER.md`](HANDOVER.md).
+`kitdev install` therefore cannot return success on a fresh host today. Earlier
+drafts of this document claimed everything before the final step succeeds; that
+was wrong, and two earlier gates were failing first until they were fixed.
+Everything completed does persist and the run is convergent, so a retry resumes
+safely — but you will need to seed a first template by another route, or wait
+for that step to be made optional. Track it in [`HANDOVER.md`](HANDOVER.md).
+
+Note also that `install` never creates an API key and the seed step publishes no
+alias, so a first `Sandbox.create` needs stages 4 and 5 regardless.
 
 These were found by reading code, not by executing it on a fresh host. Expect
 others.

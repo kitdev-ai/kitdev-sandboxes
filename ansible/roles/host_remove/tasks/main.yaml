@@ -1,4 +1,11 @@
 ---
+# Packages this installation added, i.e. absent in the recorded prior state.
+- name: Resolve packages this installation added
+  ansible.builtin.set_fact:
+    kitdev_removable_packages: >-
+      {{ kitdev_prior_state.packages | dict2items
+         | rejectattr('value.installed') | map(attribute='key') | list }}
+
 - name: Require a complete ownership and rollback record
   ansible.builtin.assert:
     that:
@@ -160,12 +167,28 @@
   loop: "{{ kitdev_service_identities }}"
   when: not kitdev_prior_state.identities[item.name].group_existed
 
+# Off by default. The prerequisite set includes shared system packages, and
+# apt must also remove anything that depends on them: removing iptables takes
+# docker-ce with it, and the runbook installs Docker after this play, so those
+# packages are always in the "absent before installation" set. autoremove and
+# purge being false does not prevent reverse-dependency removal. Leaving a
+# package installed is harmless residue; cascading a container runtime out from
+# under a host is not. Opt in only if you know what depends on them.
+- name: Report packages this installation added
+  ansible.builtin.debug:
+    msg: >-
+      Leaving installed: {{ kitdev_removable_packages | join(', ') | default('none', true) }}.
+      Set kitdev_remove_packages=true to uninstall them, understanding that apt
+      will also remove anything depending on them.
+  when: not kitdev_remove_packages
+
 - name: Remove packages absent before installation
   ansible.builtin.apt:
-    name: "{{ kitdev_prior_state.packages | dict2items | rejectattr('value.installed') | map(attribute='key') | list }}"
+    name: "{{ kitdev_removable_packages }}"
     state: absent
     autoremove: false
     purge: false
+  when: kitdev_remove_packages and kitdev_removable_packages | length > 0
 
 - name: Remove completed ownership records
   ansible.builtin.file:

@@ -22,6 +22,12 @@ require_prepared_host() {
     control_plane_die production_template_install_not_implemented 68
   require_worker_identity
   getent group kitdev >/dev/null || control_plane_die kitdev_group_required 65
+  # buildx and the compose plugin are used by five build steps and by every
+  # compose call, but only the docker binary was ever checked. Installing
+  # Docker without the plugins passed every gate and then died mid-build with a
+  # raw Docker error and no reason code.
+  docker buildx version >/dev/null 2>&1 || control_plane_die missing_docker_buildx 69
+  docker compose version >/dev/null 2>&1 || control_plane_die missing_docker_compose 69
   for command in curl docker flock git ip pgrep sha256sum systemctl timeout ufw; do
     require_command "$command"
   done
@@ -71,8 +77,16 @@ install_lifecycle_assets() {
   done
   publish_exact_file "$SCRIPT_DIR/e2e-process-client/main.go" \
     "$INSTALLED_SCRIPT_DIR/e2e-process-client/main.go" root root 644
+  # Asset subdirectories were added to this tree later without adapting the
+  # loop, and its own name validation only ever accepted flat .ts and
+  # package*.json files. Skipping directories restores that intent; before this
+  # the glob died on the first entry, so install could not complete on ANY
+  # host. The installed copy therefore carries no browser asset directories;
+  # run the browser verifier from a staged release tree.
   for source in "$SCRIPT_DIR/e2e-typescript-sdk"/*; do
-    [[ ! -L "$source" && -f "$source" ]] || control_plane_die sdk_source_entry_invalid 65
+    [[ ! -L "$source" ]] || control_plane_die sdk_source_entry_invalid 65
+    [[ ! -d "$source" ]] || continue
+    [[ -f "$source" ]] || control_plane_die sdk_source_entry_invalid 65
     name="$(basename -- "$source")"
     case "$name" in
       package.json|package-lock.json) ;;

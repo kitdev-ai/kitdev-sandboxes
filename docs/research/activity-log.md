@@ -1542,3 +1542,52 @@ untracked, and must never be quoted into tracked documentation.
   today and two of them were in this session's own earlier corrections. The
   path remains unproven; only execution on genuinely fresh hardware settles it.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Adversarial review of the fresh-host path
+
+- **Intent:** Establish whether the automated fresh-host path works, by
+  adversarial review rather than assertion, after two earlier audits each found
+  defects.
+- **Delegated LUNA agents:** three parallel read-only reviewers. Two converged
+  independently on the same critical finding.
+- **Critical self-inflicted regression, now reverted:** granting the worker
+  identity membership of the shared `kitdev` group broke
+  `require_worker_identity`, which demands exactly two groups and runs
+  immediately before the shared-group check in `prepare-layout.sh`,
+  `lifecycle.sh` and the orchestrator's `ExecStartPre`. The earlier commit
+  therefore converted a conditional failure into an unconditional one, one line
+  earlier, and would have blocked orchestrator start on every boot. Verified
+  directly: `common.sh` requires exactly two, the orchestrator unit runs as
+  root, and nothing anywhere runs as `kitdev-worker`, so the membership bought
+  nothing. Group creation is retained; membership is not.
+- **Install could not complete on any host:** `install_lifecycle_assets` globs
+  the SDK asset tree and rejects anything that is not a regular file, but the
+  first two sorted entries are directories added by later commits. Simulated
+  against the real tree: it died on the first entry. The loop now skips
+  directories, restoring the flat-file contract its own name validation always
+  implied.
+- **Destructive rollback path corrected:** removal uninstalled every package
+  absent before install, and apt removes reverse dependencies too, so removing
+  `iptables` would take the container runtime with it and report success.
+  Package removal is now opt-in behind `kitdev_remove_packages`, defaulting to
+  leaving them installed and reporting what was added.
+- **Also added:** explicit `docker buildx` and `docker compose` gates with
+  reason codes; five build steps used buildx and nothing checked for it.
+- **Corrected documentation:** the runbook claimed everything before the final
+  step succeeds. Two earlier gates were failing first. It also now records that
+  install creates no API key and the seed step publishes no alias.
+- **Recorded, not fixed:** installed SDK assets now lack the browser asset
+  directories; the install and orchestrator hugepage gates disagree by 24x;
+  install's egress endpoints are undocumented and the environment scrubbing
+  prevents proxy use.
+- **Confirmed not blockers, after checking:** database schema is created by
+  the postgres and clickhouse migrator services gated on
+  `service_completed_successfully`; `copy-build` has a creator; the
+  browser-heavy team is provisioned in-repo.
+- **Mutation status:** Repository only.
+- **Limitations / next gate:** Twelve defects have now been found in this path
+  across three audits, three of them introduced by this session's own
+  corrections. Nothing here has executed on fresh hardware. The origin of
+  `local-dev-team` and the reproducibility of three byte-exact build hashes
+  remain unresolved by reading alone.
+- **Commit:** Pending in this change set.

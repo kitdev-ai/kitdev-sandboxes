@@ -230,16 +230,19 @@ evidence; one successful command is not completion.
 | 9 | Destructive backup/restore | Offline-qualified; live-unproved | Create authenticated off-host-capable artifacts, destroy disposable state, restore on a compatible clean release, pass SDK and snapshot checks, reject corruption and incompatibility |
 | 10 | Security hardening | Planned/partial | Harden SSH and IPv6; prove secret permissions and rotation, rate limits, audit logs without credential leakage, sandbox egress policy, dependency scans, adversarial isolation tests |
 | 11 | Ingress domain is not configurable | Known, unfixed | `sandbox.kitdev.ai` is hard-refused in `ingress_config.py` and again in `run_lego.py` (the renewal path), and baked into `nginx.conf` six times with no substitution step — and `install-ingress.sh` byte-compares the installed copy, so editing it fails `file_content_conflict`. `KITDEV_INGRESS_DOMAIN` is decorative. Stage 7 is proven for one domain only |
-| 12 | Loopback port conflict preflight | Explicitly unimplemented | `preflight.py` states "not yet implemented" for required-port ownership while six fixed loopback ports are assumed free. A surveyed host already showed 127.0.0.1:5432 and *:3000 as direct conflicts |
-| 13 | Sustained load | Unmeasured | Hold a full fleet under real work for hours; measure vCPU contention at 12 sandboxes on 8 threads; decide whether to raise the pool toward the 32 GiB policy ceiling |
+| 12 | Installed SDK assets lack browser directories | Known, deferred | `install_lifecycle_assets` now skips subdirectories so install can proceed; the installed `/opt` copy therefore has no `browser-resource-profiles` or `browser-template-assets`. Run the browser verifier from a staged release tree, or make the loop publish directories recursively |
+| 13 | Hugepage gate disagreement | Known, unfixed | `require_prepared_host` accepts 512 free pages while `preflight-orchestrator.sh` demands 12,288. A host can clear the install gate and fail orchestrator start by 24x |
+| 14 | Egress endpoints undocumented | Known, unfixed | Install needs GitHub, Docker Hub, `storage.googleapis.com` and the Go module proxy. `acquire-source.sh` runs git under `env -i` without proxy variables, and the lifecycle runner scrubs the environment, so a proxy-only host cannot clone even though Docker pulls would work. No document lists these as prerequisites |
+| 15 | Loopback port conflict preflight | Explicitly unimplemented | `preflight.py` states "not yet implemented" for required-port ownership while six fixed loopback ports are assumed free. A surveyed host already showed 127.0.0.1:5432 and *:3000 as direct conflicts |
+| 16 | Sustained load | Unmeasured | Hold a full fleet under real work for hours; measure vCPU contention at 12 sandboxes on 8 threads; decide whether to raise the pool toward the 32 GiB policy ceiling |
 
 ### Later
 
 | # | Workstream | Status | Completion gate |
 |---:|---|---|---|
-| 14 | Clean OS replay matrix | Not started | Reinstall clean Ubuntu 26.04 and complete install/reapply/reboot/restore/removal acceptance; separately qualify Ubuntu 25.04 for development only; confirm Ubuntu 24.04 rejection |
-| 15 | Second template release | Not started | Publish a v2 alongside v1, move `stable` only after the same acceptance gate, and prove rollback and retirement |
-| 16 | Final release gate | Not started | Combined unit/integration/live SDK suites, security and secret scans, docs and link validation, reproducibility checks, clean-worktree verification, one identified release revision |
+| 17 | Clean OS replay matrix | Not started | Reinstall clean Ubuntu 26.04 and complete install/reapply/reboot/restore/removal acceptance; separately qualify Ubuntu 25.04 for development only; confirm Ubuntu 24.04 rejection |
+| 18 | Second template release | Not started | Publish a v2 alongside v1, move `stable` only after the same acceptance gate, and prove rollback and retirement |
+| 19 | Final release gate | Not started | Combined unit/integration/live SDK suites, security and secret scans, docs and link validation, reproducibility checks, clean-worktree verification, one identified release revision |
 
 ### Standing exceptions
 
