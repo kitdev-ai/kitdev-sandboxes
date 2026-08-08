@@ -85,6 +85,26 @@ class IngressAssetTests(unittest.TestCase):
             self.assertNotIn(forbidden, log_format)
         self.assertIsNone(re.search(r"\$request(?:[^_a-z]|$)", log_format))
 
+    def test_unmanaged_control_plane_firewall_is_development_only(self) -> None:
+        firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
+        body = firewall.split("verify_control_plane_firewall() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn('"${KITDEV_UNMANAGED_CONTROL_PLANE_FIREWALL:-}" == acknowledged', body)
+        # The concession must refuse outside development and must announce itself.
+        self.assertIn('[[ "${KITDEV_LIFECYCLE:-}" == development ]] || return 1', body)
+        self.assertIn("warning=unmanaged_control_plane_firewall", body)
+        self.assertLess(
+            body.index("KITDEV_LIFECYCLE"),
+            body.index('[[ ! -L "$CONTROL_PLANE_FIREWALL"'),
+        )
+        # It must not disable any substantive check.
+        for required in (
+            "verify_ufw_defaults || control_plane_die ufw_default_policy_mismatch 65",
+            "verify_ufw_ipv6 || control_plane_die ufw_ipv6_required 65",
+            "verify_listeners || control_plane_die public_internal_listener_detected 65",
+            "verify_docker_publications || control_plane_die public_docker_ingress_detected 65",
+        ):
+            self.assertIn(required, firewall)
+
     def test_installer_validates_the_installed_file_not_the_release_tree(self) -> None:
         installer = (SCRIPTS / "install-ingress.sh").read_text(encoding="ascii")
         # require_exact_file stats its first argument. Passing the release tree

@@ -490,8 +490,20 @@ sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
 ```
 
 Apply starts the read-only Nginx ingress container, enables the renewal timer,
-and converges the persisted firewall mode. TCP 80 always stays closed. Before
-the external gate, deliberately enable temporary public HTTPS:
+and converges the persisted firewall mode. TCP 80 always stays closed.
+
+The firewall step first proves that this automation installed and owns the
+control-plane rules. A manually assembled development lab has correctly scoped
+rules that this automation did not install, so that proof cannot succeed there.
+Only in that case, and only in development lifecycle, acknowledge it explicitly
+by adding `KITDEV_UNMANAGED_CONTROL_PLANE_FIREWALL=acknowledged` to the `env -i`
+list. The acknowledgement gives up the ownership proof and nothing else: UFW
+default-deny, IPv6 filtering, the internal-listener scope check, the Docker
+publication scope check, and the rule scan that refuses any sensitive port
+allowed from an unrestricted source all still run and still fail closed. Never
+use it on a production host; converge the control plane instead.
+
+Before the external gate, deliberately enable temporary public HTTPS:
 
 ```console
 sudo kitdev firewall mode public

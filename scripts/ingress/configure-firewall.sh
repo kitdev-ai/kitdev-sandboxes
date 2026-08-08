@@ -204,6 +204,17 @@ PY_VERIFY_DOCKER_PORTS
 }
 
 verify_control_plane_firewall() {
+  # A manually assembled development lab has correctly scoped control-plane
+  # rules that this automation did not install, so the managed-ownership proof
+  # below cannot succeed there. Acknowledging that is deliberately explicit,
+  # development-only, and gives up only the ownership proof: UFW defaults,
+  # IPv6, listener scope, Docker publication scope, and the sensitive-port
+  # source check inside verify_ufw_rules all still run and still fail closed.
+  if [[ "${KITDEV_UNMANAGED_CONTROL_PLANE_FIREWALL:-}" == acknowledged ]]; then
+    [[ "${KITDEV_LIFECYCLE:-}" == development ]] || return 1
+    printf 'warning=unmanaged_control_plane_firewall lifecycle=development\n' >&2
+    return 0
+  fi
   [[ ! -L "$CONTROL_PLANE_FIREWALL" && -f "$CONTROL_PLANE_FIREWALL" &&
     -x "$CONTROL_PLANE_FIREWALL" ]] || return 1
   if [[ "$SCRIPT_DIR" == "$KITDEV_OPT_ROOT/libexec/ingress" ]]; then
