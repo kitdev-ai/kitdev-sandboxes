@@ -23,12 +23,16 @@ install_assets() {
   ensure_directory "$COMPOSE_ROOT" root root 755
   ensure_directory "$COMPOSE_ROOT/clickhouse" root root 755
   ensure_directory "$COMPOSE_ROOT/loki" root root 755
+  ensure_directory "$COMPOSE_ROOT/postgres" root root 755
+  ensure_directory "$COMPOSE_ROOT/postgres/initdb" root root 755
   update_exact_file "$SOURCE_ROOT/compose.yaml" "$COMPOSE_FILE" root root 644
   update_exact_file "$SOURCE_ROOT/images.lock.json" "$COMPOSE_ROOT/images.lock.json" root root 644
   update_exact_file "$SOURCE_ROOT/clickhouse/cluster.xml" \
     "$COMPOSE_ROOT/clickhouse/cluster.xml" root root 644
   update_exact_file "$SOURCE_ROOT/loki/config.yaml" \
     "$COMPOSE_ROOT/loki/config.yaml" root root 644
+  update_exact_file "$SOURCE_ROOT/postgres/initdb/00-upstream-roles.sql" \
+    "$COMPOSE_ROOT/postgres/initdb/00-upstream-roles.sql" root root 644
 }
 
 validate_config() (
@@ -40,6 +44,8 @@ validate_config() (
   require_exact_file "$COMPOSE_ROOT/clickhouse/cluster.xml" \
     "$SOURCE_ROOT/clickhouse/cluster.xml" root root 644
   require_exact_file "$COMPOSE_ROOT/loki/config.yaml" "$SOURCE_ROOT/loki/config.yaml" root root 644
+  require_exact_file "$COMPOSE_ROOT/postgres/initdb/00-upstream-roles.sql" \
+    "$SOURCE_ROOT/postgres/initdb/00-upstream-roles.sql" root root 644
   rendered="$(mktemp /tmp/kitdev-compose-config.XXXXXXXX)"
   trap 'rm -f -- "$rendered"' EXIT
   chmod 0600 -- "$rendered"

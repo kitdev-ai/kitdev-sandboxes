@@ -359,6 +359,40 @@ update_exact_file {tmp}/source {tmp}/target {uid} {gid} 644
             self.assertNotEqual(foreign.returncode, 0)
             self.assertIn("file_metadata_conflict", foreign.stderr)
 
+    def test_upstream_postgres_role_is_provided_on_a_fresh_cluster(self) -> None:
+        # Upstream grants to a role named "postgres" in two places -- migrator.go
+        # and the create_triggers_and_policies migration. This deployment runs
+        # the database as "kitdev", and the stock image creates a "postgres"
+        # role only when the user keeps its default name, so a freshly
+        # initialised cluster failed both grants with SQLSTATE 42704 and the
+        # migrator exited 1 before creating any schema.
+        sql = (CONTROL_PLANE / "postgres" / "initdb" / "00-upstream-roles.sql").read_text(
+            encoding="ascii"
+        )
+        self.assertIn("CREATE ROLE postgres NOLOGIN", sql)
+        # Nothing connects as this role; granting it login or privileges would
+        # widen the database's attack surface for no functional gain.
+        self.assertNotIn("SUPERUSER", sql.upper())
+        self.assertNotIn("PASSWORD", sql.upper())
+        self.assertIn("IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'postgres')", sql)
+
+        postgres = service_block(self.compose, "postgres")
+        self.assertIn("source: ./postgres/initdb", postgres)
+        self.assertIn("target: /docker-entrypoint-initdb.d", postgres)
+        initdb = postgres.split("source: ./postgres/initdb", 1)[1]
+        self.assertIn("read_only: true", initdb.split("- type:", 1)[0])
+
+        # The asset has to be installed and verified like every other managed
+        # compose file, or the bind mount resolves to a missing path.
+        replay = (SCRIPTS / "replay-compose.sh").read_text(encoding="ascii")
+        self.assertIn('ensure_directory "$COMPOSE_ROOT/postgres/initdb" root root 755', replay)
+        self.assertIn(
+            'update_exact_file "$SOURCE_ROOT/postgres/initdb/00-upstream-roles.sql"', replay
+        )
+        self.assertIn(
+            'require_exact_file "$COMPOSE_ROOT/postgres/initdb/00-upstream-roles.sql"', replay
+        )
+
     def test_private_environment_is_nonrotating_and_parent_bound(self) -> None:
         source = (SCRIPTS / "private_env.py").read_text(encoding="ascii")
         self.assertLess(source.index("require_parent()"), source.index("os.lstat(ENV_PATH)"))
