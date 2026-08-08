@@ -439,6 +439,23 @@ update_exact_file {tmp}/source {tmp}/target {uid} {gid} 644
         self.assertIn("hugepage_pages_required", lifecycle)
         self.assertNotIn("$2 >= 512", lifecycle)
 
+    def test_migrator_completion_is_asserted_not_waited_on(self) -> None:
+        # `docker compose wait` waits on running containers and fails with
+        # "no containers for project" when the ones named have already exited.
+        # The migrators always have by that point, since `up --detach` blocks
+        # on depends_on: service_completed_successfully before starting the API,
+        # so the call was redundant and fatal under Compose v5. verify_migrations
+        # requires exit code 0, which is what actually needs to be true.
+        replay = (SCRIPTS / "replay-compose.sh").read_text(encoding="ascii")
+        up = replay.split("    up)", 1)[1].split(";;", 1)[0]
+        self.assertNotIn("wait postgres-migrator", up)
+        self.assertIn("verify_migrations", up)
+        # The bound the removed `timeout 300 ... wait` used to provide has to
+        # stay somewhere, or a wedged pull blocks the install indefinitely.
+        self.assertIn("timeout 900 docker compose", up)
+        migrations = replay.split("verify_migrations() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("'exited 0'", migrations)
+
     def test_postgres_declares_no_anonymous_volume(self) -> None:
         # postgres:17.4 declares VOLUME /var/lib/postgresql/data, and PGDATA
         # points elsewhere, so Docker created a throwaway anonymous volume on

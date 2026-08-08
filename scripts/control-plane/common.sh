@@ -274,8 +274,11 @@ update_exact_file() {
 # Value of one limit from an orchestrator environment file or its template.
 orchestrator_limit_value() {
   local file="$1" key="$2" value
+  # Redirect rather than pass a filename operand: `--` after the program text
+  # is a file name to awk, not an option terminator, so the guarded form used
+  # elsewhere in this repo fails here with "cannot open file `--'".
   value="$(awk -F= -v k="$key" '$1 == k { print $2; found = 1; exit } END { exit !found }' \
-    -- "$file")" || control_plane_die orchestrator_limits_unreadable 65
+    <"$file")" || control_plane_die orchestrator_limits_unreadable 65
   [[ "$value" =~ ^[1-9][0-9]{0,6}$ ]] || control_plane_die orchestrator_limits_invalid 65
   printf '%s' "$value"
 }

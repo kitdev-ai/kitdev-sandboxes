@@ -48,8 +48,13 @@ require_prepared_host() {
   # free: the pool being large enough for the configured limits is the durable
   # property this stage can assert, while free pages are a runtime condition the
   # orchestrator's own preflight checks at start.
-  local required
-  required="$(hugepage_pages_required "$SCRIPT_DIR/../../systemd/orchestrator.env.template")"
+  # The template sits beside this script once installed and two levels up in a
+  # release tree, and this runs from both -- from the staged release during
+  # install, and from /opt for `kitdev up` after a reboot. Resolving only the
+  # release path made every installed invocation fail orchestrator_limits_unreadable.
+  local required template="$SCRIPT_DIR/orchestrator.env.template"
+  [[ -f "$template" ]] || template="$SCRIPT_DIR/../../systemd/orchestrator.env.template"
+  required="$(hugepage_pages_required "$template")"
   if (("$(meminfo_pages HugePages_Total)" < required)); then
     printf 'hugepages required=%s total=%s\n' "$required" "$(meminfo_pages HugePages_Total)" >&2
     control_plane_die hugepage_capacity_insufficient 65

@@ -342,10 +342,15 @@ main() {
     validate) ;;
     pull) compose pull postgres redis clickhouse loki ;;
     up)
-      compose up --detach
-      timeout 300 docker compose --project-name kitdev-control-plane \
-        --env-file "$KITDEV_PRIVATE_ENV" --file "$COMPOSE_FILE" \
-        wait postgres-migrator clickhouse-migrator
+      # No `compose wait` on the migrators. It waits on running containers and
+      # fails with `no containers for project` once the ones it was given have
+      # exited -- which they always have by this point, because `up --detach`
+      # blocks on depends_on: service_completed_successfully before it starts
+      # the API. The call was redundant and became fatal under Compose v5.
+      # verify_migrations is the stronger assertion in any case: it requires
+      # each migrator to have exited 0, not merely to have stopped.
+      timeout 900 docker compose --project-name kitdev-control-plane \
+        --env-file "$KITDEV_PRIVATE_ENV" --file "$COMPOSE_FILE" up --detach
       verify_migrations
       compose up --detach --wait --wait-timeout 300 api client-proxy
       verify_runtime_contract || control_plane_die compose_runtime_contract_invalid 65
