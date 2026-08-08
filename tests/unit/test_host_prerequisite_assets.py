@@ -116,6 +116,27 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
             self.assertIn(required, packages)
         self.assertEqual(packages, sorted(packages), "keep the package list sorted")
 
+    def test_shared_group_is_guarded_recorded_and_removable(self) -> None:
+        # Creating a resource without recording prior state and without a
+        # removal path leaves residue that apply/remove/apply cannot clean.
+        preflight = (
+            ROOT / "ansible" / "roles" / "preflight" / "tasks" / "main.yaml"
+        ).read_text()
+        self.assertIn("kitdev_shared_group_prior", preflight)
+        self.assertIn("Reject a foreign occupant of the reserved shared group id", preflight)
+        self.assertIn("Reject a shared group already present at a different id", preflight)
+
+        prior = (
+            ROOT / "ansible" / "roles" / "host_packages" / "templates" / "prior-state.json.j2"
+        ).read_text()
+        self.assertIn('"shared_group"', prior)
+        self.assertIn("kitdev_shared_group_prior.rc == 0", prior)
+
+        remove = (ROOT / "ansible" / "roles" / "host_remove" / "tasks" / "main.yaml").read_text()
+        self.assertIn("Remove the shared group created by this installation", remove)
+        # Absent prior state must mean "leave it alone", never "delete it".
+        self.assertIn("kitdev_prior_state.shared_group.existed | default(true)", remove)
+
     def test_roles_do_not_use_shell_or_touch_unowned_security_policy(self) -> None:
         task_text = "\n".join(
             path.read_text(encoding="utf-8")

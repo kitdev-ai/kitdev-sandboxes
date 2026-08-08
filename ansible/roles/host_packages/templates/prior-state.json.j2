@@ -16,6 +16,11 @@
     }{{ "," if not loop.last else "" }}
 {% endfor %}
   },
+  "shared_group": {
+    "name": {{ kitdev_shared_group.name | to_json }},
+    "gid": {{ kitdev_shared_group.gid | to_json }},
+    "existed": {{ (kitdev_shared_group_prior.rc == 0) | bool | to_json }}
+  },
   "identities": {
 {% for identity in kitdev_service_identities %}
     {{ identity.name | to_json }}: {

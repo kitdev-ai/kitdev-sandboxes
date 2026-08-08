@@ -144,6 +144,15 @@
   loop: "{{ kitdev_service_identities }}"
   when: not kitdev_prior_state.identities[item.name].user_existed
 
+# Defaults to true so a prior-state file written before the shared group
+# existed is treated as "it was already there" and left alone. Removing a group
+# this installation did not create would be worse than leaving residue.
+- name: Remove the shared group created by this installation
+  ansible.builtin.group:
+    name: "{{ kitdev_prior_state.shared_group.name | default(kitdev_shared_group.name) }}"
+    state: absent
+  when: not (kitdev_prior_state.shared_group.existed | default(true))
+
 - name: Remove service groups created by this installation
   ansible.builtin.group:
     name: "{{ item.name }}"

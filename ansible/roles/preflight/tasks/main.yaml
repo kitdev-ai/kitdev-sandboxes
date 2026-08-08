@@ -144,6 +144,41 @@
   loop_control:
     label: "{{ item.item.0.database }}:{{ item.item.1.name }}"
 
+# The shared group is probed separately rather than folded into the service
+# identity queries, because several guards below index those results
+# positionally and inserting an entry would silently shift them.
+- name: Query prior shared group by name
+  ansible.builtin.command:
+    argv: [/usr/bin/getent, -s, files, group, "{{ kitdev_shared_group.name }}"]
+  register: kitdev_shared_group_prior
+  changed_when: false
+  failed_when: kitdev_shared_group_prior.rc not in [0, 2]
+
+- name: Query prior shared group by reserved id
+  ansible.builtin.command:
+    argv: [/usr/bin/getent, -s, files, group, "{{ kitdev_shared_group.gid }}"]
+  register: kitdev_shared_group_prior_by_id
+  changed_when: false
+  failed_when: kitdev_shared_group_prior_by_id.rc not in [0, 2]
+
+- name: Reject a foreign occupant of the reserved shared group id
+  ansible.builtin.assert:
+    that:
+      - kitdev_shared_group_prior_by_id.rc == 2 or
+        kitdev_shared_group_prior_by_id.stdout.split(':')[0] == kitdev_shared_group.name
+    fail_msg: >-
+      Reserved shared group id {{ kitdev_shared_group.gid }} is occupied by
+      another group.
+
+- name: Reject a shared group already present at a different id
+  ansible.builtin.assert:
+    that:
+      - kitdev_shared_group_prior.rc == 2 or
+        (kitdev_shared_group_prior.stdout.split(':')[2] | int) == kitdev_shared_group.gid
+    fail_msg: >-
+      Group {{ kitdev_shared_group.name }} exists at a different gid; adopt it
+      deliberately rather than letting convergence renumber it.
+
 - name: Reject numeric ID collisions
   ansible.builtin.assert:
     that: item.rc == 2 or item.stdout.split(':')[0] == item.item.1.name
