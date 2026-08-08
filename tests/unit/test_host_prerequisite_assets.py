@@ -137,6 +137,27 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
         # Absent prior state must mean "leave it alone", never "delete it".
         self.assertIn("kitdev_prior_state.shared_group.existed | default(true)", remove)
 
+    def test_preflight_probes_run_in_check_mode(self) -> None:
+        # Ansible skips command modules in check mode by default. Without
+        # check_mode: false these probes register nothing, and every guard that
+        # indexes their results fails on `--check` -- the documented first step.
+        tasks = yaml.safe_load(
+            (ROOT / "ansible" / "roles" / "preflight" / "tasks" / "main.yaml").read_text()
+        )
+        commands = [t for t in tasks if "ansible.builtin.command" in t]
+        self.assertGreater(len(commands), 0)
+        for task in commands:
+            self.assertIs(
+                task.get("check_mode"),
+                False,
+                f"read-only probe must run in check mode: {task.get('name')}",
+            )
+            self.assertIs(
+                task.get("changed_when"),
+                False,
+                f"read-only probe must not report changed: {task.get('name')}",
+            )
+
     def test_roles_do_not_use_shell_or_touch_unowned_security_policy(self) -> None:
         task_text = "\n".join(
             path.read_text(encoding="utf-8")
