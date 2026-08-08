@@ -410,6 +410,22 @@ update_exact_file {tmp}/source {tmp}/target {uid} {gid} 644
             down.index("systemctl stop kitdev-e2b-orchestrator.service"),
         )
 
+    def test_datastores_do_not_consume_the_sandbox_hugepage_pool(self) -> None:
+        # The HugeTLB pool is reserved for Firecracker sandbox memory and is the
+        # hard ceiling on concurrency. PostgreSQL defaults to huge_pages=try and
+        # took 12 pages of it, which both stole sandbox capacity and blocked the
+        # orchestrator, whose preflight requires the entire pool free.
+        postgres = service_block(self.compose, "postgres")
+        self.assertIn("command: [postgres, -c, huge_pages=off]", postgres)
+
+        # The reason code must distinguish "something is holding pages" from a
+        # malformed environment file; they have nothing in common but the check
+        # that reports them.
+        preflight = (SCRIPTS / "preflight-orchestrator.sh").read_text(encoding="ascii")
+        self.assertIn("hugepage_capacity_unavailable", preflight)
+        self.assertIn("raise SystemExit(2)", preflight)
+        self.assertIn("2) control_plane_die hugepage_capacity_unavailable 65 ;;", preflight)
+
     def test_private_environment_is_nonrotating_and_parent_bound(self) -> None:
         source = (SCRIPTS / "private_env.py").read_text(encoding="ascii")
         self.assertLess(source.index("require_parent()"), source.index("os.lstat(ENV_PATH)"))

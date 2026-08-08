@@ -189,8 +189,17 @@ required_mib = limits["KITDEV_MAX_RAM_MB"] * (
     limits["KITDEV_MAX_LIVE_SANDBOXES"] + 2 * limits["KITDEV_MAX_CONCURRENT_BUILDS"]
 )
 required_pages = (required_mib * 1024 + meminfo["Hugepagesize"] - 1) // meminfo["Hugepagesize"]
+# Exit 2, not 1: every other check here reads static configuration, but this
+# one reads live kernel state and fails for an entirely different reason --
+# something else on the host is holding pages from the pool. Reporting both as
+# orchestrator_environment_invalid sent a reader looking for a malformed
+# environment file when the real cause was PostgreSQL taking 12 pages.
 if meminfo.get("HugePages_Total", 0) < required_pages or meminfo.get("HugePages_Free", 0) < required_pages:
-    raise SystemExit(1)
+    sys.stderr.write(
+        "hugepages required=%d total=%d free=%d\n"
+        % (required_pages, meminfo.get("HugePages_Total", 0), meminfo.get("HugePages_Free", 0))
+    )
+    raise SystemExit(2)
 PY_ORCHESTRATOR_ENV
 }
 
@@ -215,7 +224,10 @@ main() {
   verify_fixed_artifacts
   verify_orchestrator_build || control_plane_die orchestrator_build_invalid 65
   verify_network_overlap || control_plane_die sandbox_network_overlap 65
-  verify_environment || control_plane_die orchestrator_environment_invalid 65
+  verify_environment || case "$?" in
+    2) control_plane_die hugepage_capacity_unavailable 65 ;;
+    *) control_plane_die orchestrator_environment_invalid 65 ;;
+  esac
   "$SCRIPT_DIR/bootstrap-network.sh" verify >/dev/null
   "$SCRIPT_DIR/configure-firewall.sh" verify >/dev/null
   printf 'status=pass operation=preflight-orchestrator\n'

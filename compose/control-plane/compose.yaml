@@ -15,6 +15,14 @@ x-locked-down: &locked-down
 services:
   postgres:
     image: docker.io/library/postgres:17.4@sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad
+    # The HugeTLB pool is reserved for Firecracker sandbox memory and is the
+    # hard ceiling on concurrent sandboxes. PostgreSQL defaults to
+    # huge_pages=try, so it silently claimed 12 pages (24 MiB) of that pool for
+    # its shared buffers -- capacity that should have gone to sandboxes, and
+    # enough to keep the orchestrator from ever starting, since its preflight
+    # requires the whole pool free. Regular pages are correct here: this
+    # database is small and is not what the reservation exists for.
+    command: [postgres, -c, huge_pages=off]
     environment:
       PGDATA: /var/lib/postgresql/17/docker
       POSTGRES_DB: kitdev
