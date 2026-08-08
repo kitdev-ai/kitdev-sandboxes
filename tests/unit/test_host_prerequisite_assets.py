@@ -135,6 +135,18 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
         # require that it exists.
         self.assertNotIn("kitdev", worker["supplementary_groups"])
 
+    def test_check_mode_does_not_assert_packages_it_did_not_install(self) -> None:
+        # --check predicts installs without performing them, so asserting the
+        # package is present made check mode unusable on exactly the
+        # unprepared host it exists to inspect.
+        tasks = yaml.safe_load(
+            (ROOT / "ansible" / "roles" / "host_packages" / "tasks" / "main.yaml").read_text()
+        )
+        verify = next(
+            t for t in tasks if t.get("name") == "Verify all prerequisite packages are installed"
+        )
+        self.assertEqual(verify.get("when"), "not ansible_check_mode")
+
     def test_apt_validator_accepts_a_stock_ubuntu_cloud_image(self) -> None:
         # Ubuntu cloud images ship a cloud-init comment header above the real
         # stanzas. Requiring Types in every paragraph rejected that header and

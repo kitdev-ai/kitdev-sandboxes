@@ -81,10 +81,15 @@
   ansible.builtin.package_facts:
     manager: apt
 
+# Check mode predicts the install without performing it, so a package that is
+# legitimately absent on an unprepared host would fail this assertion. That is
+# exactly the host --check exists to inspect, so verify convergence only when
+# the install actually ran.
 - name: Verify all prerequisite packages are installed
   ansible.builtin.assert:
     that:
       - item in ansible_facts.packages
       - (ansible_facts.packages[item] | length) >= 1
     fail_msg: "Required host package did not converge: {{ item }}"
+  when: not ansible_check_mode
   loop: "{{ kitdev_prerequisite_packages }}"
