@@ -289,11 +289,15 @@
 
 - name: Validate enabled APT source ownership and trust
   ansible.builtin.command:
-    argv:
-      - /usr/bin/python3
-      - "{{ playbook_dir }}/files/validate_apt_sources.py"
-      - --codename
-      - "{{ ansible_facts.distribution_release }}"
+    # Built as one expression so operator mirrors become separate argv
+    # elements; a nested list here would be passed as a single literal.
+    argv: >-
+      {{ ['/usr/bin/python3',
+          playbook_dir ~ '/files/validate_apt_sources.py',
+          '--codename',
+          ansible_facts.distribution_release]
+         + (kitdev_apt_additional_mirrors
+            | map('regex_replace', '^', '--allow-host=') | list) }}
   register: kitdev_apt_source_validation
   changed_when: false
   check_mode: false

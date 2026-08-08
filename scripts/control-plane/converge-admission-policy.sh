@@ -70,7 +70,7 @@ main() {
   exec 9<>"$SDK_LOCK"
   flock --nonblock 9 || control_plane_die sdk_e2e_already_running 75
 
-  postgres_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$')"
+  postgres_container="$(control_plane_container postgres)"
   [[ "$postgres_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
   postgres_user="$(postgres_identity "$postgres_container")" || control_plane_die postgres_identity_invalid 65
 
@@ -106,7 +106,7 @@ ON CONFLICT (team_id) DO UPDATE SET
 COMMIT;
 SQL_ADMISSION
 
-    redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
+    redis_container="$(control_plane_container redis)"
     [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die redis_container_invalid 65
     while IFS= read -r key; do
       [[ "$key" == auth:team:* && "$key" != *$'\n'* ]] || control_plane_die auth_cache_key_invalid 65

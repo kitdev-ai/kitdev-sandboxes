@@ -43,7 +43,17 @@ kitdev_prerequisite_packages:
   - procps
   - qemu-utils
   - rsync
+  # The control-plane gate requires the ufw binary before it does anything, and
+  # nothing installed it. Ubuntu Server images ship it; minimal and cloud
+  # images do not.
+  - ufw
   - util-linux
+
+# Hosts whose APT sources may legitimately point at a provider mirror. The
+# validator ships only Canonical's own hosts; a provider mirror is an explicit
+# operator decision, not a default, so add yours here rather than widening the
+# validator.
+kitdev_apt_additional_mirrors: []
 
 kitdev_capacity_max_sandbox_memory_mib: 8192
 kitdev_capacity_concurrent_hugepage_sandboxes: 2

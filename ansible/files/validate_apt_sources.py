@@ -18,12 +18,20 @@ ALLOWED_HOSTS = {
     "security.ubuntu.com",
     "ports.ubuntu.com",
     "old-releases.ubuntu.com",
-    "ubuntu.mirrors.ovh.net",
 }
+
+# A provider mirror is an explicit operator decision, not a default. The OVH
+# mirror used to sit in the built-in set, which quietly made this validator
+# refuse every host that was not on that provider.
+EXTRA_ALLOWED_HOSTS: set[str] = set()
 
 
 def allowed_host(host: str) -> bool:
-    return host in ALLOWED_HOSTS or host.endswith(".archive.ubuntu.com")
+    return (
+        host in ALLOWED_HOSTS
+        or host in EXTRA_ALLOWED_HOSTS
+        or host.endswith(".archive.ubuntu.com")
+    )
 
 
 def validate_uri(value: str) -> None:
@@ -115,7 +123,18 @@ def validate_deb822(path: Path, codename: str) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--codename", choices=("plucky", "resolute"), required=True)
+    parser.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help="additional APT mirror host the operator deliberately trusts",
+    )
     args = parser.parse_args()
+    for host in args.allow_host:
+        if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?", host):
+            raise ValueError(f"invalid mirror host: {host}")
+        EXTRA_ALLOWED_HOSTS.add(host)
     if not KEYRING.is_file() or KEYRING.is_symlink():
         raise ValueError("Ubuntu archive keyring is absent or unsafe")
     files = source_files()

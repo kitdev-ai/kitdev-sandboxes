@@ -82,7 +82,7 @@ cleanup_snapshot_audit_key() {
   local action attempt redis_container source_id
   [[ -f "$stage/state/snapshot-id" ]] || return 0
   source_id="$(read_sandbox_id "$stage/state/sandbox-id")" || return 1
-  redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
+  redis_container="$(control_plane_container redis)"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || return 1
   rm -f -- "$stage/snapshot-audit-keys" "$stage/snapshot-audit-keys.previous"
   for attempt in {1..60}; do
@@ -172,7 +172,7 @@ document = json.load(open(sys.argv[1], encoding="utf-8"))
 raise SystemExit(0 if isinstance(document, list) and not document else 1)
 PY_ABSENT
   ! pgrep -x firecracker >/dev/null 2>&1 || return 1
-  redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
+  redis_container="$(control_plane_container redis)"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || return 1
   for id_file in "$stage/state/sandbox-id" "$stage/state/secondary-sandbox-id"; do
     if [[ -f "$id_file" ]]; then

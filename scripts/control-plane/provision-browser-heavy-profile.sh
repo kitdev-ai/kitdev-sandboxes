@@ -122,7 +122,7 @@ main() {
     "$mask_prefix" =~ ^[0-9a-f]{2}$ && "$mask_suffix" =~ ^[0-9a-f]{4}$ ]] ||
     control_plane_die profile_api_key_metadata_invalid 65
 
-  postgres_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$')"
+  postgres_container="$(control_plane_container postgres)"
   [[ "$postgres_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
   identity="$(postgres_identity "$postgres_container")" || control_plane_die postgres_identity_invalid 65
   IFS='|' read -r postgres_user postgres_database <<<"$identity"
@@ -208,7 +208,7 @@ WHERE t.slug = '$TEAM_SLUG' AND k.api_key_hash = '$key_hash';")" ||
     control_plane_die profile_verification_failed 65
   team_id="${BASH_REMATCH[1]}"
 
-  redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
+  redis_container="$(control_plane_container redis)"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die redis_container_invalid 65
   [[ "$(docker exec -- "$redis_container" redis-cli --raw DEL \
     "auth:team:$key_hash" "auth:team:team-$team_id")" =~ ^[0-9]+$ ]] ||

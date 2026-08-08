@@ -98,7 +98,7 @@ if not isinstance(document, list):
 raise SystemExit(any(isinstance(item, dict) and item.get("sandboxID") == sys.argv[2] for item in document))
 PY_ABSENT
   ! pgrep -x firecracker >/dev/null 2>&1 || return 1
-  redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
+  redis_container="$(control_plane_container redis)"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || return 1
   ! timeout 10 docker exec -- "$redis_container" redis-cli --raw --scan \
     --pattern "*$sandbox_id*" 2>/dev/null | head -n 1 | grep -q .

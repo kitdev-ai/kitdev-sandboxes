@@ -28,7 +28,11 @@ completes. Two are fixed; **one is not**, and you will hit it.
 |---|---|
 | The shared `kitdev` group had no creator, though five control-plane scripts require it. `kitdev install` died immediately with `kitdev_group_required` | **Fixed** — stage 1 now creates it |
 | `iptables`, `rsync` and `procps` are required at orchestrator start but were not installed. The reference host only worked because the manual Docker step happened to pull `iptables` in | **Fixed** — added to stage 1 |
-| `seed-local-template.sh`, the final step of `kitdev install`, requires a `local-build-smoke` storage tree under a hardcoded build ID. Nothing in the repository creates it — it is a historical lab artifact | **Open.** `install` runs all preceding steps, then fails at the last one with `source_template_missing` |
+| `seed-local-template.sh`, the final step of `kitdev install`, requires a `local-build-smoke` tree pinned to exact sizes and hashes for eleven blobs totalling ~1.63 GB. Nothing creates them; the publish helper is a closed allowlist of the same historical UUIDs | **Open.** `install` runs all preceding steps, then fails at the last one |
+| `ufw` is required by the very first install gate and was installed by nothing | **Fixed** — added to stage 1 |
+| The APT source validator hardcoded one provider's mirror in a fail-closed allowlist, aborting stage 1 on any other provider | **Fixed** — mirror is now an explicit operator setting |
+| Eight scripts looked up PostgreSQL and Redis by container names that Compose never creates, breaking stages 4-6 on a fresh install | **Fixed** — a shared resolver now accepts both Compose labels and legacy names |
+| The ingress domain is hard-refused in two scripts and baked into `nginx.conf` six times | **Open.** Only `sandbox.kitdev.ai` works without code changes |
 
 The third means `kitdev install` cannot return success on a fresh host today.
 Everything before that step persists and the run is convergent, so a retry

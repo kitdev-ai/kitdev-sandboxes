@@ -104,6 +104,24 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
             tasks.index("Converge locked non-login service identities"),
         )
 
+    def test_apt_allowlist_carries_no_provider_mirror(self) -> None:
+        # A provider mirror in the built-in set silently made this validator
+        # refuse every host that was not on that provider.
+        validator = (ROOT / "ansible" / "files" / "validate_apt_sources.py").read_text()
+        allowed = validator.split("ALLOWED_HOSTS = {", 1)[1].split("}", 1)[0]
+        for host in allowed.replace('"', "").split(","):
+            host = host.strip()
+            if host:
+                self.assertTrue(
+                    host.endswith("ubuntu.com"),
+                    f"provider mirror in built-in allowlist: {host}",
+                )
+        self.assertIn("--allow-host", validator)
+        defaults = yaml.safe_load(
+            (ROOT / "ansible" / "roles" / "preflight" / "defaults" / "main.yaml").read_text()
+        )
+        self.assertEqual(defaults["kitdev_apt_additional_mirrors"], [])
+
     def test_orchestrator_runtime_commands_are_installed(self) -> None:
         # preflight-orchestrator.sh requires these on every orchestrator start,
         # and seed-local-template.sh requires rsync. The prepared-host gate
@@ -112,7 +130,7 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
             (ROOT / "ansible" / "roles" / "preflight" / "defaults" / "main.yaml").read_text()
         )
         packages = defaults["kitdev_prerequisite_packages"]
-        for required in ("iptables", "rsync", "procps"):
+        for required in ("iptables", "rsync", "procps", "ufw"):
             self.assertIn(required, packages)
         self.assertEqual(packages, sorted(packages), "keep the package list sorted")
 

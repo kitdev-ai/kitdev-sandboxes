@@ -1504,3 +1504,41 @@ untracked, and must never be quoted into tracked documentation.
   in practice. Executing the runbook on a genuinely clean host remains the only
   qualification that would prove any of this.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Reference-host artifact audit and fresh-install corrections
+
+- **Intent:** Answer whether the automated fresh-host path actually works, by
+  adversarial review rather than assertion.
+- **Delegated LUNA agents:** three parallel read-only reviewers covering the
+  prerequisite changes, reference-host artifacts, and the install chain.
+- **Verification before action:** every claim acted on was re-derived directly.
+  `ufw` has zero occurrences in `ansible/` yet is required by the first install
+  gate. The APT validator's allowlist contained one provider's mirror beside
+  Canonical's hosts. The control-plane Compose file declares no
+  `container_name`, so Compose generates `<project>-<service>-1`, while
+  fourteen shell call sites filtered on the anchored legacy bare name; the
+  Python CLI already accepted both conventions.
+- **Fixed:** added `ufw` to the prerequisite packages; removed the provider
+  mirror from the built-in allowlist and added an explicit
+  `kitdev_apt_additional_mirrors` setting passed as repeated `--allow-host`
+  arguments; added a shared `control_plane_container` resolver accepting either
+  the Compose label pair or the legacy bare name, requiring exactly one match,
+  and replaced all fourteen call sites.
+- **Live verification:** the resolver was exercised read-only against the
+  running host and resolved both datastores by their legacy names, and refused
+  an unknown service. This is the first fresh-host correction today with real
+  hardware evidence behind it rather than code reading alone.
+- **Recorded, not fixed:** the seed-template blocker is larger than previously
+  understood — eleven pinned blobs totalling about 1.63 GB plus a closed UUID
+  allowlist in the publish helper. The ingress domain is unoverridable in three
+  places. The loopback port-conflict preflight is explicitly unimplemented.
+  These are backlog rows 6, 11 and 12.
+- **Two claims rejected after checking:** `copy-build` does have a creator in
+  `build-snapshot-tools.sh`, and the browser-heavy team is created in-repo by
+  `provision-browser-heavy-profile.sh`. Neither is a blocker.
+- **Mutation status:** Repository only. No host state changed; the live check
+  was read-only and its temporary copy was removed.
+- **Limitations / next gate:** Three defects were found in the fresh-host path
+  today and two of them were in this session's own earlier corrections. The
+  path remains unproven; only execution on genuinely fresh hardware settles it.
+- **Commit:** Pending in this change set.

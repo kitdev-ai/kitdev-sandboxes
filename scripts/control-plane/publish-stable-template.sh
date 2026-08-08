@@ -80,7 +80,7 @@ postgres_identity() {
 
 query_database() {
   local query="$1" container user
-  container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$')"
+  container="$(control_plane_container postgres)"
   [[ "$container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
   user="$(postgres_identity "$container")" || control_plane_die postgres_identity_invalid 65
   docker exec -- "$container" psql --no-psqlrc --set=ON_ERROR_STOP=1 \

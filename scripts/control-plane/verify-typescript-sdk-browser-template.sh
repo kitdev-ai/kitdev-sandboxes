@@ -101,7 +101,7 @@ if not isinstance(document, list):
 raise SystemExit(any(isinstance(item, dict) and item.get("sandboxID") == sys.argv[2] for item in document))
 PY_ABSENT
   ! pgrep -x firecracker >/dev/null 2>&1 || return 1
-  redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
+  redis_container="$(control_plane_container redis)"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || return 1
   ! timeout 10 docker exec -- "$redis_container" redis-cli --raw --scan \
     --pattern "*$sandbox_id*" 2>/dev/null | head -n 1 | grep -q .
@@ -161,7 +161,7 @@ require_heavy_team_profile() {
   local redis_container row team_id
   key_hash="$(api_key_hash "$api_key_file")" || control_plane_die heavy_api_key_hash_failed 65
   [[ "$key_hash" =~ ^\$sha256\$[A-Za-z0-9+/]{43}$ ]] || control_plane_die heavy_api_key_hash_invalid 65
-  postgres_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$')"
+  postgres_container="$(control_plane_container postgres)"
   [[ "$postgres_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
   identity="$(postgres_identity "$postgres_container")" || control_plane_die postgres_identity_invalid 65
   IFS='|' read -r postgres_user postgres_database <<<"$identity"
@@ -177,7 +177,7 @@ WHERE k.api_key_hash = '$key_hash';")" || control_plane_die heavy_team_query_fai
   [[ "$row" =~ ^([0-9a-f-]{36})\|kitdev-browser-heavy-team\|2\|8192\|16384\|16384\|25600$ ]] ||
     control_plane_die heavy_team_profile_invalid 65
   team_id="${BASH_REMATCH[1]}"
-  redis_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
+  redis_container="$(control_plane_container redis)"
   [[ "$redis_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die redis_container_invalid 65
   [[ "$(docker exec -- "$redis_container" redis-cli --raw DEL \
     "auth:team:$key_hash" "auth:team:team-$team_id")" =~ ^[0-9]+$ ]] ||
@@ -188,7 +188,7 @@ verify_heavy_build_metadata() {
   local build_id identity postgres_container postgres_database postgres_user row
   build_id="$(read_state_id "$stage/state/build-id" '[0-9a-f-]{36}\n' 37)" ||
     control_plane_die heavy_build_id_invalid 65
-  postgres_container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$')"
+  postgres_container="$(control_plane_container postgres)"
   [[ "$postgres_container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
   identity="$(postgres_identity "$postgres_container")" || control_plane_die postgres_identity_invalid 65
   IFS='|' read -r postgres_user postgres_database <<<"$identity"

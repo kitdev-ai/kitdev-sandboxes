@@ -148,6 +148,36 @@ ensure_directory() {
   require_exact_directory "$path" "$owner" "$group" "$mode"
 }
 
+# Resolve exactly one control-plane datastore container.
+#
+# A fresh Compose deployment names containers <project>-<service>-N and carries
+# Compose labels. The hand-assembled reference lab has bare names and no
+# labels. Matching only the bare name worked on that lab and silently found
+# nothing on a real Compose install, so accept either and require exactly one.
+# The Python CLI already resolved it this way; the shell scripts did not.
+#
+# Note the Go template uses plain double quotes: inside a single-quoted shell
+# string a backslash is literal and would reach Go as an invalid template.
+control_plane_container() {
+  local service="$1" ids id row project svc name
+  local -a matches=()
+  [[ "$service" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || return 1
+  ids="$(docker ps --no-trunc --quiet)" || return 1
+  while IFS= read -r id; do
+    [[ -n "$id" ]] || continue
+    row="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{.Name}}' -- "$id")" || return 1
+    IFS='|' read -r project svc name <<<"$row"
+    name="${name#/}"
+    if [[ "$project" == kitdev-control-plane && "$svc" == "$service" ]] ||
+      [[ -z "$project" && -z "$svc" && "$name" == "kitdev-$service" ]]; then
+      matches+=("$id")
+    fi
+  done <<<"$ids"
+  [[ "${#matches[@]}" == 1 ]] || return 1
+  [[ "${matches[0]}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  printf '%s\n' "${matches[0]}"
+}
+
 require_exact_file() {
   local path="$1" source="$2" owner="$3" group="$4" mode="$5"
   local owner_id group_id

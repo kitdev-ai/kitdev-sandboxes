@@ -75,12 +75,31 @@ class BrowserHeavyProfileTests(unittest.TestCase):
         self.assertNotIn("print(value)", source)
 
     def test_live_container_discovery_is_untruncated_and_legacy_database_aware(self) -> None:
+        # Discovery moved into the shared resolver so it can match BOTH a fresh
+        # Compose deployment (labelled, named <project>-<service>-1) and the
+        # hand-assembled lab (bare name, no labels). Matching only the bare name
+        # silently found nothing on a real Compose install.
         for path in (RUNNER, PROVISIONER):
             source = path.read_text(encoding="ascii")
-            self.assertIn("docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$'", source)
-            self.assertIn("docker ps --no-trunc --quiet --filter name='^/kitdev-redis$'", source)
+            self.assertIn("control_plane_container postgres", source)
+            self.assertIn("control_plane_container redis", source)
+            self.assertNotIn("--filter name='^/kitdev-", source)
             self.assertIn("for user in kitdev postgres", source)
             self.assertIn("to_regclass('public.teams')", source)
+
+    def test_shared_resolver_accepts_both_naming_conventions(self) -> None:
+        common = (ROOT / "scripts" / "control-plane" / "common.sh").read_text(encoding="ascii")
+        body = common.split("control_plane_container() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("com.docker.compose.project", body)
+        self.assertIn("com.docker.compose.service", body)
+        self.assertIn('"$name" == "kitdev-$service"', body)
+        # Ambiguity must fail rather than pick one.
+        self.assertIn('[[ "${#matches[@]}" == 1 ]] || return 1', body)
+        self.assertIn("--no-trunc", body)
+        # Same escaped-quote trap that broke the certificate reload earlier.
+        for line in body.splitlines():
+            if "{{" in line:
+                self.assertNotIn('\\"', line)
 
     def test_shell_assets_parse(self) -> None:
         for script in (RUNNER, PROVISIONER):

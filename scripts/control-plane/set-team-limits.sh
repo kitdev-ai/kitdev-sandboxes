@@ -111,7 +111,7 @@ main() {
   exec 9<>"$SDK_LOCK"
   flock --nonblock 9 || control_plane_die sdk_e2e_already_running 75
 
-  container="$(docker ps --no-trunc --quiet --filter name='^/kitdev-postgres$')"
+  container="$(control_plane_container postgres)"
   [[ "$container" =~ ^[0-9a-f]{64}$ ]] || control_plane_die postgres_container_invalid 65
   user="$(postgres_identity "$container")" || control_plane_die postgres_identity_invalid 65
 
@@ -180,7 +180,7 @@ SQL_TEAM_LIMITS
   # Cached authentication carries the old limits; drop it so the next request
   # reloads them.
   local redis key
-  redis="$(docker ps --no-trunc --quiet --filter name='^/kitdev-redis$')"
+  redis="$(control_plane_container redis)"
   [[ "$redis" =~ ^[0-9a-f]{64}$ ]] || control_plane_die redis_container_invalid 65
   while IFS= read -r key; do
     [[ "$key" == auth:team:* && "$key" != *$'\n'* ]] || control_plane_die auth_cache_key_invalid 65
