@@ -17,3 +17,6 @@ config.local.yaml
 artifacts/
 backups/
 state/
+
+# Installed from the reviewed lockfile; never committed.
+node_modules/

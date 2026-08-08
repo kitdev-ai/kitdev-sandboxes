@@ -1,6 +1,6 @@
 # Open project tasks
 
-Updated: 2026-08-07
+Updated: 2026-08-08
 
 This is the execution backlog for a reusable single-host E2B-compatible
 platform. A task is complete only when every stated gate has recorded evidence;
@@ -15,14 +15,14 @@ partial implementation or one successful command is not completion.
 | 3 | 24 GiB hugepage migration | In progress; apply/reapply proved, reboot/rollback open | Exact 12,288-page state survives reboot; apply is idempotent; authenticated remove restores the captured prior state; second remove and post-removal reboot pass; services and locks remain healthy | [Migration evidence](research/ovh-legacy-capacity-migration.md). Blocks 5, 9, and 12. |
 | 4 | Heavy browser qualification | Complete on current development lab | One 8 GiB RAM / 2 vCPU / 16 GiB requested-free-disk build and sandbox passes Chromium, SDK files, build snapshot/finalize, runtime, kill, alias cleanup, API/Redis/Firecracker cleanup, and host capacity checks | Depends on current 24 GiB pool and dedicated team. [Live evidence](research/browser-heavy-live-qualification-2026-08-07.md). Stable publication remains task 8. |
 | 5 | Runtime admission control | In progress; design/patch live-unproved | Enforce bounded CPU, RAM, HugeTLB, NBD, disk, concurrent build, and concurrent sandbox budgets before mutation; prove refusal, release, crash cleanup, and no overcommit under load | Depends on 3 and measurements from 4. Blocks 8, 9, and production claims. |
-| 6 | DNS-01 wildcard HTTPS ingress | Blocked on firewall and DNS/provider execution | Issue and renew a trusted DNS-01 wildcard certificate; publish only restricted HTTPS; prove API and wildcard names, renewal/reload, failure rollback, 80 closed, and no public internal ports | Depends on 2 plus operator DNS/provider credentials. Blocks 7 and 9. [Current readiness](research/external-ingress-readiness-2026-08-07.md). |
+| 6 | DNS-01 wildcard HTTPS ingress | Blocked on the operator-supplied Cloudflare token only | Issue and renew a trusted DNS-01 wildcard certificate; publish HTTPS in the selected firewall mode; prove API and wildcard names, renewal/reload, failure rollback, 80 closed, and no public internal ports | Assets staged and DNS resolves; the token file is empty. Blocks 7 and 9. [Current gate](research/external-https-enablement-2026-08-08.md). |
 
 ## Next
 
 | # | Workstream | Status | Objective completion gate | Dependencies / evidence |
 |---:|---|---|---|---|
-| 7 | External official SDK matrix | Blocked on public ingress | From another server, pinned `e2b@2.38.0` passes auth, create/list/connect/info/metrics/timeout/kill, commands, PTY, files/watch, pause/resume, snapshots, HTTP, WebSocket/streaming, and direct sandbox URLs with cleanup | Depends on 6 and stable aliases from 8. [SDK guide](typescript-sdk-integration-guide.md). |
-| 8 | Stable coding and heavy-browser templates | Planned | Publish versioned, documented aliases; prove immutable inputs, resource contracts, boot, SDK use, rollback/retirement, and no test alias leakage | Depends on 4 and 5. Blocks 7 and 9. |
+| 7 | External official SDK matrix | Runner implemented; blocked on public ingress | From a client host, pinned `e2b@2.38.0` passes auth, create/list/connect/info/metrics/timeout/kill, commands, PTY, files/watch, pause/resume, snapshots, guest HTTP, WebSocket/streaming, concurrency refusal, and cleanup | Depends on 6. Runner: `scripts/external-sdk-matrix`. [SDK guide](typescript-sdk-integration-guide.md). |
+| 8 | Stable coding and heavy-browser templates | Complete on current development lab | Publish versioned, documented aliases; prove immutable inputs, resource contracts, boot, SDK use, rollback/retirement, and no test alias leakage | `kitdev-coding:v1`/`:stable` and `kitdev-browser-heavy:v1`/`:stable` published and consumer-verified. [Contract](research/stable-template-publication-contract.md). Rollback and retirement of a *second* release remain unexercised. |
 | 9 | Fresh-host automation | Partial; end-to-end replay unproved | One reviewed command flow owns storage, containerd, Docker, firewall, ingress, control plane, templates, services, verification, idempotent reapply, and bounded removal on a fresh supported host | Depends on 2, 3, 5, 6, and 8. [Replay design](research/control-plane-replay-slice.md). |
 | 10 | Destructive backup/restore and CLI | Offline-qualified; live-unproved | Top-level backup/restore commands create authenticated off-host-capable artifacts, destroy disposable state, restore it on a compatible clean release, pass SDK/snapshot checks, reject corruption/incompatibility, and document secret recovery | Depends on 9 and stable template contracts. [Backup contract](disaster-recovery.md). |
 | 11 | Security hardening | Planned/partial | Harden SSH and IPv6; prove secret permissions/rotation, request rate limits, audit logs without credential leakage, sandbox egress policy, no public internal listeners, dependency/security scans, and adversarial isolation tests | Depends on 2, 6, and 9; blocks production approval and 13. |

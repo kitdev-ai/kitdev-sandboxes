@@ -427,6 +427,44 @@ in `acme-provider.env`. Put only the token in that separate root-owned mode
 `Zone:Zone:Read` for `kitdev.ai`; do not use the Global API Key. The scripts
 parse provider configuration as data and never source it.
 
+### Creating the Cloudflare DNS-01 token
+
+Create the token in the Cloudflare dashboard under **My Profile → API Tokens →
+Create Token → Create Custom Token**:
+
+| Field | Value |
+|---|---|
+| Token name | `kitdev-sandboxes-dns01` |
+| Permissions | `Zone` / `DNS` / `Edit` **and** `Zone` / `Zone` / `Read` |
+| Zone resources | Include / Specific zone / the project apex zone |
+| Client IP filtering | Optional; restrict to the sandbox host's public IPv4 |
+| TTL | Leave unrestricted, or renew before expiry; ACME renewal needs it valid |
+
+Two permission rows are required. `Zone:Read` alone cannot create the
+`_acme-challenge` TXT record and `DNS:Edit` alone cannot resolve the zone ID.
+Cloudflare displays the secret exactly once.
+
+Install it without placing it in shell history, an argument, or a variable.
+Run this from a trusted administrator session, paste the token, press Enter,
+then press `Ctrl-D`:
+
+```console
+sudo tee /etc/kitdev-sandboxes/ingress/cloudflare-dns-api-token >/dev/null
+```
+
+Confirm the result without printing the value:
+
+```console
+sudo stat -c 'owner=%U:%G mode=%a links=%h size=%s' \
+  /etc/kitdev-sandboxes/ingress/cloudflare-dns-api-token
+```
+
+It must report `root:root`, mode `600`, link count one, and a nonzero size.
+`tee` preserves the existing ownership and mode of the staged empty file; the
+trailing newline is stripped by the provider loader. If the file was recreated
+with the wrong metadata, fix it with `sudo chown root:root` and
+`sudo chmod 0600` before issuing a certificate.
+
 Prove DNS automation against Let's Encrypt staging:
 
 ```console

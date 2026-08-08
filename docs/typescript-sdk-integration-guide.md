@@ -26,8 +26,40 @@ key ID:     d63b17ec-07cb-4577-b33d-e576b01be5e9
 The key passed host-local authentication and idempotency checks. It has not
 been printed or committed. Public TCP 80 and 443 are still unreachable, so the
 key is ready for secure installation but external SDK authentication is not
-yet proved. No stable coding or heavy-browser template alias is published;
-the operator must supply one after the template publication gate passes.
+yet proved.
+
+Two stable template aliases are published and were launched successfully with
+this exact product key over the loopback API:
+
+```text
+kitdev-coding:stable          (immutable release kitdev-coding:v1)
+kitdev-browser-heavy:stable   (immutable release kitdev-browser-heavy:v1)
+```
+
+Use the `:stable` pointer for ordinary product code and pin `:v1` when a
+deployment must not move when a later release is promoted. Do not use a build
+UUID as a template identifier.
+
+## Deployment limits
+
+The product key's team carries hard server-side limits. The SDK cannot exceed
+them, and exceeding one returns an API error rather than a queued request:
+
+| Limit | Value | Effect on product code |
+|---|---|---|
+| Concurrent sandboxes | 1 | A second `Sandbox.create` while one is alive fails. Serialize sandbox work behind one application lease. |
+| Concurrent template builds | 1 | Only one `Template.build` at a time. |
+| vCPU per sandbox | 2 | Requests above 2 are rejected. |
+| RAM per sandbox | 8,192 MiB | `kitdev-browser-heavy` already uses the full budget. |
+| Requested free disk | 16,384 MiB | Applies to template builds. |
+| Maximum disk | 25,600 MiB | Applies to template builds. |
+| Maximum sandbox lifetime | 1 hour | `timeoutMs` above one hour is rejected. Re-create or snapshot for longer work. |
+
+These are the qualified capacity of a single host with a 24 GiB hugepage pool,
+where exactly one 8 GiB browser sandbox has passed live qualification. Two
+concurrent heavy sandboxes are **not** qualified. Ask the operator before
+designing for higher concurrency; it requires host capacity work, not an SDK
+change.
 
 ## Exact client
 
@@ -74,8 +106,10 @@ E2B_API_URL=https://api.sandbox.kitdev.ai
 E2B_DOMAIN=sandbox.kitdev.ai
 E2B_API_KEY_FILE=/etc/my-product/secrets/e2b-api-key
 E2B_VALIDATE_API_KEY=true
-E2B_TEMPLATE=<operator-published-alias-or-id>
+E2B_TEMPLATE=kitdev-coding:stable
 ```
+
+Use `kitdev-browser-heavy:stable` instead when the workload needs Chromium.
 
 `E2B_API_KEY_FILE` is the product application's file-based secret input; the
 example below reads it and passes `apiKey` explicitly to the SDK. Do not export
@@ -487,11 +521,12 @@ automate remote production builds until that public path passes its own gate.
 A pinned non-graphical coding template has been live-proven through the
 official SDK. Its tested contract includes an unprivileged `user` account and
 workspace, Node.js 22.18.0, npm 10.9.3, Git, Python, GCC, Make, SDK-managed
-files, shell commands, and PTYs. That test creates a unique template and
-deletes its alias afterward; it does not publish a stable production alias.
+files, shell commands, and PTYs.
 
-Ask the operator for the deployed coding template ID or alias. Do not assume
-that `base`, `coding`, or the test name is available. Keep the project API key
+The published product identifiers are `kitdev-coding:stable` and the immutable
+`kitdev-coding:v1`, both resolving to the same ready build at 2 vCPU and
+2,048 MiB RAM. Do not assume that `base`, `coding`, or an internal test name is
+available. Keep the project API key
 on the product server: never put it, product credentials, or tenant secrets in
 sandbox environment variables or files unless the product has an explicit
 per-sandbox secret policy and cleanup contract.
@@ -504,12 +539,13 @@ reached loopback CDP readiness; Playwright performed local navigation and DOM
 interaction; and the files SDK collected exact screenshot and download
 artifacts. Sandbox, API, Redis, and Firecracker cleanup passed afterward.
 
-This proves a qualification template, not a published product alias. The gate
-deletes its unique alias, covers Chromium only, and keeps CDP on
-`127.0.0.1:9222` inside the guest. Ask the operator for a separately published
-browser template contract before writing product behavior. Do not expose CDP
-with `getHost(9222)` or assume arbitrary public browser ports work; authenticated
-wildcard ingress remains unproven. See the
+The published product identifiers are `kitdev-browser-heavy:stable` and the
+immutable `kitdev-browser-heavy:v1`, built at 2 vCPU, 8,192 MiB RAM, and
+16,384 MiB requested free disk. The qualification covers Chromium only and
+keeps CDP on `127.0.0.1:9222` inside the guest: drive the browser from a
+process running inside the sandbox. Do not expose CDP with `getHost(9222)` or
+assume arbitrary public browser ports work; authenticated wildcard ingress
+remains unproven. See the
 [browser qualification guide](browser-sandbox-guide.md) for the exact boundary.
 
 ## Reliability rules

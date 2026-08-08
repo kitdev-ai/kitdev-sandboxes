@@ -92,7 +92,9 @@ after the committed runner completes and post-publication SDK creation passes.
 
 ## Live publication evidence
 
-The Ubuntu 25.04 OVH development host completed publication on 2026-08-07.
+The Ubuntu 26.04 LTS OVH development host completed publication on 2026-08-07.
+A previous revision of this document recorded Ubuntu 25.04; that was a factual
+error corrected on 2026-08-08 after a read-only live release check.
 The implementation checkpoints were pushed as `e349da1`, `845bf7f`,
 `db2be21`, and `12b5af4`; the final consumer gate ran from exact commit
 `12b5af4`.

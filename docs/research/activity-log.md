@@ -1245,3 +1245,71 @@ untracked, and must never be quoted into tracked documentation.
   release trees. No credential or live identifier was retained in tracked
   evidence.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Ledger gap correction for the 2026-08-07 checkpoints
+
+- **Intent:** Restore the append-only ledger's completeness. The entries for
+  every checkpoint after `a09fcbd` were never appended, so this retrospective
+  entry records them from the committed history and their own evidence
+  documents rather than leaving the ledger silently incomplete.
+- **Delegated LUNA agent:** LUNA project-lead role; individual task identifiers
+  for the superseded sessions are not established by repository history.
+- **Safe activity summary, oldest to newest:**
+  - `c64d30b` added the source-restricted SDK ingress firewall CLI and tests.
+  - `bc24873` added the host runtime admission controls, build/preflight
+    binding, and convergence tool. It remains undeployed on the live topology.
+  - `daa71ce` added the complete project handover document.
+  - `10d59e6` added the explicit reversible public HTTPS firewall mode.
+  - `c997128` and `dbc593b` provisioned and normalized the dedicated external
+    SDK product credential and its evidence.
+  - `2cd2f0c`, `8c8b76f`, `401a45b`, `a0ac279`, `3b772f1`, and `48cb100` staged
+    the Cloudflare ingress assets, corrected lifecycle-script executable modes,
+    normalized the verified `lego` artifact, moved staging to a trusted
+    executable filesystem, and made artifact cleanup deterministic.
+  - `e349da1`, `845bf7f`, `db2be21`, `12b5af4`, and `09ce171` published the
+    stable coding and heavy-browser template aliases, promoted them by owned
+    alias, made definition hashes checkout independent, and recorded the live
+    publication plus product-key consumer verification.
+- **Files and evidence:**
+  [stable template publication](stable-template-publication-contract.md),
+  [Cloudflare DNS-01 readiness](cloudflare-dns01-readiness-2026-08-07.md),
+  [external product key](external-sdk-product-key-qualification-2026-08-07.md),
+  and [host runtime admission control](host-runtime-admission-control.md).
+- **Result:** The ledger now names every pushed checkpoint. No prior entry was
+  rewritten or deleted.
+- **Mutation status:** Documentation only.
+- **Limitations / next gate:** This is a retrospective reconstruction from
+  commits and evidence documents, not a contemporaneous record. Treat the
+  linked evidence documents as authoritative for detail.
+- **Commit:** Pending in this change set.
+
+## 2026-08-08 - External HTTPS enablement audit and SDK consumer contract
+
+- **Intent:** Establish the minimum reviewed path by which software on a
+  separate server can use the official `e2b@2.38.0` TypeScript SDK over trusted
+  public HTTPS, without weakening any existing boundary.
+- **Delegated LUNA agent:** LUNA project-lead role with a delegated read-only
+  SDK-surface research agent.
+- **Safe activity summary:** Ran a strictly read-only live audit of locks,
+  Firecracker state, HugeTLB, memory, disk, containers, loopback health,
+  listeners, firewall rules, ingress file invariants, publication journals, and
+  per-team limits. Confirmed the pinned upstream sandbox-ID format matches the
+  ingress wildcard route. Recorded operator decisions and the ordered gates.
+  Updated the SDK consumer guide with the published template aliases and the
+  hard per-team limits, and added an exact Cloudflare DNS-01 token procedure to
+  the operator guide.
+- **Files and evidence:**
+  [external HTTPS enablement](external-https-enablement-2026-08-08.md),
+  [SDK integration guide](../typescript-sdk-integration-guide.md), and
+  [operator guide](../bare-metal-operator-guide.md).
+- **Result:** The host was healthy and idle, both locks free, zero Firecracker
+  processes, and all 12,288 hugepages free. The single remaining blocker is the
+  empty operator-owned Cloudflare DNS-01 token file. A stale factual claim that
+  template publication ran on Ubuntu 25.04 was corrected to Ubuntu 26.04 LTS.
+- **Mutation status:** No host mutation. Repository documentation only.
+- **Limitations / next gate:** Certificate issuance, ingress apply, public
+  firewall mode, and the external SDK matrix remain unproved. Host-level
+  runtime admission control is still undeployed, so external enforcement is
+  API-level team limits only. The operator explicitly accepted leaving the two
+  internal teams at base-tier concurrency.
+- **Commit:** Pending in this change set.
