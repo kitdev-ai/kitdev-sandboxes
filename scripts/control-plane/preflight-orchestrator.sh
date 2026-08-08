@@ -107,7 +107,9 @@ identifiers = subprocess.check_output(["docker", "network", "ls", "--quiet"], te
 if identifiers:
     documents = json.loads(subprocess.check_output(["docker", "network", "inspect", *identifiers], text=True))
     for document in documents:
-        for item in document.get("IPAM", {}).get("Config", []):
+        # "Config" is present but null on the built-in host and none networks,
+        # so a dict default never applies. See bootstrap-network.sh.
+        for item in document.get("IPAM", {}).get("Config") or []:
             try:
                 network = ipaddress.ip_network(item.get("Subnet", ""), strict=True)
             except ValueError:

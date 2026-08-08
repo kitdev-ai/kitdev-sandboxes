@@ -245,6 +245,31 @@ ensure_directory {tmp}/plain {os.getuid()} {os.getgid()} 750
         ]
         self.assertEqual(offenders, [])
 
+    def test_docker_ipam_config_is_read_null_safely(self) -> None:
+        # `docker network inspect` emits "Config": null for the built-in host
+        # and none networks, which exist on every host. A `.get("Config", [])`
+        # default never applies to a present-but-null key, so iterating it
+        # raises TypeError. Both call sites walk every network on the host, so
+        # this is unconditional -- it stayed hidden only because each runs just
+        # once, when the core network does not yet exist.
+        unsafe = re.compile(r'\.get\("Config", *\[\]\)')
+        offenders = [
+            f"{path.relative_to(ROOT)}:{number}"
+            for path in sorted(ROOT.glob("scripts/**/*.sh"))
+            for number, line in enumerate(path.read_text(encoding="ascii").splitlines(), 1)
+            if unsafe.search(line)
+        ]
+        self.assertEqual(offenders, [])
+        for name in ("bootstrap-network.sh", "preflight-orchestrator.sh"):
+            text = (SCRIPTS / name).read_text(encoding="ascii")
+            self.assertIn('.get("IPAM", {}).get("Config") or []', text)
+
+        # The semantics the fix relies on, asserted against a document shaped
+        # exactly as Docker returns one for the none network.
+        document = {"Name": "none", "IPAM": {"Driver": "default", "Config": None}}
+        self.assertIsNone(document.get("IPAM", {}).get("Config", []))
+        self.assertEqual(document.get("IPAM", {}).get("Config") or [], [])
+
     def test_private_environment_is_nonrotating_and_parent_bound(self) -> None:
         source = (SCRIPTS / "private_env.py").read_text(encoding="ascii")
         self.assertLess(source.index("require_parent()"), source.index("os.lstat(ENV_PATH)"))

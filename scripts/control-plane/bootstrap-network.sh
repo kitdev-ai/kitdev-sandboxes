@@ -66,7 +66,10 @@ def occupied_networks():
     if identifiers:
         documents = json.loads(run(["docker", "network", "inspect", *identifiers]).stdout)
         for document in documents:
-            for item in document.get("IPAM", {}).get("Config", []):
+            # Docker emits "Config": null for the built-in host and none
+            # networks, so a dict default never applies -- the key is present
+            # and holds null. Every host has those two networks.
+            for item in document.get("IPAM", {}).get("Config") or []:
                 try:
                     occupied.append(ipaddress.ip_network(item.get("Subnet", ""), strict=True))
                 except ValueError:
@@ -150,7 +153,7 @@ def validate(document):
     options = document.get("Options") or {}
     if set(options) - {"com.docker.network.bridge.name"}:
         raise SystemExit(1)
-    configurations = document.get("IPAM", {}).get("Config", [])
+    configurations = document.get("IPAM", {}).get("Config") or []
     if len(configurations) != 1:
         raise SystemExit(1)
     configuration = configurations[0]
