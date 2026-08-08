@@ -13,7 +13,13 @@ else
   readonly ORCHESTRATOR_UNIT_SOURCE="$REPO_ROOT/systemd/kitdev-e2b-orchestrator.service"
 fi
 
-main() {
+# The body is a subshell, not a brace block, so the EXIT trap below fires while
+# `stage` is still in scope. Under a brace body the trap outlives the function:
+# it runs when the shell exits, after the locals are gone, so `$stage` expanded
+# to unset and `set -u` failed the script -- after `status=pass` had already
+# been printed and with the staging directory leaked. replay-compose.sh uses
+# this same subshell form for the same reason.
+main() (
   local mode="${1:-}" stage network_values core_gateway
   [[ "$mode" == install || "$mode" == install-start || "$mode" == verify ||
     "$mode" == verify-files ]] ||
@@ -101,6 +107,6 @@ main() {
       control_plane_die orchestrator_service_not_active 65
   fi
   printf 'status=pass operation=%s-orchestrator-service\n' "$mode"
-}
+)
 
 main "$@"

@@ -270,6 +270,43 @@ ensure_directory {tmp}/plain {os.getuid()} {os.getgid()} 750
         self.assertIsNone(document.get("IPAM", {}).get("Config", []))
         self.assertEqual(document.get("IPAM", {}).get("Config") or [], [])
 
+    def test_exit_traps_never_defer_expansion_to_a_dead_local(self) -> None:
+        # An EXIT trap set inside a brace-bodied function runs when the shell
+        # exits, after that function's locals are gone. A single-quoted trap
+        # defers expansion to that moment, so `$stage` expands to unset, `set
+        # -u` fails the script, and the temporary directory leaks -- all after
+        # the script has already printed status=pass. Subshell bodies, `name()
+        # (...)`, run the trap while the locals are alive; double-quoted traps
+        # bake the value in at definition time. Both of those are fine.
+        function_start = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\)\s*(\{|\()")
+        local_names = re.compile(r"^\s*local\s+(.*)$")
+        deferred_trap = re.compile(r"^\s*trap\s+'([^']*)'.*\bEXIT\b")
+        offenders: list[str] = []
+        for path in sorted(ROOT.glob("scripts/**/*.sh")):
+            body: str | None = None
+            locals_seen: set[str] = set()
+            for number, line in enumerate(path.read_text(encoding="ascii").splitlines(), 1):
+                start = function_start.match(line)
+                if start is not None:
+                    body, locals_seen = start.group(2), set()
+                    continue
+                if line in ("}", ")"):
+                    body = None
+                    continue
+                if body is None:
+                    continue
+                declared = local_names.match(line)
+                if declared is not None:
+                    locals_seen.update(
+                        word.split("=", 1)[0] for word in declared.group(1).split()
+                    )
+                trapped = deferred_trap.match(line)
+                if trapped is not None and body == "{":
+                    used = set(re.findall(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)", trapped.group(1)))
+                    for name in sorted(used & locals_seen):
+                        offenders.append(f"{path.relative_to(ROOT)}:{number}: ${name}")
+        self.assertEqual(offenders, [])
+
     def test_private_environment_is_nonrotating_and_parent_bound(self) -> None:
         source = (SCRIPTS / "private_env.py").read_text(encoding="ascii")
         self.assertLess(source.index("require_parent()"), source.index("os.lstat(ENV_PATH)"))
