@@ -392,6 +392,44 @@ collection through the SDK. See the
 non-public boundary. All three gates remove their test aliases; none publishes
 a stable product template. Confirm `kitdev status` after each run.
 
+## Capacity and team limits
+
+Sandbox memory is served from the persistent HugeTLB pool, not ordinary RAM.
+The pool is the hard ceiling on total concurrent sandbox memory, so concurrency
+is `pool size / per-sandbox RAM`. On the 24 GiB reference pool that measured as
+12 concurrent 2 GiB sandboxes or 3 concurrent 8 GiB sandboxes. Exhausting the
+pool fails the individual create with a `SandboxError` and leaves running
+sandboxes untouched.
+
+Raise or lower a team's limits with the reviewed tool. It holds both lifecycle
+locks, refuses a running Firecracker process or a pending build, records the
+prior values create-once, invalidates the cached authentication, and verifies
+the result:
+
+```console
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/control-plane/set-team-limits.sh \
+  --team-slug <slug> --check \
+  --concurrent-sandboxes 12 --concurrent-builds 2 \
+  --max-vcpu 4 --max-ram-mb 8192 --max-length-hours 24
+```
+
+Drop `--check` to apply. The tool refuses when the worst case
+(concurrent sandboxes x max RAM) exceeds the live pool; pass
+`--allow-oversubscription` to accept that deliberately, which is correct when
+small sandboxes should be able to reach the hardware limit without being capped
+at what the largest profile would allow.
+
+Prior values are kept at
+`/var/lib/kitdev-sandboxes/team-limits/<slug>.prior`. Roll back by re-running
+the tool with those numbers.
+
+Builds and snapshots need a transient mapping about the size of one guest, so
+a pool filled with sandboxes will fail a concurrent build. Leave one slot free
+when a build must succeed. See the
+[capacity qualification](research/host-capacity-qualification-2026-08-08.md).
+
 ## Public HTTPS ingress
 
 Ingress is implemented as a separate reviewed script flow; it is not wired

@@ -206,15 +206,20 @@ async function stageLifecycle(connection: ConnectionOpts): Promise<void> {
     assert.equal(sandbox.getHost(3000), `3000-${sandbox.sandboxId}.${connection.domain}`);
     pass("lifecycle-get-host");
 
-    await assert.rejects(async () => {
-      const second = await Sandbox.create(CODING_TEMPLATE, {
-        ...connection,
-        timeoutMs: 60_000,
-      });
-      liveSandboxes.add(second);
+    // A second concurrent sandbox must start and be independently usable.
+    // The hard ceiling is the host's HugeTLB pool, not the team limit;
+    // concurrency.ts probes that ceiling separately.
+    const second = await create(CODING_TEMPLATE, connection, "lifecycle-second");
+    try {
+      assert.notEqual(second.sandboxId, sandbox.sandboxId);
+      const token = `KITDEV_SECOND_${second.sandboxId}`;
+      await second.files.write("/home/user/second-token", token);
+      assert.equal(await second.files.read("/home/user/second-token"), token);
+      assert.equal(await sandbox.files.exists("/home/user/second-token"), false);
+    } finally {
       await destroy(second);
-    });
-    pass("lifecycle-concurrency-refused");
+    }
+    pass("lifecycle-second-sandbox-isolated");
   } finally {
     await destroy(sandbox);
     pass("lifecycle-kill");

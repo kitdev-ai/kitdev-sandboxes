@@ -29,7 +29,7 @@ been printed or committed.
 Public HTTPS is live. On 2026-08-08 the complete official `e2b@2.38.0` matrix
 passed from a client host over the public Internet: 42 checks across 10 stages
 with zero failures, covering authentication, invalid-key refusal, lifecycle,
-concurrency refusal, commands, streaming, PTY, files, wildcard guest HTTP,
+sandbox isolation, commands, streaming, PTY, files, wildcard guest HTTP,
 chunked streaming, a WebSocket upgrade, pause/resume, snapshots, and the heavy
 browser profile. Only TCP 443 is reachable from the Internet; 80 and every
 internal port are refused. See
@@ -49,24 +49,40 @@ UUID as a template identifier.
 
 ## Deployment limits
 
-The product key's team carries hard server-side limits. The SDK cannot exceed
-them, and exceeding one returns an API error rather than a queued request:
+The product key's team carries server-side limits. The SDK cannot exceed them,
+and exceeding one returns an API error rather than a queued request:
 
 | Limit | Value | Effect on product code |
 |---|---|---|
-| Concurrent sandboxes | 1 | A second `Sandbox.create` while one is alive fails. Serialize sandbox work behind one application lease. |
-| Concurrent template builds | 1 | Only one `Template.build` at a time. |
-| vCPU per sandbox | 2 | Requests above 2 are rejected. |
-| RAM per sandbox | 8,192 MiB | `kitdev-browser-heavy` already uses the full budget. |
+| Concurrent sandboxes | 12 | Measured ceiling for the 2 GiB coding profile. |
+| Concurrent template builds | 2 | Only two `Template.build` calls at a time. |
+| vCPU per sandbox | 4 | Requests above 4 are rejected. |
+| RAM per sandbox | 8,192 MiB | Fixed at template build time, not per create call. |
 | Requested free disk | 16,384 MiB | Applies to template builds. |
 | Maximum disk | 25,600 MiB | Applies to template builds. |
-| Maximum sandbox lifetime | 1 hour | `timeoutMs` above one hour is rejected. Re-create or snapshot for longer work. |
+| Maximum sandbox lifetime | 24 h | `timeoutMs` above 24 hours is rejected. |
 
-These are the qualified capacity of a single host with a 24 GiB hugepage pool,
-where exactly one 8 GiB browser sandbox has passed live qualification. Two
-concurrent heavy sandboxes are **not** qualified. Ask the operator before
-designing for higher concurrency; it requires host capacity work, not an SDK
-change.
+**The real ceiling is host memory, not the team limit.** Sandbox memory is
+served from a 24 GiB reserved hugepage pool, so concurrency depends on the
+profile you launch:
+
+| Template | Per sandbox | Concurrent, measured |
+|---|---:|---:|
+| `kitdev-coding:stable` | 2,048 MiB | 12 |
+| `kitdev-browser-heavy:stable` | 8,192 MiB | 3 |
+
+Both numbers are exactly `24 GiB / per-sandbox RAM`. Mixed workloads share the
+same pool: three browser sandboxes leave nothing for a coding sandbox.
+
+When the pool is exhausted, `Sandbox.create` throws a `SandboxError` and every
+running sandbox is unaffected. Treat that error as backpressure — retry with
+jitter or queue — not as an outage. Running sandboxes never die because
+another one was requested.
+
+One caveat worth designing around: template builds and snapshots need a
+transient mapping roughly the size of a guest. Filling the pool with sandboxes
+means a concurrent build or snapshot will fail. Leave one profile-sized slot
+free when a build must succeed.
 
 ## Exact client
 
@@ -568,6 +584,8 @@ endpoint hands full browser control to anyone who learns the host name. See the
 - Make cleanup idempotent. A false kill/delete may mean cleanup already ran.
 - Use one application lease per sandbox before pause, snapshot, restore, or
   delete. SDK calls do not serialize competing workers.
+- Treat a `SandboxError` on create as backpressure from the host memory pool.
+  Retry with jitter or queue; do not tear down healthy sandboxes in response.
 - Retry bounded read-only calls with jitter. Reconcile list/metadata before
   retrying create or snapshot mutations.
 - Disconnect only to transfer ownership; kill when work must stop.

@@ -55,6 +55,10 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`external-ingress-readiness-2026-08-07.md`](external-ingress-readiness-2026-08-07.md):
   credential-free public DNS, TCP, TLS, and health readiness result for the API
   and wildcard SDK hostname before external TypeScript testing.
+- [`host-capacity-qualification-2026-08-08.md`](host-capacity-qualification-2026-08-08.md):
+  measured concurrency for both published profiles, the hugepage pool as the
+  binding ceiling, clean per-request refusal past it, and the team limits set
+  from those numbers.
 - [`host-discovery.md`](host-discovery.md): read-only `kit@pc` capability and
   coexistence inventory.
 - [`milestone-1-pc-doctor.md`](milestone-1-pc-doctor.md): temporary read-only

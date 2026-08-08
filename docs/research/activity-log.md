@@ -1360,3 +1360,48 @@ untracked, and must never be quoted into tracked documentation.
   internal teams remain at base-tier concurrency by operator decision. The
   matrix has not yet been run from the product bare-metal server.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Host capacity qualification and team limit tooling
+
+- **Intent:** Replace the one-sandbox team limit, which was inherited caution
+  rather than a measurement, with the concurrency the hardware actually
+  delivers, and make limit changes reviewed rather than manual.
+- **Delegated LUNA agent:** LUNA project-lead role.
+- **Implementation:** Added `scripts/control-plane/set-team-limits.sh`. The
+  existing convergence tool only clamps downward through `LEAST()`, so raising
+  a limit had no supported path at all. The new tool holds both lifecycle
+  locks, refuses a running Firecracker process or a pending build, records
+  prior effective limits create-once, invalidates cached authentication,
+  verifies by reading back, and computes the worst case against the live
+  HugeTLB pool so the hardware ceiling is explicit at the point of change.
+- **Measurement:** From an off-host client over public HTTPS, 12 concurrent
+  2 GiB coding sandboxes started in about one second and were each
+  independently executing and filesystem-isolated. Separately, 3 concurrent
+  8 GiB browser sandboxes started and the 4th was refused with a clean
+  `SandboxError` while all three survivors stayed healthy. Both figures are
+  exactly `pool / per-sandbox RAM` on the 24,576 MiB pool.
+- **Correction:** This supersedes the recorded claim that two concurrent heavy
+  sandboxes were unqualified. Three run. The caveat is that doing so consumes
+  the transient allowance the pool reserves for build and snapshot mappings.
+- **Applied limits:** `kitdev-browser-heavy-team` moved from 1 sandbox, 1
+  build, 2 vCPU, 8,192 MiB and a 1 hour lifetime to 12 sandboxes, 2 builds,
+  4 vCPU, 8,192 MiB and a 24 hour lifetime.
+- **Assertion fallout:** Raising concurrency falsified the external matrix's
+  concurrency-refusal check. It was replaced with a second-sandbox isolation
+  check rather than left to pass by accident, and the full matrix was re-run
+  and still passes 42 of 42.
+- **Files and evidence:**
+  [capacity qualification](host-capacity-qualification-2026-08-08.md),
+  `scripts/external-sdk-matrix/concurrency.ts`, and the updated operator and
+  SDK guides.
+- **Mutation status:** Database limits for one team changed, with prior values
+  recorded create-once at
+  `/var/lib/kitdev-sandboxes/team-limits/kitdev-browser-heavy-team.prior`.
+  Sandboxes created during probing were all destroyed; the host returned to
+  12,288 free hugepages and zero Firecracker processes.
+- **Limitations / next gate:** Sustained multi-hour load and vCPU contention at
+  a full fleet are unmeasured. Host-level admission control is still
+  undeployed, so enforcement is the API team limit plus the pool. Raising the
+  pool toward the 32 GiB policy ceiling needs the capacity migration
+  controller, whose reboot and rollback gates remain open.
+- **Commit:** Pending in this change set.

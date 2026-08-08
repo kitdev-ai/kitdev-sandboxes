@@ -6,19 +6,31 @@ runtime uses Firecracker microVMs and assumes sandbox workloads are hostile.
 
 ## Project status
 
-The fresh-host installer remains in **Milestone 1: preflight and host
-preparation (in progress)**. Its dependency-free `doctor` and `install
---dry-run` foundations are strictly read-only. A prepared-host minimal-profile
-lifecycle now wires the pinned control-plane assets into `install`, `up`,
-`down`, `restart`, `status`, and explicit post-install tests. In parallel, explicitly approved
-work on a disposable Ubuntu 26.04 bare-metal lab has validated pinned Docker
-Engine, the containerized control plane, the privileged host orchestrator, and
-a first Firecracker template build plus snapshot/resume cycle.
+A running deployment on an Ubuntu 26.04 bare-metal lab **serves the official
+E2B TypeScript SDK to external clients over trusted public HTTPS.** The full
+`e2b@2.38.0` feature matrix passes from a separate host: 42 of 42 checks
+covering lifecycle, commands, PTY, files and watch, wildcard guest HTTP,
+chunked streaming, WebSocket upgrades, pause/resume, snapshots, and a Chromium
+sandbox driven by Playwright. Only TCP 443 is reachable from the Internet.
+
+Measured capacity on that host: **12** concurrent 2 GiB sandboxes or **3**
+concurrent 8 GiB browser sandboxes, both exactly `hugepage pool / per-sandbox
+RAM`. Beyond the pool, individual creates fail cleanly and running sandboxes
+are unaffected.
+
+That deployment was **assembled by hand and then progressively brought under
+reviewed automation** — it is not yet the output of a one-command install. The
+fresh-host installer remains in **Milestone 1: preflight and host preparation
+(in progress)**: `doctor` and `install --dry-run` are strictly read-only, and a
+prepared-host minimal-profile lifecycle wires the pinned control-plane assets
+into `install`, `up`, `down`, `restart`, `status`, and post-install tests.
 
 The prepared-host lifecycle has not passed clean-host prerequisite apply,
 apply/apply, rollback, reboot, or reinstall qualification. It supports only the
-minimal profile and does not yet install a standalone CLI. Do not use the
-current tree to qualify or operate a production host yet.
+minimal profile and does not yet install a standalone CLI. **Do not treat the
+current tree as production-qualified.** In particular the live lab's
+control-plane firewall is operator-managed, so its public exposure runs under
+an explicit development-only acknowledgement.
 
 Version 0.1 recognizes this host matrix:
 
@@ -88,6 +100,7 @@ journaled prerequisite installer. See [control-plane lifecycle](docs/operations.
 | `templates/` | Versioned guest template build inputs |
 | `networking/` | Project-owned network policy and nftables inputs |
 | `tests/` | Unit, smoke, integration, and security acceptance tests |
+| `scripts/external-sdk-matrix/` | Off-host official-SDK qualification and capacity probes |
 | `docs/` | Architecture, decisions, discovery, and milestone contracts |
 
 Start with [the architecture](docs/architecture.md), [the preflight design](docs/preflight-design.md),

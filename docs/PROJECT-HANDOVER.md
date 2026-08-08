@@ -1,7 +1,14 @@
 # Project handover
 
-Checkpoint date: 2026-08-07
-Checkpoint revision before this document: `bc248737c09d90308babd40217a51bb316a076cb`
+Checkpoint date: 2026-08-08
+Checkpoint revision before this document: `3e20d7a`
+
+**External SDK operation is qualified.** A client on a separate host drives
+this deployment through the official `e2b@2.38.0` SDK over trusted public
+HTTPS: 42 of 42 checks across all 10 stages. Only TCP 443 is reachable from
+the Internet. See
+[external HTTPS enablement](research/external-https-enablement-2026-08-08.md)
+and [capacity qualification](research/host-capacity-qualification-2026-08-08.md).
 
 This is the clean-resume document for a new project lead or implementation
 agent. It separates committed implementation, last recorded live evidence,
@@ -31,8 +38,9 @@ The project must satisfy all of these requirements:
 - reject Ubuntu 24.04. It is not a target and must never be described as one;
 - do not expose databases, Redis, Loki, orchestrator ports, admin credentials,
   or Docker-published loopback services to the Internet;
-- do not claim external end-to-end SDK support until it passes from another
-  server over trusted HTTPS.
+- external end-to-end SDK support is proved from a development client over
+  trusted HTTPS; do not extend that claim to the product server until the same
+  matrix runs there.
 
 ## The two end users
 
@@ -65,7 +73,11 @@ E2B_API_URL=https://api.sandbox.kitdev.ai
 E2B_DOMAIN=sandbox.kitdev.ai
 E2B_API_KEY=<runtime secret>
 E2B_VALIDATE_API_KEY=true
+E2B_TEMPLATE=kitdev-coding:stable
 ```
+
+Published templates are `kitdev-coding:stable` / `:v1` and
+`kitdev-browser-heavy:stable` / `:v1`.
 
 Do not set `E2B_SANDBOX_URL` externally and do not enable `E2B_DEBUG`.
 
@@ -105,10 +117,13 @@ A trusted Let's Encrypt wildcard certificate requires DNS-01; HTTP-01 cannot
 issue the wildcard. Desired public policy is source-allowlisted TCP 443 only,
 with port 80 closed.
 
-DNS currently resolves the API and wildcard shape to IPv4, with no terminal
-IPv6 address. The last external probe timed out on both TCP 80 and 443. No TLS
-handshake or public health request succeeded. Therefore external SDK operation
-is **not qualified**.
+DNS resolves the API and wildcard names to IPv4 `A` records, DNS-only, with no
+terminal IPv6 address. A wildcard **CNAME** cannot be used: it also matches
+`_acme-challenge`, which sends DNS-01 validation into a zone this project does
+not control. A trusted Let's Encrypt wildcard certificate is installed and
+renews on a daily timer; TCP 443 is open to all sources by operator choice and
+TCP 80 is closed. External SDK operation is **qualified from a development
+client**; the same run from the product bare-metal server is still outstanding.
 
 ## Architecture, ports, and security boundary
 
@@ -135,15 +150,22 @@ sudo ./kitdev firewall source remove --cidr <exact-cidr>
 
 It owns tagged UFW and `DOCKER-USER` original-destination rules, preserves SSH,
 rejects overlaps and `/0`, defaults to maximum IPv4 `/24` and IPv6 `/64`
-breadth, and rolls a transaction back on failure. It has not been applied live.
-The manually assembled host also lacks the installed `/opt` copy of the new
-firewall asset, so install the exact committed release before using the CLI.
+breadth, and rolls a transaction back on failure. It is now applied live in
+`public` mode.
 
-Nginx/TLS must terminate only the API and wildcard routes and proxy to loopback.
-No ingress listener or allowlisted product source is currently applied live.
-The pinned Nginx image was unavailable locally/remotely during one offline
-qualification, so container-level `nginx -t` remains a required deployment
-check even though static tests passed.
+Because this host's control-plane firewall was assembled by hand rather than by
+this automation, the ingress firewall runs under an explicit development-only
+acknowledgement, `KITDEV_UNMANAGED_CONTROL_PLANE_FIREWALL=acknowledged`. That
+gives up only the managed-ownership proof; UFW defaults, IPv6 filtering,
+listener scope, Docker publication scope and the sensitive-port source scan all
+still fail closed. It is not a production posture.
+
+Nginx/TLS terminates only the API and wildcard routes and proxies to loopback.
+The listener is live and healthy, and container-level `nginx -t` passed against
+the pinned image. The container needs `CHOWN`, `KILL`, `NET_BIND_SERVICE`,
+`SETGID` and `SETUID`: the master binds 443 as root and drops its workers to an
+unprivileged user, and removing any of those makes nginx exit at startup rather
+than run with fewer privileges.
 
 ## Exact last recorded live state
 
@@ -168,12 +190,19 @@ qualification:
 These are historical recorded observations, not a current health assertion.
 Recheck before any mutation.
 
-The heavy team contract is 2 vCPU, 8,192 MiB RAM, 16,384 MiB requested free
-disk, and 25,600 MiB maximum disk. One concurrent heavy Chromium/Playwright
-sandbox passed browser identity, loopback CDP, Playwright navigation/DOM,
-screenshot/download, snapshot/finalize, runtime, SDK kill, API/Redis cleanup,
-and Firecracker cleanup with `e2b@2.38.0`. Two concurrent heavy sandboxes were
-not qualified.
+The heavy team's limits are now 12 concurrent sandboxes, 2 concurrent builds,
+4 vCPU and 8,192 MiB per sandbox, 16,384 MiB requested free disk, 25,600 MiB
+maximum disk, and a 24 hour maximum lifetime, set with the reviewed
+`scripts/control-plane/set-team-limits.sh`.
+
+Measured concurrency on the 24 GiB hugepage pool: **12** concurrent 2 GiB
+coding sandboxes, or **3** concurrent 8 GiB browser sandboxes. Both are exactly
+`pool / per-sandbox RAM`, because sandbox memory comes from the reserved pool
+rather than ordinary RAM. The fourth 8 GiB sandbox was refused with a clean
+`SandboxError` and the three running were unharmed, so exhausting the pool is
+per-request backpressure and not host overcommit. Running 3 heavy sandboxes
+does consume the transient allowance the pool reserves for builds and
+snapshots, so leave a slot free when a build must succeed.
 
 Commit `bc24873` adds fail-closed host admission controls: required
 `KITDEV_MAX_*` values, hard local minima against LaunchDarkly, direct gRPC
@@ -208,6 +237,10 @@ Important pushed checkpoints, oldest to newest:
 | `9a1a4af`, `5245aed`, `3b2c4df`, `a09fcbd`, `ed813c7` | Secure API-key lifecycle and live qualification fixes/evidence |
 | `c64d30b` | Source-restricted SDK ingress firewall implementation and tests |
 | `bc24873` | Host runtime admission patch, build/preflight binding, convergence tool, and tests |
+| `2e8266e`, `63ad005`, `9f6a67f`, `a4c4338`, `81dc195`, `123867c` | Six ingress defects fixed to reach public HTTPS: lego 5.x CLI, reversed asset verification plus a new `update` mode, the development-only firewall acknowledgement and its unit drop-in, nginx capabilities, and invalid Go templates |
+| `88a5206` | Live external SDK qualification, 42 of 42 checks over public HTTPS |
+| `9328cb1` | Pinned SDK API surface reference |
+| `3e20d7a` | Reviewed team limit tool |
 
 The API-key live gate passed team discovery, exact-slug selection, create,
 idempotent create, masked list, verify, exact-confirmation revoke, rejected
@@ -316,19 +349,19 @@ restore, key lifecycle, admission convergence, or another SDK qualification.
 
 ## User input required
 
-The following values block external HTTPS qualification and cannot be guessed:
+Public HTTPS is deployed, so the earlier blockers are resolved: the provider is
+Cloudflare, the ACME account email is on file, and the operator has installed a
+scoped `Zone:DNS:Edit` + `Zone:Zone:Read` token at
+`/etc/kitdev-sandboxes/ingress/cloudflare-dns-api-token`.
 
-1. The external product server's stable public IPv4 as `/32` and, if used, its
-   stable public IPv6 as `/128`.
-2. The DNS provider's exact `lego` provider code.
-3. An ACME account email address.
-4. Least-privilege DNS-01 credentials, their provider-specific environment
-   variable names, and an agreed root-only file placement outside Git.
+One value is still outstanding and cannot be guessed: the product server's
+stable public IPv4 as `/32` and, if used, its IPv6 as `/128`. Until it is
+supplied, TCP 443 stays open to every source in `public` mode instead of the
+source-restricted policy.
 
-Do not request credentials in chat or pass them on a command line. Once the
-provider is known, document the exact file schema using placeholder values,
-then have the operator place the real `root:root` `0600` single-link file
-directly on the server.
+Never request credentials in chat or pass them on a command line. Have the
+operator place a real `root:root` `0600` single-link file directly on the
+server.
 
 ## Ordered backlog and dependencies
 
@@ -337,22 +370,22 @@ in this order:
 
 1. Re-audit current host health, locks, disks, HugeTLB, NBD, Firecracker,
    services, listeners, firewall, and secret-file invariants without mutation.
-2. Build and publish the exact `bc24873` patched orchestrator, install its
-   limits and schema-2 manifest, run preflight, converge team limits under both
-   lifecycle locks, restart, and prove oversized/second sandbox and build
-   rejection plus release and crash recovery.
-3. Complete 24 GiB reboot-persistence and authenticated rollback/reapply gates.
-4. Install and live-test the `c64d30b` source firewall using the user-provided
-   `/32` and/or `/128`; prove allowed 443, denied source, closed 80, rollback,
-   idempotency, exact removal, and no internal-port exposure.
-5. Configure DNS-01 credentials, issue the wildcard certificate, deploy TLS
-   ingress, prove renewal/reload and failure rollback, and keep port 80 closed.
-6. Publish immutable, versioned coding and heavy-browser aliases with rollback
-   and retirement behavior. Do not revive the discarded draft as authority.
-7. From another server, run the complete official `e2b@2.38.0` matrix: auth,
-   create/list/connect/info/metrics/timeout/kill, commands, PTY, files/watch,
-   pause/connect-resume, snapshots, HTTP, WebSocket/streaming, direct sandbox
-   URLs, concurrent refusal, and cleanup.
+2. Observe a real certificate renewal. The reload defect that would have broken
+   it is fixed and unit-tested, but the first live renewal is unobserved. Also
+   prove issuance failure rollback.
+3. Run the external matrix from the product bare-metal server with its own
+   installed key.
+4. Complete 24 GiB reboot-persistence and authenticated rollback/reapply gates,
+   then decide whether to raise the pool toward the 32 GiB policy ceiling.
+5. Build and publish the exact `bc24873` patched orchestrator so admission is
+   enforced at the host rather than only by API team limits, and prove
+   oversized/second sandbox and build rejection plus release and crash
+   recovery.
+6. Collect the product server's stable public address and move the firewall
+   from `public` to `restricted` source mode.
+7. Fix the same reversed `require_exact_file` argument order in
+   `install-orchestrator-service.sh`; it is latent there but means that
+   installer never checks the installed file's ownership.
 8. Finish one-command fresh-host automation, including storage and containerd
    ownership, Docker, firewall, ingress, services, templates, verification,
    idempotent reapply, and bounded removal.
@@ -393,10 +426,15 @@ in this order:
 - Project state is on the large data disk, but `/var/lib/containerd` can still
   consume the system/root filesystem. Containerd relocation is unimplemented;
   always monitor both filesystems.
-- A loopback SDK pass is not an external pass. DNS resolution is not HTTPS, a
-  published template alias, wildcard proxying, or full SDK qualification.
-- One 8 GiB sandbox was qualified. Two were not. The 24 GiB memory theorem and
-  new admission code still require live pressure and recovery tests.
+- A loopback SDK pass is not an external pass. The external matrix is the only
+  evidence that counts for the public path, and it must be re-run after any
+  ingress, DNS, certificate, or limit change.
+- Capacity is bounded by the hugepage pool, not by the team limit. Raising a
+  limit above the pool is safe but buys nothing; it just moves the refusal from
+  the API to the sandbox start.
+- Changing team limits can silently invalidate test assertions. Raising
+  concurrency to 12 falsified the matrix's concurrency-refusal check, which had
+  to be replaced rather than left to pass by accident.
 - `sudo ./kitdev install` is not a complete fresh-host installer. Production
   mode and full profile deliberately refuse; storage and Docker preparation
   remain outside the current partial flow.
