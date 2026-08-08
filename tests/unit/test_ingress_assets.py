@@ -363,3 +363,55 @@ class IngressAssetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DockerPublicationCheckTests(unittest.TestCase):
+    """The published-port check is the only thing between a misconfigured
+    container and the Internet, because Docker's nat DNAT rules bypass ufw's
+    INPUT chain. Exercise its logic directly rather than trusting the text."""
+
+    def setUp(self) -> None:
+        source = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
+        body = source.split("PY_VERIFY_DOCKER_PORTS'\n", 1)[1].split(
+            "PY_VERIFY_DOCKER_PORTS", 1
+        )[0]
+        self.body = body
+
+    def _run(self, ports: str) -> int:
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", "-S", "-c", self.body, ports],
+            capture_output=True,
+        )
+        return result.returncode
+
+    def test_loopback_publications_are_accepted(self) -> None:
+        for ports in (
+            "127.0.0.1:3000->3000/tcp",
+            "127.0.0.1:3002-3003->3002-3003/tcp",
+            "6379/tcp",
+            "0.0.0.0:19999->19999/tcp",
+        ):
+            self.assertEqual(self._run(ports), 0, ports)
+
+    def test_public_sensitive_publications_are_refused(self) -> None:
+        for ports in (
+            "0.0.0.0:5432->5432/tcp",
+            "[::]:6379->6379/tcp",
+            "127.0.0.1:8123->8123/tcp, 0.0.0.0:9000->9000/tcp",
+        ):
+            self.assertNotEqual(self._run(ports), 0, ports)
+
+    def test_public_port_ranges_are_refused(self) -> None:
+        # Regression: matching only a single port silently skipped every range,
+        # so a datastore published as a range on a public address passed.
+        for ports in (
+            "0.0.0.0:3002-3003->3002-3003/tcp",
+            "0.0.0.0:5430-5440->5430-5440/tcp",
+        ):
+            self.assertNotEqual(self._run(ports), 0, ports)
+
+    def test_unparseable_publication_fails_closed(self) -> None:
+        self.assertNotEqual(self._run("weird->stuff"), 0)

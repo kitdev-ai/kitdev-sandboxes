@@ -49,7 +49,10 @@ expected = {
     ("ufw", "allow", "in", "on", bridge, "from", subnet, "to", gateway, "port", "5008", "proto", "tcp"),
     ("ufw", "allow", "in", "on", "veth+", "from", "10.11.0.0/16", "to", "any", "port", "5010:5012", "proto", "tcp"),
     ("ufw", "allow", "in", "on", "veth+", "from", "10.11.0.0/16", "to", "any", "port", "5016:5018", "proto", "tcp"),
-    ("ufw", "route", "allow", "in", "on", "veth+", "out", "on", outbound, "from", "10.11.0.0/16", "to", "any"),
+    # ufw renders "to any" only when a destination port follows, so the
+    # port-less route rule comes back without it even though apply passes it.
+    # Expecting "to any" here made apply fail its own post-verification.
+    ("ufw", "route", "allow", "in", "on", "veth+", "out", "on", outbound, "from", "10.11.0.0/16"),
 }
 build = ("ufw", "allow", "in", "on", "veth+", "from", "10.11.0.0/16", "to", "any", "port", "5516:5518", "proto", "tcp")
 if include_build == "yes":

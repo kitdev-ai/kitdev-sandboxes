@@ -196,9 +196,30 @@ verify_docker_publications() {
 import re
 import sys
 
+# Docker publishes ranges as "0.0.0.0:3002-3003->3002-3003/tcp". Matching only
+# a single port silently skipped every range, so a datastore published as a
+# range on a public address passed this check. That matters more here than
+# anywhere else: published ports install nat DNAT rules that bypass ufw's INPUT
+# chain entirely, so this function is the only thing standing between a
+# misconfigured container and the Internet.
+SENSITIVE = {80, 443, 3000, 3002, 3003, 3100, 5432, 6379, 8123, 9000}
+PUBLIC = {"0.0.0.0", "::", "[::]", "*"}
+PUBLICATION = re.compile(r"(.+):([0-9]+)(?:-([0-9]+))?->")
+
 for entry in sys.argv[1].splitlines():
-    for address, port in re.findall(r"(?:^|, )(.+?):([0-9]+)->", entry):
-        if port in {"80", "443", "3000", "3002", "3003", "3100", "5432", "6379", "8123", "9000"} and address in {"0.0.0.0", "::", "[::]"}:
+    for part in entry.split(", "):
+        if "->" not in part:
+            continue
+        match = PUBLICATION.match(part.strip())
+        if match is None:
+            # An unparseable publication is not proof of safety.
+            raise SystemExit(1)
+        address, first, last = match.groups()
+        if address not in PUBLIC:
+            continue
+        start = int(first)
+        end = int(last) if last else start
+        if end < start or any(start <= port <= end for port in SENSITIVE):
             raise SystemExit(1)
 PY_VERIFY_DOCKER_PORTS
 }
