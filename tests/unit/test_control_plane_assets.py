@@ -420,11 +420,33 @@ update_exact_file {tmp}/source {tmp}/target {uid} {gid} 644
 
         # The reason code must distinguish "something is holding pages" from a
         # malformed environment file; they have nothing in common but the check
-        # that reports them.
+        # that reports them. The failure also names the consumer, because the
+        # original one named nothing and had to be traced by hand.
         preflight = (SCRIPTS / "preflight-orchestrator.sh").read_text(encoding="ascii")
         self.assertIn("hugepage_capacity_unavailable", preflight)
         self.assertIn("raise SystemExit(2)", preflight)
-        self.assertIn("2) control_plane_die hugepage_capacity_unavailable 65 ;;", preflight)
+        self.assertIn("report_hugepage_consumers", preflight)
+
+        # Fixing one consumer does not stop the next one, so the property is
+        # asserted after the stack comes up rather than trusted to compose.
+        replay = (SCRIPTS / "replay-compose.sh").read_text(encoding="ascii")
+        self.assertIn("verify_no_container_hugepages || control_plane_die", replay)
+
+        # One derivation of the requirement, not a literal repeated per script.
+        common = (SCRIPTS / "common.sh").read_text(encoding="ascii")
+        self.assertIn("hugepage_pages_required()", common)
+        lifecycle = (SCRIPTS / "lifecycle.sh").read_text(encoding="ascii")
+        self.assertIn("hugepage_pages_required", lifecycle)
+        self.assertNotIn("$2 >= 512", lifecycle)
+
+    def test_postgres_declares_no_anonymous_volume(self) -> None:
+        # postgres:17.4 declares VOLUME /var/lib/postgresql/data, and PGDATA
+        # points elsewhere, so Docker created a throwaway anonymous volume on
+        # every container create. It littered the host and read as an
+        # undeclared mount to the runtime contract, which refused the stack.
+        postgres = service_block(self.compose, "postgres")
+        self.assertIn("/var/lib/postgresql/data:size=1m,mode=0700", postgres)
+        self.assertIn("target: /var/lib/postgresql/17/docker", postgres)
 
     def test_private_environment_is_nonrotating_and_parent_bound(self) -> None:
         source = (SCRIPTS / "private_env.py").read_text(encoding="ascii")

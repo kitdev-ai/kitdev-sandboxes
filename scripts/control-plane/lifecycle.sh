@@ -41,8 +41,19 @@ require_prepared_host() {
     control_plane_die ipv4_forwarding_disabled 65
   grep -q '^Hugepagesize:[[:space:]]*2048 kB$' /proc/meminfo ||
     control_plane_die hugepage_size_mismatch 65
-  awk '$1 == "HugePages_Free:" { found=1; exit !($2 >= 512) } END { if (!found) exit 1 }' \
-    /proc/meminfo || control_plane_die hugepage_capacity_insufficient 65
+  # Ask for what the orchestrator will actually demand, not an unrelated 512.
+  # The old gate was 24x weaker than the real requirement, so install completed
+  # happily on a host whose orchestrator could never start -- the failure only
+  # appeared later, as a restart loop with an unrelated reason code. Total, not
+  # free: the pool being large enough for the configured limits is the durable
+  # property this stage can assert, while free pages are a runtime condition the
+  # orchestrator's own preflight checks at start.
+  local required
+  required="$(hugepage_pages_required "$SCRIPT_DIR/../../systemd/orchestrator.env.template")"
+  if (("$(meminfo_pages HugePages_Total)" < required)); then
+    printf 'hugepages required=%s total=%s\n' "$required" "$(meminfo_pages HugePages_Total)" >&2
+    control_plane_die hugepage_capacity_insufficient 65
+  fi
   [[ "$(ufw status | sed -n '1p')" == 'Status: active' ]] || control_plane_die ufw_not_active 65
   systemctl is-active --quiet docker.service || control_plane_die docker_not_active 65
 }

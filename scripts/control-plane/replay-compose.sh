@@ -18,6 +18,29 @@ compose() {
     --env-file "$KITDEV_PRIVATE_ENV" --file "$COMPOSE_FILE" "$@"
 }
 
+# No control-plane container may hold pages from the sandbox pool.
+#
+# PostgreSQL's huge_pages=try default took 24 MiB of it, which is capacity the
+# operator believed was available for sandboxes and was enough to stop the
+# orchestrator starting at all. compose.yaml now pins huge_pages=off, but an
+# image default can change under a digest bump and a new service can arrive
+# with its own appetite, so the property is asserted here rather than trusted.
+# Checking it right after the stack comes up reports the offending container by
+# name, instead of surfacing later as an orchestrator that will not start.
+verify_no_container_hugepages() {
+  local id name bytes
+  while IFS= read -r id; do
+    [[ -n "$id" ]] || continue
+    bytes="$(cgroup_hugepage_bytes "$id")" || continue
+    ((bytes == 0)) || {
+      name="$(docker inspect --format '{{.Name}}' -- "$id" 2>/dev/null || printf '%s' "$id")"
+      printf 'container=%s hugepage_pages=%s\n' "${name#/}" "$((bytes / 2097152))" >&2
+      return 1
+    }
+  done < <(docker ps --quiet --no-trunc \
+    --filter label=com.docker.compose.project=kitdev-control-plane)
+}
+
 install_assets() {
   ensure_directory "$KITDEV_OPT_ROOT/compose" root root 755
   ensure_directory "$COMPOSE_ROOT" root root 755
@@ -326,6 +349,7 @@ main() {
       verify_migrations
       compose up --detach --wait --wait-timeout 300 api client-proxy
       verify_runtime_contract || control_plane_die compose_runtime_contract_invalid 65
+      verify_no_container_hugepages || control_plane_die container_consumes_hugepages 65
       ;;
     quiesce)
       compose stop --timeout 60 api client-proxy

@@ -45,6 +45,14 @@ services:
         protocol: tcp
     restart: unless-stopped
     stop_grace_period: 60s
+    # postgres:17.4 declares VOLUME /var/lib/postgresql/data. PGDATA points at
+    # the bind mount below instead, so that path is unused -- but Docker still
+    # creates a fresh anonymous volume there every time the container is
+    # created, which litters the host and shows up as an undeclared mount the
+    # runtime contract rightly refuses. Occupying the path with a tiny tmpfs
+    # suppresses the volume; verified against the image directly.
+    tmpfs:
+      - /var/lib/postgresql/data:size=1m,mode=0700
     volumes:
       - type: bind
         source: /var/lib/kitdev-sandboxes/data/postgres

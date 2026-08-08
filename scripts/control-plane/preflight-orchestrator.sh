@@ -225,7 +225,13 @@ main() {
   verify_orchestrator_build || control_plane_die orchestrator_build_invalid 65
   verify_network_overlap || control_plane_die sandbox_network_overlap 65
   verify_environment || case "$?" in
-    2) control_plane_die hugepage_capacity_unavailable 65 ;;
+    2)
+      # Name what is holding the pool before refusing. Reporting only the
+      # shortfall left the operator to trace it by hand, which is how twelve
+      # pages taken by PostgreSQL turned into a long investigation.
+      report_hugepage_consumers
+      control_plane_die hugepage_capacity_unavailable 65
+      ;;
     *) control_plane_die orchestrator_environment_invalid 65 ;;
   esac
   "$SCRIPT_DIR/bootstrap-network.sh" verify >/dev/null

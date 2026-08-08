@@ -261,6 +261,75 @@ update_exact_file() {
   require_exact_file "$target" "$source" "$owner" "$group" "$mode"
 }
 
+# --- HugeTLB pool accounting -------------------------------------------------
+#
+# The pool is reserved for Firecracker sandbox memory and is the hard ceiling on
+# concurrency, so anything else holding pages both steals capacity and, because
+# the orchestrator demands the whole pool before it will start, can stop the
+# platform outright. PostgreSQL did exactly that: huge_pages=try took 12 pages
+# and the orchestrator restart-looped 224 times reporting only
+# orchestrator_environment_invalid. Tracing that by hand took far too long, so
+# the pool is now accounted for explicitly rather than assumed.
+
+# Value of one limit from an orchestrator environment file or its template.
+orchestrator_limit_value() {
+  local file="$1" key="$2" value
+  value="$(awk -F= -v k="$key" '$1 == k { print $2; found = 1; exit } END { exit !found }' \
+    -- "$file")" || control_plane_die orchestrator_limits_unreadable 65
+  [[ "$value" =~ ^[1-9][0-9]{0,6}$ ]] || control_plane_die orchestrator_limits_invalid 65
+  printf '%s' "$value"
+}
+
+# Pages the orchestrator will require, derived from the limits it is configured
+# with. This was a literal 12288 in three scripts and 512 in a fourth, so
+# changing any limit silently invalidated all four and the install gate passed
+# on a host whose orchestrator could never start. Derive it once instead.
+hugepage_pages_required() {
+  local file="$1" ram live builds
+  ram="$(orchestrator_limit_value "$file" KITDEV_MAX_RAM_MB)"
+  live="$(orchestrator_limit_value "$file" KITDEV_MAX_LIVE_SANDBOXES)"
+  builds="$(orchestrator_limit_value "$file" KITDEV_MAX_CONCURRENT_BUILDS)"
+  printf '%s' "$(((ram * (live + 2 * builds) * 1024 + 2047) / 2048))"
+}
+
+meminfo_pages() {
+  awk -v k="$1:" '$1 == k { print $2; found = 1; exit } END { exit !found }' /proc/meminfo ||
+    control_plane_die hugepage_meminfo_unreadable 65
+}
+
+# Bytes of 2 MiB hugepages charged to any cgroup whose path names this id.
+cgroup_hugepage_bytes() {
+  local id="$1" path value total=0
+  [[ "$id" =~ ^[0-9a-f]{12,64}$ ]] || return 1
+  while IFS= read -r path; do
+    value="$(cat -- "$path" 2>/dev/null || printf 0)"
+    [[ "$value" =~ ^[0-9]+$ ]] || continue
+    total=$((total + value))
+  done < <(find /sys/fs/cgroup -path "*$id*" -name hugetlb.2MB.current 2>/dev/null)
+  printf '%s' "$total"
+}
+
+# Name what is holding pages, largest cgroups first. The previous failure named
+# nothing at all, which is why this exists: any future consumer -- a new
+# datastore, a changed image default, a stray process -- is reported here
+# rather than left for someone to find by hand.
+report_hugepage_consumers() {
+  local path value name id
+  printf 'hugepage_consumers:\n' >&2
+  while IFS= read -r path; do
+    value="$(cat -- "$path" 2>/dev/null || printf 0)"
+    [[ "$value" =~ ^[0-9]+$ && "$value" -gt 0 ]] || continue
+    name="${path%/hugetlb.2MB.current}"
+    name="${name#/sys/fs/cgroup/}"
+    if [[ "$name" =~ docker-([0-9a-f]{64})\.scope$ ]]; then
+      id="${BASH_REMATCH[1]}"
+      name="$(docker inspect --format '{{.Name}}' -- "$id" 2>/dev/null || printf '%s' "$name")"
+      name="${name#/}"
+    fi
+    printf '  %s pages=%s\n' "$name" "$((value / 2097152))" >&2
+  done < <(find /sys/fs/cgroup -name hugetlb.2MB.current 2>/dev/null)
+}
+
 require_clean_infra_checkout() {
   local output
   [[ ! -L "$KITDEV_INFRA_ROOT" && -d "$KITDEV_INFRA_ROOT/.git" ]] ||
