@@ -84,6 +84,19 @@ main() (
       /etc/systemd/system/kitdev-e2b-orchestrator.service root root 644
     systemctl daemon-reload
     systemctl enable kitdev-e2b-orchestrator.service
+    # Converging the unit file does not change the running process. Without a
+    # restart, installing a revision that edits the unit leaves the old settings
+    # in effect and the change silently does nothing -- which is how a UMask that
+    # made every template build fail would survive a reinstall. Restart only when
+    # the service is already running and no sandbox would be destroyed; the guard
+    # mirrors down_control_plane, which refuses while firecracker processes exist.
+    if systemctl is-active --quiet kitdev-e2b-orchestrator.service; then
+      if pgrep -x firecracker >/dev/null 2>&1; then
+        printf 'note=orchestrator-restart-deferred reason=active_sandboxes_present\n'
+      else
+        systemctl try-restart kitdev-e2b-orchestrator.service
+      fi
+    fi
     if [[ "$mode" == install-start ]]; then
       systemctl start kitdev-e2b-orchestrator.service
     fi

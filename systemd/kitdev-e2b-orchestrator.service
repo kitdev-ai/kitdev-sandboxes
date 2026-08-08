@@ -20,7 +20,21 @@ KillSignal=SIGTERM
 TimeoutStopSec=90s
 LimitNOFILE=1048576
 TasksMax=infinity
-UMask=0077
+# 0022, not 0077. The template manager runs inside this process and builds the
+# guest root filesystem, so the process umask applies to files it creates there.
+# At 0077 every extracted file lost its group and other bits: /bin/sh became
+# 0700 root-owned inside the guest, and envd -- which starts the sandbox command
+# as `user` -- failed with `fork/exec /bin/sh: permission denied`, so no template
+# could ever be built. The reference host never hit this because its
+# orchestrator was started by hand and inherited a 0022 shell umask.
+#
+# This does not widen access to anything the orchestrator writes on the host.
+# Confidentiality there comes from the directories, which prepare-layout creates
+# and verifies as root-owned 0700 (runtime, caches, sandbox-vms) or root:kitdev
+# 2700 (template-storage) -- a per-file umask adds nothing underneath a 0700
+# parent. ADR 0004 admits hardening "only where compatible with demonstrated
+# behavior", and this setting is not.
+UMask=0022
 Delegate=yes
 NoNewPrivileges=no
 PrivateDevices=no

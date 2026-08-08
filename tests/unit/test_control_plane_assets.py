@@ -456,6 +456,43 @@ update_exact_file {tmp}/source {tmp}/target {uid} {gid} 644
         migrations = replay.split("verify_migrations() {", 1)[1].split("\n}", 1)[0]
         self.assertIn("'exited 0'", migrations)
 
+    def test_orchestrator_umask_permits_building_guest_filesystems(self) -> None:
+        # The template manager runs inside the orchestrator and builds the guest
+        # root filesystem, so the process umask lands on files inside the guest.
+        # At 0077 /bin/sh became 0700 root-owned and envd, which starts the
+        # sandbox command as `user`, failed with `fork/exec /bin/sh: permission
+        # denied` -- no template could be built at all. ADR 0004 admits hardening
+        # only where compatible with demonstrated behaviour.
+        unit = (ROOT / "systemd" / "kitdev-e2b-orchestrator.service").read_text(encoding="ascii")
+        self.assertIn("UMask=0022", unit)
+        self.assertNotIn("UMask=0077", unit)
+        # Confidentiality of what the orchestrator writes rests on the parent
+        # directories instead, so those must stay closed.
+        layout = (SCRIPTS / "prepare-layout.sh").read_text(encoding="ascii")
+        self.assertIn('ensure_directory "$KITDEV_RUNTIME_ROOT/orchestrator" root root 700', layout)
+        self.assertIn(
+            'ensure_directory "$KITDEV_RUNTIME_ROOT/orchestrator/template-storage/templates" '
+            "root kitdev 2700",
+            layout,
+        )
+
+    def test_installing_a_changed_unit_restarts_the_orchestrator(self) -> None:
+        # A converged unit file does not change the running process, so without
+        # a restart an edited unit silently has no effect until the next reboot.
+        # The restart is guarded the way down_control_plane is: never destroy a
+        # running sandbox.
+        service = (SCRIPTS / "install-orchestrator-service.sh").read_text(encoding="ascii")
+        self.assertIn("systemctl try-restart kitdev-e2b-orchestrator.service", service)
+        self.assertIn("note=orchestrator-restart-deferred reason=active_sandboxes_present", service)
+        self.assertLess(
+            service.index("systemctl daemon-reload"),
+            service.index("systemctl try-restart"),
+        )
+        self.assertLess(
+            service.index("pgrep -x firecracker"),
+            service.index("systemctl try-restart"),
+        )
+
     def test_postgres_declares_no_anonymous_volume(self) -> None:
         # postgres:17.4 declares VOLUME /var/lib/postgresql/data, and PGDATA
         # points elsewhere, so Docker created a throwaway anonymous volume on
