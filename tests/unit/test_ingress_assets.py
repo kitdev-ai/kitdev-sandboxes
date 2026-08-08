@@ -85,6 +85,36 @@ class IngressAssetTests(unittest.TestCase):
             self.assertNotIn(forbidden, log_format)
         self.assertIsNone(re.search(r"\$request(?:[^_a-z]|$)", log_format))
 
+    def test_installer_validates_the_installed_file_not_the_release_tree(self) -> None:
+        installer = (SCRIPTS / "install-ingress.sh").read_text(encoding="ascii")
+        # require_exact_file stats its first argument. Passing the release tree
+        # first validated the checkout's mode and made verify and remove fail
+        # on the mode-0600 operator examples.
+        self.assertIn(
+            'require_exact_file "$INSTALLED_DIR/$name" "$SCRIPT_DIR/$name" root root 755',
+            installer,
+        )
+        self.assertIn(
+            'require_exact_file "$INGRESS_ETC/ingress.env.example" \\\n'
+            '    "$REPO_ROOT/config/ingress/ingress.env.template" root root 600',
+            installer,
+        )
+        self.assertNotIn(
+            'require_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name"',
+            installer,
+        )
+        remove = installer.split("remove_exact_file() {", 1)[1].split("}", 1)[0]
+        self.assertIn('require_exact_file "$target" "$source"', remove)
+
+    def test_installer_can_converge_a_changed_release_asset(self) -> None:
+        installer = (SCRIPTS / "install-ingress.sh").read_text(encoding="ascii")
+        self.assertIn("case \"$mode\" in stage|update|apply|verify|remove", installer)
+        update = installer.split("update_exact_file() {", 1)[1].split("\n}", 1)[0]
+        # Ownership must be proved before the installed bytes are replaced.
+        self.assertLess(update.index("file_metadata_conflict"), update.index("mv -f"))
+        self.assertIn("stat -c '%u:%g:%a:%h'", update)
+        self.assertLess(update.index("mv -f"), update.index("require_exact_file"))
+
     def test_certificate_runner_does_not_source_credentials(self) -> None:
         acquisition = (SCRIPTS / "acquire-artifacts.sh").read_text(encoding="ascii")
         runner = (SCRIPTS / "run_lego.py").read_text(encoding="ascii")

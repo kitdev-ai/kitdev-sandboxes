@@ -10,8 +10,7 @@ readonly COMPOSE_DIR="$KITDEV_OPT_ROOT/compose/ingress"
 readonly INGRESS_ETC="$KITDEV_ETC_ROOT/ingress"
 readonly UNIT_DIR=/etc/systemd/system
 
-publish_assets() {
-  local name
+ensure_managed_directories() {
   ensure_directory "$KITDEV_ETC_ROOT" root root 700
   ensure_directory "$KITDEV_OPT_ROOT/libexec" root root 755
   ensure_directory "$KITDEV_OPT_ROOT/libexec/control-plane" root root 755
@@ -19,6 +18,11 @@ publish_assets() {
   ensure_directory "$KITDEV_OPT_ROOT/compose" root root 755
   ensure_directory "$COMPOSE_DIR" root root 755
   ensure_directory "$INGRESS_ETC" root root 700
+}
+
+publish_assets() {
+  local name
+  ensure_managed_directories
   publish_exact_file "$SCRIPT_DIR/../control-plane/common.sh" \
     "$KITDEV_OPT_ROOT/libexec/control-plane/common.sh" root root 755
   for name in acquire-artifacts.sh configure-firewall.sh manage-certificate.sh; do
@@ -41,34 +45,89 @@ publish_assets() {
   done
 }
 
+# require_exact_file stats its FIRST argument, so the installed target must be
+# passed first. Passing the checkout first validates the release tree's mode
+# instead of the installed file's and fails whenever the two legitimately
+# differ, as they do for the mode-0600 operator examples.
 verify_assets() {
   local name
-  require_exact_file "$SCRIPT_DIR/../control-plane/common.sh" \
-    "$KITDEV_OPT_ROOT/libexec/control-plane/common.sh" root root 755
+  require_exact_file "$KITDEV_OPT_ROOT/libexec/control-plane/common.sh" \
+    "$SCRIPT_DIR/../control-plane/common.sh" root root 755
   for name in acquire-artifacts.sh configure-firewall.sh manage-certificate.sh; do
-    require_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
+    require_exact_file "$INSTALLED_DIR/$name" "$SCRIPT_DIR/$name" root root 755
   done
   for name in firewall_source_state.py ingress_config.py run_lego.py; do
-    require_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
+    require_exact_file "$INSTALLED_DIR/$name" "$SCRIPT_DIR/$name" root root 755
   done
-  require_exact_file "$REPO_ROOT/compose/ingress/compose.yaml" \
+  require_exact_file "$COMPOSE_DIR/compose.yaml" \
+    "$REPO_ROOT/compose/ingress/compose.yaml" root root 644
+  require_exact_file "$INGRESS_ETC/nginx.conf" \
+    "$REPO_ROOT/config/ingress/nginx.conf" root root 644
+  require_exact_file "$INGRESS_ETC/ingress.env.example" \
+    "$REPO_ROOT/config/ingress/ingress.env.template" root root 600
+  require_exact_file "$INGRESS_ETC/acme-provider.env.example" \
+    "$REPO_ROOT/config/ingress/acme-provider.env.example" root root 600
+  for name in kitdev-e2b-ingress.service kitdev-e2b-ingress-renew.service \
+    kitdev-e2b-ingress-renew.timer; do
+    require_exact_file "$UNIT_DIR/$name" "$REPO_ROOT/systemd/$name" root root 644
+  done
+}
+
+# Converge one managed asset to this release. publish_exact_file is
+# deliberately create-only, so without this there is no reviewed way to roll a
+# reviewed code change onto an installed host. Content is allowed to differ --
+# that is the point -- but the installed file must still prove project
+# ownership through exact type, owner, group, mode and link count first.
+update_exact_file() {
+  local source="$1" target="$2" owner="$3" group="$4" mode="$5"
+  local parent temporary expected
+  [[ ! -L "$source" && -f "$source" ]] || control_plane_die source_file_invalid 65
+  if [[ ! -e "$target" && ! -L "$target" ]]; then
+    publish_exact_file "$source" "$target" "$owner" "$group" "$mode"
+    return 0
+  fi
+  [[ ! -L "$target" && -f "$target" ]] || control_plane_die file_state_conflict 65
+  expected="$(identity_uid "$owner"):$(identity_gid "$group"):$mode:1"
+  [[ "$(stat -c '%u:%g:%a:%h' -- "$target")" == "$expected" ]] ||
+    control_plane_die file_metadata_conflict 65
+  cmp --silent -- "$source" "$target" && return 0
+  parent="$(dirname -- "$target")"
+  temporary="$(mktemp "$parent/.kitdev-update.XXXXXXXX")"
+  install -o "$owner" -g "$group" -m "$mode" -- "$source" "$temporary"
+  sync -f -- "$temporary"
+  mv -f -- "$temporary" "$target"
+  sync -f -- "$parent"
+  require_exact_file "$target" "$source" "$owner" "$group" "$mode"
+}
+
+update_assets() {
+  local name
+  update_exact_file "$SCRIPT_DIR/../control-plane/common.sh" \
+    "$KITDEV_OPT_ROOT/libexec/control-plane/common.sh" root root 755
+  for name in acquire-artifacts.sh configure-firewall.sh manage-certificate.sh; do
+    update_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
+  done
+  for name in firewall_source_state.py ingress_config.py run_lego.py; do
+    update_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
+  done
+  update_exact_file "$REPO_ROOT/compose/ingress/compose.yaml" \
     "$COMPOSE_DIR/compose.yaml" root root 644
-  require_exact_file "$REPO_ROOT/config/ingress/nginx.conf" \
+  update_exact_file "$REPO_ROOT/config/ingress/nginx.conf" \
     "$INGRESS_ETC/nginx.conf" root root 644
-  require_exact_file "$REPO_ROOT/config/ingress/ingress.env.template" \
+  update_exact_file "$REPO_ROOT/config/ingress/ingress.env.template" \
     "$INGRESS_ETC/ingress.env.example" root root 600
-  require_exact_file "$REPO_ROOT/config/ingress/acme-provider.env.example" \
+  update_exact_file "$REPO_ROOT/config/ingress/acme-provider.env.example" \
     "$INGRESS_ETC/acme-provider.env.example" root root 600
   for name in kitdev-e2b-ingress.service kitdev-e2b-ingress-renew.service \
     kitdev-e2b-ingress-renew.timer; do
-    require_exact_file "$REPO_ROOT/systemd/$name" "$UNIT_DIR/$name" root root 644
+    update_exact_file "$REPO_ROOT/systemd/$name" "$UNIT_DIR/$name" root root 644
   done
 }
 
 remove_exact_file() {
   local source="$1" target="$2" owner="$3" group="$4" mode="$5"
   if [[ -e "$target" || -L "$target" ]]; then
-    require_exact_file "$source" "$target" "$owner" "$group" "$mode"
+    require_exact_file "$target" "$source" "$owner" "$group" "$mode"
     rm -f -- "$target"
   fi
 }
@@ -96,7 +155,7 @@ remove_assets() {
 
 main() {
   local mode="${1:-}" had_firewall=no
-  case "$mode" in stage|apply|verify|remove) ;;
+  case "$mode" in stage|update|apply|verify|remove) ;;
     *) control_plane_die invalid_operation 64 ;;
   esac
   require_root
@@ -115,6 +174,17 @@ main() {
   if [[ "$mode" == verify ]]; then
     verify_assets
     "$SCRIPT_DIR/acquire-artifacts.sh" verify
+  elif [[ "$mode" == update ]]; then
+    ensure_managed_directories
+    update_assets
+    systemctl daemon-reload
+    "$SCRIPT_DIR/acquire-artifacts.sh" apply
+    verify_assets
+    if [[ "$(docker inspect --format '{{.State.Running}}' kitdev-ingress 2>/dev/null || true)" == true ]]; then
+      docker kill --signal HUP kitdev-ingress >/dev/null
+    fi
+    printf 'status=pass operation=update-ingress\n'
+    return
   else
     publish_assets
     systemctl daemon-reload

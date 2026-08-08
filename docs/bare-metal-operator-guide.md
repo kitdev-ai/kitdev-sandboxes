@@ -512,6 +512,24 @@ E2B_API_KEY=<operator-provisioned-key>
 E2B_SANDBOX_URL=<unset>
 ```
 
+### Rolling a reviewed ingress change onto an installed host
+
+`stage` publishes assets create-only and refuses to overwrite an installed file
+whose content differs, so it cannot deliver a code change. Use `update`, which
+proves the installed file's exact type, ownership, mode and link count before
+replacing its bytes, reloads systemd, reverifies every asset, and sends `HUP`
+to a running ingress container:
+
+```console
+sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+  KITDEV_LIFECYCLE=development \
+  /usr/bin/bash scripts/ingress/install-ingress.sh update
+```
+
+`update` never touches the firewall, certificates, operator configuration, or
+service enablement. Run `verify` afterwards, and `apply` only when the ingress
+listener itself needs to change.
+
 Remove only the installed ingress assets and its exact firewall rules with:
 
 ```console
