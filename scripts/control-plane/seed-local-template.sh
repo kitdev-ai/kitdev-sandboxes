@@ -201,13 +201,24 @@ main() {
   require_command docker
   require_command rsync
   require_command sha256sum
+  # The seed source is a pre-made template fixture from the original lab host.
+  # Nothing in this repository creates it, so on any other machine it is simply
+  # absent and this step has nothing to do. Skip rather than fail: the real
+  # template path is publish-stable-template.sh, which builds through the API
+  # once the control plane is up. A symlink or a non-directory is still a
+  # trust failure and still refuses.
+  [[ ! -L "$SOURCE_STORAGE" ]] || control_plane_die source_template_untrusted 65
+  if [[ ! -e "$SOURCE_STORAGE/templates/$BUILD_ID" ]]; then
+    printf 'status=pass operation=seed-local-template result=skipped reason=no_seed_source\n'
+    return 0
+  fi
+  [[ -d "$SOURCE_STORAGE/templates/$BUILD_ID" ]] ||
+    control_plane_die source_template_invalid 65
   [[ ! -L "$COPY_BUILD" && -f "$COPY_BUILD" ]] || control_plane_die copy_build_missing 65
   [[ "$(stat -c '%u:%g:%a:%s:%h' -- "$COPY_BUILD")" == '0:0:750:37908606:1' ]] ||
     control_plane_die copy_build_metadata_mismatch 65
   [[ "$(sha256sum -- "$COPY_BUILD" | awk '{digest=$1} END {print digest}')" == "$COPY_SHA256" ]] ||
     control_plane_die copy_build_hash_mismatch 65
-  [[ ! -L "$SOURCE_STORAGE" && -d "$SOURCE_STORAGE/templates/$BUILD_ID" ]] ||
-    control_plane_die source_template_missing 65
   require_exact_directory "$DESTINATION_STORAGE" root root 700
   require_exact_directory "$DESTINATION_STORAGE/templates" root kitdev 2700
   verify_artifacts "$SOURCE_STORAGE/templates/$BUILD_ID" source ||

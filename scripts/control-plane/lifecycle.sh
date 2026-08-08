@@ -63,7 +63,8 @@ install_lifecycle_assets() {
   ensure_directory "$INSTALLED_SCRIPT_DIR/e2e-process-client" root root 755
   ensure_directory "$INSTALLED_SCRIPT_DIR/e2e-typescript-sdk" root root 755
   for name in \
-    acquire-source.sh backup-restore.sh bootstrap-network.sh bootstrap-private-env.sh build-control-plane-images.sh \
+    acquire-source.sh backup-restore.sh bootstrap-network.sh bootstrap-private-env.sh bootstrap-team.sh \
+    build-control-plane-images.sh \
     converge-admission-policy.sh \
     build-envd.sh build-orchestrator.sh build-snapshot-tools.sh common.sh configure-firewall.sh \
     install-orchestrator-service.sh install-runtime-artifacts.sh lifecycle.sh \
@@ -139,8 +140,15 @@ install_control_plane() {
   "$SCRIPT_DIR/configure-firewall.sh" apply
   "$SCRIPT_DIR/install-orchestrator-service.sh" install
   up_control_plane
+  # After the migrators have created the schema. Nothing else creates a team,
+  # and without one there is no API key, no template build and no sandboxes.
+  "$SCRIPT_DIR/bootstrap-team.sh"
   "$SCRIPT_DIR/seed-local-template.sh"
   printf 'status=pass operation=install-control-plane\n'
+  # A fresh install has no template. Say so, rather than leaving an empty but
+  # healthy system looking broken.
+  printf 'note=no-template-installed next=%s\n' \
+    'kitdev api-key create --team-slug local-dev-team, then publish a template'
 }
 
 up_control_plane() {

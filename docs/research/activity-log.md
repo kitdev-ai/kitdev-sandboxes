@@ -1591,3 +1591,44 @@ untracked, and must never be quoted into tracked documentation.
   `local-dev-team` and the reproducibility of three byte-exact build hashes
   remain unresolved by reading alone.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Fresh-host bootstrap: seed skip and default team
+
+- **Intent:** Remove the two coupled reasons a completed `kitdev install`
+  produced an unusable system on any host but the original lab.
+- **Delegated LUNA agent:** LUNA project-lead role.
+- **Investigation:** Upstream carries `packages/orchestrator/cmd/create-build`,
+  a standalone CLI that builds a base template without a control plane, and
+  `packages/local-dev/seed-local-database.go`, which inserts the
+  `local-dev-team` row. Neither is wired into this deployment. The reference
+  host's operator ran `create-build` by hand once and froze its output as the
+  hash-pinned `local-build-smoke` fixture. Wiring `create-build` into install
+  was considered and rejected: it would move a Firecracker boot and snapshot
+  into the installer's critical path, force a resequencing because it cannot
+  run alongside the orchestrator, and lengthen every reinstall cycle. The
+  API-based build path already works and produced both published templates.
+- **Implementation:** `seed-local-template.sh` now skips when its fixture is
+  absent, which on any fresh host is always, and the skip is placed ahead of
+  the byte-exact `copy-build` hash assertion so a fresh host does not depend on
+  a hash captured on one machine to skip a step it does not need. A symlinked
+  or non-directory source still refuses. Added `bootstrap-team.sh`, which
+  creates the default team idempotently through the shared container resolver,
+  verifies the end state so a blocked, banned or wrong-tier row fails loudly,
+  and offers a mutation-free check mode. Install runs it after the migrators
+  and before the seed, and now reports that no template exists along with the
+  command that creates one.
+- **Why the team mattered more than the fixture:** nothing else in the
+  repository creates a team. `api-key create` resolves an existing slug and
+  `provision-browser-heavy-profile.sh` creates only its own. Without a team
+  there is no API key, therefore no template build and no sandboxes.
+- **Verification:** twelve focused tests covering idempotency, end-state
+  verification, mutation-free check mode, bounded slug input, resolver use, the
+  skip path, that an untrusted source still refuses, that the skip precedes the
+  hash assertions, and the install ordering. Full suite 425 tests with two
+  expected skips; all shell parses clean.
+- **Mutation status:** Repository only. Neither change has executed on any
+  host, and the prerequisite playbook still cannot run against the legacy lab.
+- **Limitations / next gate:** `verify-api-proxy-e2e.sh` still pins the old lab
+  build ID, so `kitdev test-core` stays broken. Storage and Docker automation
+  remain unwritten. Whether a fresh install now completes is unproven.
+- **Commit:** Pending in this change set.

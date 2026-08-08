@@ -28,7 +28,8 @@ completes. Two are fixed; **one is not**, and you will hit it.
 |---|---|
 | The shared `kitdev` group had no creator, though five control-plane scripts require it. `kitdev install` died immediately with `kitdev_group_required` | **Fixed** — stage 1 now creates it |
 | `iptables`, `rsync` and `procps` are required at orchestrator start but were not installed. The reference host only worked because the manual Docker step happened to pull `iptables` in | **Fixed** — added to stage 1 |
-| `seed-local-template.sh`, the final step of `kitdev install`, requires a `local-build-smoke` tree pinned to exact sizes and hashes for eleven blobs totalling ~1.63 GB. Nothing creates them; the publish helper is a closed allowlist of the same historical UUIDs | **Open.** `install` runs all preceding steps, then fails at the last one |
+| `seed-local-template.sh` required a `local-build-smoke` tree pinned to exact hashes for eleven blobs totalling ~1.63 GB that nothing creates | **Fixed** — the step skips when the fixture is absent, which on any fresh host is always. Templates come from stage 5 instead |
+| Nothing created the first team, so `api-key create` had no slug to resolve and install completed into an unusable system | **Fixed** — install now bootstraps a default team after the migrators run |
 | `ufw` is required by the very first install gate and was installed by nothing | **Fixed** — added to stage 1 |
 | The APT source validator hardcoded one provider's mirror in a fail-closed allowlist, aborting stage 1 on any other provider | **Fixed** — mirror is now an explicit operator setting |
 | Eight scripts looked up PostgreSQL and Redis by container names that Compose never creates, breaking stages 4-6 on a fresh install | **Fixed** — a shared resolver now accepts both Compose labels and legacy names |
