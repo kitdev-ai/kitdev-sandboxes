@@ -8,8 +8,18 @@ services:
     network_mode: host
     cap_drop:
       - ALL
+    # The master process starts as root so it can bind 443 and then drop its
+    # workers to the unprivileged nginx user. That privilege separation needs
+    # exactly these: CHOWN to own the tmpfs temp paths, SETUID/SETGID to spawn
+    # workers as uid 101, and KILL to signal those workers across the uid
+    # boundary. Removing any one of them makes nginx exit at startup rather
+    # than run with fewer privileges.
     cap_add:
+      - CHOWN
+      - KILL
       - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
     security_opt:
       - no-new-privileges:true
     read_only: true

@@ -36,6 +36,15 @@ class IngressAssetTests(unittest.TestCase):
         ):
             self.assertIn(value, self.compose)
         self.assertNotIn("docker.sock", self.compose)
+        # Exactly the capabilities nginx needs for root-bind plus unprivileged
+        # workers. Anything beyond this list is a hardening regression.
+        granted = re.findall(r"^      - ([A-Z_]+)$", self.compose, re.MULTILINE)
+        self.assertEqual(
+            sorted(name for name in granted if name != "ALL"),
+            ["CHOWN", "KILL", "NET_BIND_SERVICE", "SETGID", "SETUID"],
+        )
+        for forbidden in ("SYS_ADMIN", "DAC_OVERRIDE", "NET_ADMIN", "SYS_PTRACE"):
+            self.assertNotIn(forbidden, self.compose)
 
     def test_routes_only_api_shared_and_strict_sandbox_hosts(self) -> None:
         self.assertEqual(self.nginx.count("api.sandbox.kitdev.ai"), 1)
