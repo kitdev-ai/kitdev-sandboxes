@@ -1,10 +1,10 @@
 # Project handover
 
-Checkpoint: 2026-08-08, late evening. Revision `240aad1`.
+Checkpoint: 2026-08-08, late evening. Revision `4767d95`.
 Remote: `git@github.com:kitdev-ai/kitdev-sandboxes.git`
 
-**A fresh-host install is in progress right now and is currently blocked.** Read
-§1 first. This document assumes no prior context.
+**A fresh-host install is running right now.** Read §1 first. This document
+assumes no prior context.
 
 ---
 
@@ -14,34 +14,38 @@ The OVH host was **wiped and reinstalled tonight**, specifically to qualify the
 one-command fresh install. The previous working deployment is gone: there is no
 external SDK endpoint at present, and rebuilding it is the current task.
 
-### Immediate blocker
+`kitdev install --lifecycle-mode development --profile minimal` is in progress
+from `/var/tmp/kitdev-fresh/kitdev-sandboxes` at revision `4767d95`, logging to
+`/var/tmp/kitdev-install.log`. It has passed layout, private environment, core
+network and source acquisition, and is building container images — the long
+phase. Steps 5 onward have never run on this host.
 
-`kitdev install` fails within seconds at its first step:
+### Two blockers cleared tonight, both platform-level
 
-```text
-install: invalid user: '999'
-```
+**`install: invalid user: '999'`** stopped the first step. The cause is not the
+missing account it appears to be: **Ubuntu ships uutils coreutils from 25.10**,
+and its `install` rejects a numeric owner that resolves to no account, where GNU
+coreutils accepts it. The datastore directories are owned by the UIDs their
+container images run as (999 postgres/redis, 10001 loki), which exist only
+inside those images. Verified against uutils 0.8.0 on the host: `install -o 999`
+fails, `chown 999:0` succeeds. `ensure_directory` now creates the directory
+root-owned at 0700, chowns, then chmods — that order keeps the setgid bit on the
+mode-2700 template-storage directory.
 
-`scripts/control-plane/prepare-layout.sh:20-23` creates datastore directories
-owned by container UIDs:
+Treat every GNU coreutils assumption in this repository as unverified on 26.04.
 
-```bash
-ensure_directory "$KITDEV_DATA_ROOT/postgres"   999   0     700
-ensure_directory "$KITDEV_DATA_ROOT/redis"      999   0     750
-ensure_directory "$KITDEV_DATA_ROOT/clickhouse" 101   101   750
-ensure_directory "$KITDEV_DATA_ROOT/loki"       10001 10001 750
-```
+**`TypeError: 'NoneType' object is not iterable`** then stopped the network
+step. `docker network inspect` emits `"Config": null` for the built-in `host`
+and `none` networks, so `.get("Config", [])` yields `None` — a default never
+applies to a present-but-null key. Every Docker host has those two networks, so
+this was unconditional; it hid only because the code runs once, when the core
+network does not yet exist, and the reference host's was created by hand.
+`preflight-orchestrator.sh` carried the identical defect and would have failed
+later in the same install.
 
-On a freshly installed Ubuntu 26.04, **UID 999 and UID 10001 do not exist**
-(101 does), and GNU `install -o` refuses an owner it cannot resolve. The old
-host had those UIDs from its hand-built history, which is why this never
-surfaced before.
-
-Probable fix: create the directory, then set ownership with `chown`, which
-accepts unresolvable numeric IDs, rather than passing `-o` to `install`.
-**Verify that before relying on it** — check how `ensure_directory` in
-`scripts/control-plane/common.sh` invokes `install`, and confirm
-`require_exact_directory` still passes afterwards.
+Both landed with tests that guard the class rather than the line: no numeric
+literal may reach `install -o`/`-g` anywhere under `scripts/`, and no
+`.get("Config", [])` may survive.
 
 ### How to resume
 
