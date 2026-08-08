@@ -1,8 +1,8 @@
 # Vision
 
 Forward-looking design notes: how the sandbox mechanism actually works, what it
-makes possible that is not being exploited, and how the architecture scales
-horizontally.
+makes possible that is not being exploited, how the architecture scales
+horizontally, and where the product could go.
 
 **This document is aspirational, not a status report.** Where something is
 verified in the pinned source it says so; where it is an idea it says that too.
@@ -268,3 +268,156 @@ distinction is cheap while the roles are unwritten and expensive afterwards.
 One experiment is worth running before the reinstall destroys the current
 deployment: **exercise `fork`**. It is the central primitive of Part 2, it has
 never been called, and the host is going to be wiped anyway.
+
+---
+
+## Part 4 — Product direction
+
+Where the platform is heading, and what each direction demands of the
+infrastructure. The ideas here are the operator's; the framing, grouping and
+constraint analysis are mine.
+
+### Where it starts
+
+Today: a multi-tenant dashboard with per-user chat threads, filesystem and
+process tools, and **one sandbox per organisation** carrying per-user workspace
+directories.
+
+That last detail is the one to hold onto. It means isolation between users
+inside an organisation is *directory-level, not VM-level*, and that the whole
+organisation shares one machine's memory, CPU and blast radius. It is a
+reasonable starting point and it does not survive most of what follows.
+
+### Grouped by what they demand
+
+**A. The product thesis — agentic development environments**
+
+A web terminal multiplexer in the dashboard, running real coding agents inside
+sandboxes — Claude Code, Codex, opencode — supervised by first-party agents,
+against either a local LLM endpoint or the user's own subscription. Around it,
+a generated project UI and Git forge connections. "Claude in a box."
+
+Its natural conclusion is the workflow idea: **a user supplies a repository URL
+and first-party agents adopt it as a long-lived coding and devops project.**
+Not a chat session that happens to touch code — a durable engagement with
+memory, state and its own environment.
+
+This is the centre of gravity. Everything else is either an enabler or a
+distribution channel for it.
+
+What it demands: per-user or per-session sandboxes rather than per-org;
+credentials near agent code without ever being *in* the sandbox; PTY at scale
+(proven, but never under load); and persistence beyond a sandbox's lifetime.
+
+**B. Reach — additional channels**
+
+WhatsApp, Telegram, Discord and similar. Architecturally the cheapest item
+here: a gateway concern that barely touches the sandbox layer.
+
+The one caveat is second-order. Every channel multiplies concurrent sessions,
+and sessions are what the capacity ceiling counts.
+
+**C. Integration surface — external tools and vertical products**
+
+Third-party integration (Nango, Git forge search, Google, Slack, email), and
+packaged vertical agents built on top: read-only AWS/Cloudflare/Grafana devops
+assistants, or Blender-in-a-sandbox for 3D printing.
+
+These are the same shape wearing different clothes: **an agent that needs
+someone else's credentials to be useful.** The vertical products are really
+templates — a Grafana agent is a warm image with tooling pre-installed and a
+scoped token, which is exactly what the snapshot mechanism is good at.
+
+Worth noting that "read-only" in a devops agent is enforced by *credential
+scope*, not by the sandbox. The VM boundary protects the host from the agent;
+it does nothing to stop an over-scoped token from dropping a production table.
+
+**D. The template economy**
+
+A library of pre-warmed open-source environments — Mattermost, Supabase, boot
+any OSS project — and, the multiplier, **first-party agents given tools to
+author, evolve and manage templates and sandboxes themselves.**
+
+These belong together. A hand-curated library does not scale; agents that
+author templates make the catalogue a living thing. Part 2's constraints apply
+in full, particularly the security model: accept recipes, build snapshots
+yourself.
+
+Note the sizing problem. A full Supabase or Mattermost is not a 2 GiB template.
+A library of heavy environments is a library where very few entries run at
+once.
+
+**E. Selling the substrate**
+
+A commercial sandbox service — fork-based branching and the rest of Part 2 sold
+as infrastructure.
+
+This is a genuinely different business from A. Selling a product built on
+sandboxes and selling sandboxes are different customers, different SLAs,
+different support burdens, and a much harsher multi-tenancy bar. Worth being
+deliberate about rather than drifting into, and it is the one direction that
+should probably wait until the platform can be rebuilt from scratch on demand.
+
+### The four things that gate all of it
+
+Independent of which direction is chosen first, four pieces of infrastructure
+are load-bearing and mostly absent.
+
+**1. A credential broker.** A, C and the repo-adoption workflow all need
+third-party credentials near agent code. The sandbox security model assumes
+sandbox code is hostile, so those credentials must never enter the VM. The
+pattern that works is a broker on the control plane: tools execute outside the
+sandbox, or short-lived scoped tokens are minted per call and never persisted
+inside.
+
+`PROMPT.md` explicitly deferred this — "provide an interface for short-lived
+credential proxying later, but do not implement a broad credential broker in
+milestone one". Every direction above collects that debt. It is the single
+largest architectural gap between what exists and what is described here.
+
+**2. A revised isolation model.** One sandbox per organisation is incompatible
+with per-user coding agents. Long-running agent sessions want their own
+machine, which multiplies demand against a ceiling of twelve small sandboxes.
+
+The economics work only because **paused sandboxes do not consume a
+concurrency slot** — verified by measurement. An idle agent session should be
+frozen, not resident. Pause-on-idle and resume-on-message is what makes
+per-user sessions affordable, and it is a behaviour the product layer has to
+implement deliberately.
+
+**3. Capacity, which means multiple workers.** Every direction adds concurrent
+sandboxes; the pool gives twelve small or three heavy. Part 3's horizontal
+scaling is not an optimisation for later, it is a prerequisite for more than
+one of these at a time.
+
+**4. Persistence.** "Long-term coding project" cannot mean a sandbox with a
+24-hour maximum lifetime. It needs durable workspaces that outlive any
+individual sandbox — snapshot per milestone, fork for speculative work, and a
+volume that survives both. Persistent volumes are listed in the product brief
+and are not deployed.
+
+### A sequencing view
+
+Ordered by what is cheap given what exists, versus what needs new
+infrastructure first.
+
+| Direction | Depends on | Relative cost |
+| --- | --- | --- |
+| Additional channels | Nothing structural | Low |
+| Fork-based branching | Fork being exercised | Low — the API already exists |
+| Warm project templates | Template build automation | Low to moderate |
+| Terminal multiplexer + coding agents | Credential broker, per-session isolation, pause-on-idle | High |
+| External tool integration | Credential broker | High |
+| Vertical products | Credential broker, template library | High |
+| OSS template library | Template authoring, storage, capacity | High |
+| Agents authoring templates | All of the above, plus build quota | Highest |
+| Repo-adoption workflow | Persistence, credential broker, isolation, capacity | Highest — but it is the thesis |
+| Commercial sandbox service | Reproducibility, multi-node, quotas, billing | Separate business |
+
+The honest read: **the two cheapest items — fork and warm templates — are also
+the two that most directly prove the thesis.** A repository adopted as a
+long-lived project is exactly a warm template that evolves, plus forks for
+speculative work, plus a volume that persists. Building those two first buys
+evidence for the expensive work rather than betting on it.
+
+And none of it is buildable on a platform that cannot survive a reinstall.

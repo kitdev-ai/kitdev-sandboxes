@@ -7,8 +7,9 @@ Milestone 0 establishes contracts before implementation:
   dependency-ordered backlog, rollback, and hard-won lessons. It supersedes the
   former `PROJECT-HANDOVER.md` and `open-tasks.md`.
 - `vision.md` explains how templates, images and snapshots actually work, what
-  the mechanism makes possible that is unexploited, and how the architecture
-  scales to multiple worker nodes. Forward-looking, not a status claim.
+  the mechanism makes possible that is unexploited, how the architecture scales
+  to multiple worker nodes, and the product directions under consideration with
+  the infrastructure each demands. Forward-looking, not a status claim.
 - `fresh-host-remediation-plan.md` is the ordered plan to make a fresh install
   actually work end to end, with the decisions, gates, and unresolved risks.
 - `fresh-server-installation.md` is the stage-by-stage runbook for standing the
