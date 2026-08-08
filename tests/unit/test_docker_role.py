@@ -63,6 +63,24 @@ class DockerRoleTests(unittest.TestCase):
     def test_installed_versions_are_verified_against_the_pins(self) -> None:
         self.assertTrue(any(t["name"].startswith("Confirm every installed") for t in self.tasks))
 
+    def test_post_install_verification_is_skipped_in_check_mode(self) -> None:
+        # Check mode predicts the key download and the package install without
+        # performing them. Anything inspecting their result must not run there,
+        # or --check fails on exactly the unprepared host it exists to inspect.
+        depends_on_mutation = {
+            "Verify the Docker signing key fingerprint",
+            "Verify the engine and both required plugins respond",
+            "Read the installed package versions",
+            "Confirm every installed version matches its pin",
+        }
+        for task in self.tasks:
+            if task.get("name") in depends_on_mutation:
+                self.assertEqual(
+                    task.get("when"),
+                    "not ansible_check_mode",
+                    f"{task['name']} would fail in check mode",
+                )
+
 
 class StorageVerificationTests(unittest.TestCase):
     def setUp(self) -> None:

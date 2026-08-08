@@ -51,6 +51,9 @@
     mode: "0644"
     force: false
 
+# Everything from here inspects the result of a mutation. Check mode predicts
+# the download and the install without performing them, so these must not run
+# there, or --check fails on precisely the unprepared host it exists to check.
 # An ASCII-armoured key is accepted directly by apt's signed-by, so no gnupg
 # dependency is introduced. Verifying the fingerprint is what makes the
 # download trustworthy; without it any successful HTTP response would be
@@ -64,6 +67,7 @@
       - "{{ kitdev_docker_key_fingerprint }}"
   changed_when: false
   check_mode: false
+  when: not ansible_check_mode
 
 - name: Install the project-owned Docker APT source
   ansible.builtin.copy:
@@ -125,6 +129,7 @@
     label: "{{ item | join(' ') }}"
   changed_when: false
   check_mode: false
+  when: not ansible_check_mode
 
 - name: Read the installed package versions
   ansible.builtin.command:
@@ -139,6 +144,7 @@
   register: kitdev_docker_installed
   changed_when: false
   check_mode: false
+  when: not ansible_check_mode
 
 - name: Confirm every installed version matches its pin
   ansible.builtin.assert:
@@ -149,3 +155,5 @@
   loop: "{{ kitdev_docker_installed.results }}"
   loop_control:
     label: "{{ item.item.name }}"
+  when: not ansible_check_mode
+
