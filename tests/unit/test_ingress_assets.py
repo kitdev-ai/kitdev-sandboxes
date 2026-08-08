@@ -203,7 +203,11 @@ class IngressAssetTests(unittest.TestCase):
     def test_installer_can_converge_a_changed_release_asset(self) -> None:
         installer = (SCRIPTS / "install-ingress.sh").read_text(encoding="ascii")
         self.assertIn("case \"$mode\" in stage|update|apply|verify|remove", installer)
-        update = installer.split("update_exact_file() {", 1)[1].split("\n}", 1)[0]
+        # update_exact_file moved to common.sh so the control-plane installers
+        # can converge their own assets through the same reviewed helper.
+        common = (SCRIPTS / ".." / "control-plane" / "common.sh").read_text(encoding="ascii")
+        self.assertNotIn("update_exact_file() {", installer)
+        update = common.split("update_exact_file() {", 1)[1].split("\n}", 1)[0]
         # Ownership must be proved before the installed bytes are replaced.
         self.assertLess(update.index("file_metadata_conflict"), update.index("mv -f"))
         self.assertIn("stat -c '%u:%g:%a:%h'", update)

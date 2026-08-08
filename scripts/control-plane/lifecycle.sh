@@ -70,13 +70,13 @@ install_lifecycle_assets() {
     install-orchestrator-service.sh install-runtime-artifacts.sh lifecycle.sh \
     preflight-orchestrator.sh prepare-layout.sh publish-stable-template.sh replay-compose.sh seed-local-template.sh \
     verify-api-proxy-e2e.sh verify-typescript-sdk-e2e.sh; do
-    publish_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_SCRIPT_DIR/$name" root root 755
+    update_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_SCRIPT_DIR/$name" root root 755
   done
   for name in backup_manifest.py normalize-copy-sql.py private_env.py publish-template-dirs.py \
     template-publication-state.py; do
-    publish_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_SCRIPT_DIR/$name" root root 755
+    update_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_SCRIPT_DIR/$name" root root 755
   done
-  publish_exact_file "$SCRIPT_DIR/e2e-process-client/main.go" \
+  update_exact_file "$SCRIPT_DIR/e2e-process-client/main.go" \
     "$INSTALLED_SCRIPT_DIR/e2e-process-client/main.go" root root 644
   # Asset subdirectories were added to this tree later without adapting the
   # loop, and its own name validation only ever accepted flat .ts and
@@ -98,15 +98,15 @@ install_lifecycle_assets() {
     esac
     sdk_file_count=$((sdk_file_count + 1))
     (( sdk_file_count <= 64 )) || control_plane_die sdk_source_count_invalid 65
-    publish_exact_file "$source" \
+    update_exact_file "$source" \
       "$INSTALLED_SCRIPT_DIR/e2e-typescript-sdk/$name" root root 644
   done
   (( sdk_file_count >= 3 )) || control_plane_die sdk_source_count_invalid 65
-  publish_exact_file "$SCRIPT_DIR/../../systemd/orchestrator.env.template" \
+  update_exact_file "$SCRIPT_DIR/../../systemd/orchestrator.env.template" \
     "$INSTALLED_SCRIPT_DIR/orchestrator.env.template" root root 644
-  publish_exact_file "$SCRIPT_DIR/../../patches/e2b-infra/882a3b4-host-admission.patch" \
+  update_exact_file "$SCRIPT_DIR/../../patches/e2b-infra/882a3b4-host-admission.patch" \
     "$INSTALLED_SCRIPT_DIR/882a3b4-host-admission.patch" root root 644
-  publish_exact_file "$SCRIPT_DIR/../../systemd/kitdev-e2b-orchestrator.service" \
+  update_exact_file "$SCRIPT_DIR/../../systemd/kitdev-e2b-orchestrator.service" \
     "$INSTALLED_SCRIPT_DIR/orchestrator.service.expected" root root 644
 }
 

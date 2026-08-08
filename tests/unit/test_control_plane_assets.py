@@ -307,6 +307,58 @@ ensure_directory {tmp}/plain {os.getuid()} {os.getgid()} 750
                         offenders.append(f"{path.relative_to(ROOT)}:{number}: ${name}")
         self.assertEqual(offenders, [])
 
+    def test_install_converges_owned_assets_but_verify_stays_read_only(self) -> None:
+        # publish_exact_file is create-or-verify, so a second `kitdev install`
+        # from a newer revision died with file_content_conflict on the first
+        # control-plane script that had changed -- which is every fix-and-retry
+        # cycle a fresh install depends on. Install modes converge; verify modes
+        # must keep the create-or-verify helper, since that is what makes them
+        # read-only.
+        lifecycle = (SCRIPTS / "lifecycle.sh").read_text(encoding="ascii")
+        assets = lifecycle.split("install_lifecycle_assets() {", 1)[1].split("\n}", 1)[0]
+        self.assertNotIn("publish_exact_file", assets)
+        self.assertIn("update_exact_file", assets)
+
+        replay = (SCRIPTS / "replay-compose.sh").read_text(encoding="ascii")
+        install_assets = replay.split("install_assets() {", 1)[1].split("\n}", 1)[0]
+        self.assertNotIn("publish_exact_file", install_assets)
+        self.assertIn("update_exact_file", install_assets)
+
+        # verify-files shares this block with the install modes, so the helper
+        # is selected by mode rather than hardcoded.
+        service = (SCRIPTS / "install-orchestrator-service.sh").read_text(encoding="ascii")
+        self.assertIn("local publisher=publish_exact_file", service)
+        self.assertIn(
+            'if [[ "$mode" == install || "$mode" == install-start ]]; then\n'
+            "      publisher=update_exact_file",
+            service,
+        )
+        self.assertNotIn("  publish_exact_file ", service)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "require_exact_file needs stat -c")
+    def test_update_exact_file_replaces_content_and_refuses_foreign_metadata(self) -> None:
+        with TemporaryDirectory() as tmp:
+            uid, gid = os.getuid(), os.getgid()
+            probe = f"""
+source {SCRIPTS / "common.sh"}
+printf 'one\\n' > {tmp}/source
+update_exact_file {tmp}/source {tmp}/target {uid} {gid} 644
+printf 'two\\n' > {tmp}/source
+update_exact_file {tmp}/source {tmp}/target {uid} {gid} 644
+update_exact_file {tmp}/source {tmp}/target {uid} {gid} 644
+"""
+            converged = subprocess.run(["bash", "-c", probe], capture_output=True, text=True)
+            self.assertEqual(converged.returncode, 0, converged.stderr)
+            self.assertEqual((Path(tmp) / "target").read_text(encoding="ascii"), "two\n")
+
+            # A target whose mode does not match the release is not ours to
+            # replace, so convergence must refuse rather than overwrite it.
+            foreign = subprocess.run(
+                ["bash", "-c", f"chmod 600 {tmp}/target\n{probe}"], capture_output=True, text=True
+            )
+            self.assertNotEqual(foreign.returncode, 0)
+            self.assertIn("file_metadata_conflict", foreign.stderr)
+
     def test_private_environment_is_nonrotating_and_parent_bound(self) -> None:
         source = (SCRIPTS / "private_env.py").read_text(encoding="ascii")
         self.assertLess(source.index("require_parent()"), source.index("os.lstat(ENV_PATH)"))

@@ -228,6 +228,39 @@ publish_exact_file() {
   require_exact_file "$target" "$source" "$owner" "$group" "$mode"
 }
 
+# Converge one managed asset to this release. publish_exact_file is
+# deliberately create-only, so without this there is no reviewed way to roll a
+# reviewed code change onto an installed host: a second `kitdev install` from a
+# newer revision dies with file_content_conflict on the first script that
+# changed. Content is allowed to differ -- that is the point -- but the
+# installed file must still prove project ownership through exact type, owner,
+# group, mode and link count first.
+#
+# Use this only on paths an install genuinely owns, and only in install modes.
+# Verify modes must keep calling publish_exact_file, whose create-or-verify
+# behaviour is what makes them read-only.
+update_exact_file() {
+  local source="$1" target="$2" owner="$3" group="$4" mode="$5"
+  local parent temporary expected
+  [[ ! -L "$source" && -f "$source" ]] || control_plane_die source_file_invalid 65
+  if [[ ! -e "$target" && ! -L "$target" ]]; then
+    publish_exact_file "$source" "$target" "$owner" "$group" "$mode"
+    return 0
+  fi
+  [[ ! -L "$target" && -f "$target" ]] || control_plane_die file_state_conflict 65
+  expected="$(identity_uid "$owner"):$(identity_gid "$group"):$mode:1"
+  [[ "$(stat -c '%u:%g:%a:%h' -- "$target")" == "$expected" ]] ||
+    control_plane_die file_metadata_conflict 65
+  cmp --silent -- "$source" "$target" && return 0
+  parent="$(dirname -- "$target")"
+  temporary="$(mktemp "$parent/.kitdev-update.XXXXXXXX")"
+  install -o "$owner" -g "$group" -m "$mode" -- "$source" "$temporary"
+  sync -f -- "$temporary"
+  mv -f -- "$temporary" "$target"
+  sync -f -- "$parent"
+  require_exact_file "$target" "$source" "$owner" "$group" "$mode"
+}
+
 require_clean_infra_checkout() {
   local output
   [[ ! -L "$KITDEV_INFRA_ROOT" && -d "$KITDEV_INFRA_ROOT/.git" ]] ||

@@ -58,21 +58,29 @@ main() (
     control_plane_die orchestrator_template_render_failed 65
 
   if [[ "$mode" != verify ]]; then
-    publish_exact_file "$SCRIPT_DIR/common.sh" \
+    # verify-files reaches here too, and must stay read-only: publish_exact_file
+    # creates what is missing and otherwise only verifies. The install modes
+    # converge instead, so a second install from a newer revision replaces the
+    # scripts it owns rather than dying on file_content_conflict.
+    local publisher=publish_exact_file
+    if [[ "$mode" == install || "$mode" == install-start ]]; then
+      publisher=update_exact_file
+    fi
+    "$publisher" "$SCRIPT_DIR/common.sh" \
       "$KITDEV_OPT_ROOT/libexec/control-plane/common.sh" root root 755
-    publish_exact_file "$SCRIPT_DIR/bootstrap-network.sh" \
+    "$publisher" "$SCRIPT_DIR/bootstrap-network.sh" \
       "$KITDEV_OPT_ROOT/libexec/control-plane/bootstrap-network.sh" root root 755
-    publish_exact_file "$SCRIPT_DIR/configure-firewall.sh" \
+    "$publisher" "$SCRIPT_DIR/configure-firewall.sh" \
       "$KITDEV_OPT_ROOT/libexec/control-plane/configure-firewall.sh" root root 755
-    publish_exact_file "$SCRIPT_DIR/private_env.py" \
+    "$publisher" "$SCRIPT_DIR/private_env.py" \
       "$KITDEV_OPT_ROOT/libexec/control-plane/private_env.py" root root 755
-    publish_exact_file "$SCRIPT_DIR/preflight-orchestrator.sh" \
+    "$publisher" "$SCRIPT_DIR/preflight-orchestrator.sh" \
       "$KITDEV_OPT_ROOT/libexec/control-plane/preflight-orchestrator.sh" root root 755
-    publish_exact_file "$stage/orchestrator.env" \
+    "$publisher" "$stage/orchestrator.env" \
       /etc/kitdev-sandboxes/orchestrator.env root root 600
-    publish_exact_file "$stage/orchestrator.env" \
+    "$publisher" "$stage/orchestrator.env" \
       "$KITDEV_OPT_ROOT/libexec/control-plane/orchestrator.env.expected" root root 600
-    publish_exact_file "$ORCHESTRATOR_UNIT_SOURCE" \
+    "$publisher" "$ORCHESTRATOR_UNIT_SOURCE" \
       /etc/systemd/system/kitdev-e2b-orchestrator.service root root 644
     systemctl daemon-reload
     systemctl enable kitdev-e2b-orchestrator.service

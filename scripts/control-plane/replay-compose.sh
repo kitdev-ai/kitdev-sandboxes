@@ -23,11 +23,11 @@ install_assets() {
   ensure_directory "$COMPOSE_ROOT" root root 755
   ensure_directory "$COMPOSE_ROOT/clickhouse" root root 755
   ensure_directory "$COMPOSE_ROOT/loki" root root 755
-  publish_exact_file "$SOURCE_ROOT/compose.yaml" "$COMPOSE_FILE" root root 644
-  publish_exact_file "$SOURCE_ROOT/images.lock.json" "$COMPOSE_ROOT/images.lock.json" root root 644
-  publish_exact_file "$SOURCE_ROOT/clickhouse/cluster.xml" \
+  update_exact_file "$SOURCE_ROOT/compose.yaml" "$COMPOSE_FILE" root root 644
+  update_exact_file "$SOURCE_ROOT/images.lock.json" "$COMPOSE_ROOT/images.lock.json" root root 644
+  update_exact_file "$SOURCE_ROOT/clickhouse/cluster.xml" \
     "$COMPOSE_ROOT/clickhouse/cluster.xml" root root 644
-  publish_exact_file "$SOURCE_ROOT/loki/config.yaml" \
+  update_exact_file "$SOURCE_ROOT/loki/config.yaml" \
     "$COMPOSE_ROOT/loki/config.yaml" root root 644
 }
 
