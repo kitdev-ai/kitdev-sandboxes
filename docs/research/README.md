@@ -40,10 +40,18 @@ private keys, secret values, or unnecessary personal/host identifiers.
 - [`control-plane-replay-slice.md`](control-plane-replay-slice.md): pinned
   Compose, host-runtime, firewall, identity, and persistent orchestrator replay
   derived from the successful disposable-host control-plane run.
+- [`e2b-typescript-sdk-api-surface.md`](e2b-typescript-sdk-api-surface.md):
+  exact `e2b@2.38.0` client API read from the installed type declarations —
+  lifecycle, commands, PTY, filesystem, guest ports, pause/snapshot and
+  template builders — with the traps that are easy to get wrong.
 - [`e2b-typescript-sdk-self-host-contract.md`](e2b-typescript-sdk-self-host-contract.md):
   exact `e2b@2.38.0` artifact/runtime pin, self-host authentication, API-key,
   `sandbox.kitdev.ai` ingress/TLS, public feature surface, and live
   compatibility gates.
+- [`external-https-enablement-2026-08-08.md`](external-https-enablement-2026-08-08.md):
+  pre-mutation audit, the defects fixed to reach public HTTPS, DNS-01 wildcard
+  issuance, ingress apply, public firewall mode, and the external official-SDK
+  matrix result.
 - [`external-ingress-readiness-2026-08-07.md`](external-ingress-readiness-2026-08-07.md):
   credential-free public DNS, TCP, TLS, and health readiness result for the API
   and wildcard SDK hostname before external TypeScript testing.

@@ -594,6 +594,11 @@ endpoint hands full browser control to anyone who learns the host name. See the
 | Desktop/stream/screen/input | Pending | Product template and live test incomplete |
 | Persistent volumes | Pending | Volume service not deployed |
 
+For the exact client API — including the `ArrayBuffer` requirement on binary
+writes, the `CommandExitError` thrown on a non-zero exit, and the absence of a
+`freeDiskSizeMB` build option — see the
+[SDK API surface](research/e2b-typescript-sdk-api-surface.md).
+
 See the [live result](research/ovh-typescript-sdk-live-core.md),
 [external product-key result](research/external-sdk-product-key-qualification-2026-08-07.md),
 [template-build result](research/ovh-typescript-sdk-template-build.md),
