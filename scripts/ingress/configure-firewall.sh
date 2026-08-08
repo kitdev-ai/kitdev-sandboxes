@@ -601,7 +601,22 @@ main() {
           control_plane_die ingress_firewall_conflict 65
         fi
       else
-        control_plane_die ingress_firewall_conflict 65
+        # Partially applied. A reboot produces exactly this: ufw persists its
+        # rules to /etc/ufw while the DOCKER-USER guards are runtime iptables
+        # state and vanish. Refusing here left the host unable to serve and
+        # unable to repair itself, because remove refused the same state.
+        #
+        # Reconcile instead. cleanup_candidate_rules only deletes rules
+        # carrying this project's own comment tags and its owned guards, so
+        # foreign rules are never touched; requiring the absent state
+        # afterwards keeps the refusal for anything this project does not own.
+        cleanup_candidate_rules "$state_file" "$interface"
+        verify_system_rules "$state_file" "$interface" absent ||
+          control_plane_die ingress_firewall_conflict 65
+        if ! add_system_rules "$state_file" "$interface"; then
+          cleanup_candidate_rules "$state_file" "$interface"
+          control_plane_die ingress_firewall_conflict 65
+        fi
       fi
       verify_system_rules "$state_file" "$interface" || control_plane_die ingress_firewall_mismatch 65
       ;;
@@ -610,10 +625,16 @@ main() {
       ;;
     remove)
       if [[ -e "$SOURCE_MANIFEST" || -L "$SOURCE_MANIFEST" ]]; then
-        remove_system_rules "$state_file" "$interface" || control_plane_die ingress_firewall_conflict 65
-      else
-        verify_system_rules "$state_file" "$interface" absent || control_plane_die ingress_firewall_conflict 65
+        # remove_system_rules verifies the complete rule set is present before
+        # deleting anything, so a partially applied state was unremovable.
+        # Fall back to clearing this project's own tagged remnants, then
+        # require the end state to be absent so a foreign rule still refuses.
+        if ! remove_system_rules "$state_file" "$interface"; then
+          cleanup_candidate_rules "$state_file" "$interface"
+        fi
       fi
+      verify_system_rules "$state_file" "$interface" absent ||
+        control_plane_die ingress_firewall_conflict 65
       ;;
   esac
   printf 'status=pass operation=%s-ingress-firewall\n' "$mode"

@@ -114,6 +114,41 @@ class IngressAssetTests(unittest.TestCase):
         ):
             self.assertIn(required, firewall)
 
+    def test_partially_applied_firewall_reconciles_rather_than_wedging(self) -> None:
+        # Reproduced on a real reboot: ufw persists its rules to /etc/ufw while
+        # the DOCKER-USER guards are runtime iptables state and vanish. Both
+        # apply and remove refused that half-applied state, so the host could
+        # neither serve nor repair itself without manual `ufw delete`.
+        firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
+        apply_branch = firewall.split("    apply)", 1)[1].split("      ;;", 1)[0]
+        # The partial case must clear our own remnants and re-add, not die.
+        tail = apply_branch.split("else", 1)[1]
+        self.assertIn("cleanup_candidate_rules", tail)
+        self.assertIn("add_system_rules", tail)
+        self.assertLess(
+            tail.index("cleanup_candidate_rules"), tail.index("add_system_rules")
+        )
+        # But a state that is still not absent after clearing our own rules is
+        # foreign, and must still refuse.
+        self.assertIn("ingress_firewall_conflict", tail)
+        self.assertIn('verify_system_rules "$state_file" "$interface" absent', tail)
+
+        remove_branch = firewall.split("    remove)", 1)[1].split("      ;;", 1)[0]
+        self.assertIn("cleanup_candidate_rules", remove_branch)
+        self.assertIn("absent", remove_branch)
+
+    def test_reconciliation_only_touches_project_owned_rules(self) -> None:
+        # cleanup_candidate_rules is what makes reconciliation safe: it deletes
+        # only rules carrying this project's comment tags and its owned guards.
+        firewall = (SCRIPTS / "configure-firewall.sh").read_text(encoding="ascii")
+        body = firewall.split("cleanup_candidate_rules() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("$UFW_COMMENT", body)
+        self.assertIn("$PUBLIC_UFW_COMMENT", body)
+        self.assertIn("delete_owned_guard", body)
+        # It must never flush a whole chain or delete by port alone.
+        for indiscriminate in ("-F DOCKER-USER", "--flush", "delete allow 443/tcp\n"):
+            self.assertNotIn(indiscriminate, body)
+
     def test_docker_templates_are_not_backslash_escaped(self) -> None:
         # Inside a single-quoted shell string a backslash is literal, so
         # {{index .Config.Labels \"...\"}} reaches Go as an invalid template.
