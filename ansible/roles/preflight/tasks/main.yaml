@@ -351,3 +351,50 @@
   loop: "{{ kitdev_identity_by_name.results }}"
   loop_control:
     label: "{{ item.item.0.database }}:{{ item.item.1.name }}"
+
+# Storage is an operator prerequisite, verified rather than created.
+- name: Inspect the project data filesystem
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/findmnt
+      - --json
+      - --bytes
+      - --output
+      - TARGET,SOURCE,FSTYPE,SIZE
+      - --mountpoint
+      - "{{ kitdev_data_root }}"
+  register: kitdev_data_mount
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Require the project data path to be its own filesystem
+  ansible.builtin.assert:
+    that:
+      - kitdev_data_mount.rc == 0
+    fail_msg: >-
+      {{ kitdev_data_root }} is not a mount point. Create a filesystem on the
+      dedicated data disk and mount it there, with a persistent fstab entry,
+      before running this play. Project state must not live on the root
+      filesystem.
+
+- name: Inspect the root filesystem for comparison
+  ansible.builtin.command:
+    argv: [/usr/bin/findmnt, --json, --bytes, --output, SOURCE, --mountpoint, /]
+  register: kitdev_root_mount
+  changed_when: false
+  check_mode: false
+
+- name: Require the data filesystem to be a separate device with enough capacity
+  ansible.builtin.assert:
+    that:
+      - data.SOURCE != root.SOURCE
+      - (data.SIZE | int) >= (kitdev_data_minimum_bytes | int)
+    fail_msg: >-
+      {{ kitdev_data_root }} must be a separate disk of at least
+      {{ (kitdev_data_minimum_bytes | int / 1000000000000) | round(1) }} TB.
+      Observed source {{ data.SOURCE }} ({{ (data.SIZE | int / 1000000000000) | round(2) }} TB)
+      against root source {{ root.SOURCE }}.
+  vars:
+    data: "{{ (kitdev_data_mount.stdout | from_json).filesystems[0] }}"
+    root: "{{ (kitdev_root_mount.stdout | from_json).filesystems[0] }}"

@@ -81,3 +81,14 @@ kitdev_managed_host_files:
 # on them, and removing iptables takes the container runtime with it. Removal
 # leaves them installed unless an operator deliberately opts in.
 kitdev_remove_packages: false
+
+# Project state lives here. Creating and mounting the filesystem is a manual
+# operator prerequisite; this role only verifies the result, because mkfs on
+# the wrong device is unrecoverable and disk identification is not something
+# automation should guess.
+kitdev_data_root: /var/lib/kitdev-sandboxes
+
+# A nominal 2 TB disk reports about 1.97e12 bytes once formatted, so requiring
+# a literal 2e12 would reject exactly the hardware this floor is meant to
+# accept.
+kitdev_data_minimum_bytes: 1800000000000

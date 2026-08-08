@@ -1632,3 +1632,48 @@ untracked, and must never be quoted into tracked documentation.
   build ID, so `kitdev test-core` stays broken. Storage and Docker automation
   remain unwritten. Whether a fresh install now completes is unproven.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Docker automation and storage verification
+
+- **Intent:** Close one of the two manual stages with automation, and replace
+  the other with enforcement rather than instructions.
+- **Delegated LUNA agent:** LUNA project-lead role.
+- **Operator decisions:** storage stays a manual prerequisite because `mkfs` on
+  a misidentified device is unrecoverable and disk identification should not be
+  guessed; the code verifies the result instead. Docker is automated, assuming
+  a fresh host, with an explicit override for an existing installation.
+- **Storage verification:** the preflight role now requires the project data
+  path to be a mount point, on a device distinct from the root filesystem, and
+  at least 1.8 TB. That floor is deliberate: a nominal 2 TB disk reports about
+  1.97e12 bytes once formatted, so a literal 2e12 threshold would have rejected
+  exactly the hardware it was meant to accept. No destructive disk operation
+  appears anywhere in the role, and a test enforces that.
+- **Docker role:** adds the repository under project-owned keyring and source
+  paths, installs the pinned engine, CLI, containerd, buildx and compose
+  versions, holds them against unattended upgrades, enables both services, and
+  verifies every installed version against its pin. It refuses an existing
+  installation unless `kitdev_docker_override=true`, and never touches
+  `/etc/docker/daemon.json`.
+- **Key trust:** added `verify_openpgp_fingerprint.py`, which parses the
+  primary public-key packet and computes the RFC 4880 v4 or RFC 9580 v6
+  fingerprint without a gnupg dependency. Downloading a key over HTTPS proves
+  only that something answered; the fingerprint is what binds it to the
+  publisher. Verified against the real Docker key, which matched, and against a
+  deliberately wrong fingerprint, which was refused.
+- **Reapply defect caught before it shipped:** the play's own APT source
+  validator would have rejected the Docker repository that the play itself
+  installs, passing on a bare host and refusing on every subsequent run.
+  `download.docker.com` is now an allowed first-party source, distinct from the
+  operator mirror setting.
+- **Verification:** eighteen focused tests covering pinning, the override
+  refusal ordering, fingerprint verification preceding source trust,
+  project-owned paths, version holds, installed-versus-pinned confirmation, the
+  absence of destructive disk operations, the separate-device requirement, the
+  capacity floor, and the reapply interaction. Full suite 438 tests with two
+  expected skips; both playbooks pass syntax check under pinned ansible-core.
+- **Mutation status:** Repository only. Neither role has run on a host.
+- **Limitations / next gate:** Docker's own storage remains on the root
+  filesystem because the role does not edit `daemon.json`; containerd
+  relocation is still unimplemented. Nothing here is executed, and a fresh
+  install remains unproven.
+- **Commit:** Pending in this change set.

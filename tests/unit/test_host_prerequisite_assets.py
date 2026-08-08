@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import tempfile
+import re
 import unittest
 from pathlib import Path
 
@@ -39,7 +40,7 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
         roles = [entry["role"] for entry in site["roles"]]
         self.assertEqual(
             roles,
-            ["preflight", "host_packages", "host_identity", "host_kernel", "host_manifest"],
+            ["preflight", "host_packages", "host_identity", "host_kernel", "docker", "host_manifest"],
         )
         removal = yaml.safe_load(
             (ANSIBLE / "remove-host-prerequisites.yaml").read_text(encoding="utf-8")
@@ -138,14 +139,18 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
         # A provider mirror in the built-in set silently made this validator
         # refuse every host that was not on that provider.
         validator = (ROOT / "ansible" / "files" / "validate_apt_sources.py").read_text()
-        allowed = validator.split("ALLOWED_HOSTS = {", 1)[1].split("}", 1)[0]
-        for host in allowed.replace('"', "").split(","):
-            host = host.strip()
-            if host:
-                self.assertTrue(
-                    host.endswith("ubuntu.com"),
-                    f"provider mirror in built-in allowlist: {host}",
-                )
+        allowed_block = validator.split("ALLOWED_HOSTS = {", 1)[1].split("}", 1)[0]
+        hosts = re.findall(r'"([^"]+)"', allowed_block)
+        self.assertTrue(hosts, "allowlist should not be empty")
+        # Canonical's own hosts, plus repositories this project itself
+        # installs. Anything else is a provider mirror and belongs in the
+        # operator setting, not baked into a fail-closed allowlist.
+        project_owned = {"download.docker.com"}
+        for host in hosts:
+            self.assertTrue(
+                host.endswith("ubuntu.com") or host in project_owned,
+                f"provider mirror in built-in allowlist: {host}",
+            )
         self.assertIn("--allow-host", validator)
         defaults = yaml.safe_load(
             (ROOT / "ansible" / "roles" / "preflight" / "defaults" / "main.yaml").read_text()

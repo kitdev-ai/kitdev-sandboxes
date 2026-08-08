@@ -18,6 +18,10 @@ ALLOWED_HOSTS = {
     "security.ubuntu.com",
     "ports.ubuntu.com",
     "old-releases.ubuntu.com",
+    # Installed by this project's own docker role. Without it the validator
+    # passes on a bare host and then refuses on every reapply, because the
+    # source it is rejecting is one the play itself added.
+    "download.docker.com",
 }
 
 # A provider mirror is an explicit operator decision, not a default. The OVH

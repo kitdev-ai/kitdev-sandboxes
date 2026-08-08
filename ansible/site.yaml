@@ -14,5 +14,7 @@
       tags: [identity]
     - role: host_kernel
       tags: [kernel]
+    - role: docker
+      tags: [docker]
     - role: host_manifest
       tags: [manifest]

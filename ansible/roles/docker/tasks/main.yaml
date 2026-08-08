@@ -1,0 +1,151 @@
+---
+- name: Inspect any pre-existing Docker installation
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/dpkg-query
+      - --show
+      - "--showformat=${Version}"
+      - docker-ce
+  register: kitdev_docker_existing
+  changed_when: false
+  check_mode: false
+  failed_when: kitdev_docker_existing.rc not in [0, 1]
+
+- name: Refuse to adopt a foreign Docker installation
+  ansible.builtin.assert:
+    that:
+      - kitdev_docker_existing.rc == 1 or kitdev_docker_override
+    fail_msg: >-
+      Docker is already installed ({{ kitdev_docker_existing.stdout | default('unknown') }}).
+      This role preserves what it did not install. Set kitdev_docker_override=true
+      to deliberately install the pinned versions over it.
+
+- name: Record prior Docker state before mutation
+  ansible.builtin.copy:
+    dest: "{{ kitdev_prerequisite_state_root }}/docker-prior-state.json"
+    content: |
+      {
+        "docker_ce_installed": {{ (kitdev_docker_existing.rc == 0) | bool | to_json }},
+        "docker_ce_version": {{ (kitdev_docker_existing.stdout | default('')) | to_json }},
+        "overridden": {{ kitdev_docker_override | bool | to_json }}
+      }
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+
+- name: Ensure the APT keyring directory exists
+  ansible.builtin.file:
+    path: "{{ kitdev_docker_keyring_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the Docker repository signing key
+  ansible.builtin.get_url:
+    url: "{{ kitdev_docker_key_url }}"
+    dest: "{{ kitdev_docker_keyring_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+
+# An ASCII-armoured key is accepted directly by apt's signed-by, so no gnupg
+# dependency is introduced. Verifying the fingerprint is what makes the
+# download trustworthy; without it any successful HTTP response would be
+# accepted as the signing key.
+- name: Verify the Docker signing key fingerprint
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ playbook_dir }}/files/verify_openpgp_fingerprint.py"
+      - "{{ kitdev_docker_keyring_path }}"
+      - "{{ kitdev_docker_key_fingerprint }}"
+  changed_when: false
+  check_mode: false
+
+- name: Install the project-owned Docker APT source
+  ansible.builtin.copy:
+    dest: "{{ kitdev_docker_source_path }}"
+    content: |
+      Types: deb
+      URIs: https://{{ kitdev_docker_repository_host }}/linux/ubuntu
+      Suites: {{ ansible_facts.distribution_release }}
+      Components: stable
+      Architectures: amd64
+      Signed-By: {{ kitdev_docker_keyring_path }}
+    owner: root
+    group: root
+    mode: "0644"
+  register: kitdev_docker_source
+
+- name: Refresh the package index for the Docker source
+  ansible.builtin.apt:
+    update_cache: true
+  when: kitdev_docker_source.changed
+
+- name: Install pinned Docker Engine packages
+  ansible.builtin.apt:
+    name: "{{ kitdev_docker_packages | map(attribute='name') | zip(kitdev_docker_packages | map(attribute='version')) | map('join', '=') | list }}"
+    state: present
+    install_recommends: false
+    allow_downgrade: true
+
+# Unattended upgrades would otherwise move these off their pins, which the
+# build steps and the compose contract both depend on.
+- name: Hold the pinned Docker packages
+  ansible.builtin.dpkg_selections:
+    name: "{{ item.name }}"
+    selection: hold
+  loop: "{{ kitdev_docker_packages }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Enable and start the Docker services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - containerd.service
+    - docker.service
+
+# Both plugins are required: five build steps use buildx and every
+# control-plane operation uses compose. Installing Docker without them passes a
+# naive check and then fails mid-build with no reason code.
+- name: Verify the engine and both required plugins respond
+  ansible.builtin.command:
+    argv: "{{ item }}"
+  loop:
+    - [/usr/bin/docker, version]
+    - [/usr/bin/docker, buildx, version]
+    - [/usr/bin/docker, compose, version]
+  loop_control:
+    label: "{{ item | join(' ') }}"
+  changed_when: false
+  check_mode: false
+
+- name: Read the installed package versions
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/dpkg-query
+      - --show
+      - "--showformat=${Version}"
+      - "{{ item.name }}"
+  loop: "{{ kitdev_docker_packages }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: kitdev_docker_installed
+  changed_when: false
+  check_mode: false
+
+- name: Confirm every installed version matches its pin
+  ansible.builtin.assert:
+    that:
+      - item.stdout == item.item.version
+    fail_msg: >-
+      {{ item.item.name }} is {{ item.stdout }}, expected {{ item.item.version }}.
+  loop: "{{ kitdev_docker_installed.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"

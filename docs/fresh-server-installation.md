@@ -50,9 +50,9 @@ others.
 
 | Stage | What | Status |
 |---:|---|---|
-| 0 | OS install, disks, network | **Manual** |
+| 0 | OS install, disks, network | **Manual** — verified, not created |
 | 1 | Host prerequisites | Automated (Ansible) |
-| 2 | Docker Engine | **Manual**, pinned versions recorded |
+| 2 | Docker Engine | Automated (Ansible), pinned |
 | 3 | Control plane | Automated (`kitdev install`) |
 | 4 | API key | Automated CLI |
 | 5 | Templates | Scripted |
@@ -101,6 +101,15 @@ stage 2 pins upstream versions.
 
 Mount the data disk at `/var/lib/kitdev-sandboxes` before anything else. Moving
 it later means moving live databases and template blobs.
+
+**This is a manual prerequisite by design.** `mkfs` on a misidentified device is
+unrecoverable, and disk identification is not something automation should
+guess. Stage 1 *verifies* the result instead and refuses to continue unless:
+
+- `/var/lib/kitdev-sandboxes` is a mount point, not a directory on root;
+- its device differs from the root filesystem's device;
+- it is at least 1.8 TB, which is the practical floor for a nominal 2 TB disk
+  once formatted.
 
 ```console
 sudo mkdir -p /var/lib/kitdev-sandboxes
@@ -197,11 +206,13 @@ prior state.
 
 ---
 
-## Stage 2 — Docker Engine — *manual*
+## Stage 2 — Docker Engine — *automated*
 
-**Not automated.** The `docker` Ansible role is empty scaffolding. Install from
-Docker's own repository with pinned versions. These are the versions the
-reference deployment runs:
+Installed by the `docker` role as part of stage 1's playbook. It adds the
+repository under project-owned paths, verifies the signing key's fingerprint
+before trusting it, installs the pinned versions, holds them against unattended
+upgrades, and confirms that `buildx` and `compose` both respond — five build
+steps need buildx and every control-plane operation needs compose.
 
 ```text
 docker-ce               5:29.7.2-1~ubuntu.26.04~resolute
@@ -211,21 +222,20 @@ docker-buildx-plugin    0.36.1-1~ubuntu.26.04~resolute
 docker-compose-plugin   5.4.0-1~ubuntu.26.04~resolute
 ```
 
-Add Docker's GPG key and repository per Docker's official instructions, then:
+**An existing Docker installation is refused by default.** A foreign engine may
+carry another workload's containers, networks and daemon configuration, and the
+project's host-change policy is to preserve what it did not install. To install
+the pinned versions over an existing engine deliberately:
 
 ```console
-sudo apt-get install -y --no-install-recommends \
-  docker-ce=5:29.7.2-1~ubuntu.26.04~resolute \
-  docker-ce-cli=5:29.7.2-1~ubuntu.26.04~resolute \
-  containerd.io=2.3.3-1~ubuntu.26.04~resolute \
-  docker-buildx-plugin=0.36.1-1~ubuntu.26.04~resolute \
-  docker-compose-plugin=5.4.0-1~ubuntu.26.04~resolute
-sudo systemctl enable --now docker containerd
+sudo env KITDEV_LIFECYCLE_MODE=development \
+  ansible-playbook -i ansible/inventory ansible/site.yaml \
+  -e kitdev_docker_override=true
 ```
 
-If you set Docker's `data-root` to the data disk, **merge** `/etc/docker/daemon.json`
-structurally — never overwrite it. And remember that containerd content stays
-on root regardless.
+The role does not touch `/etc/docker/daemon.json`. Docker's own storage
+therefore stays on the root filesystem, which is why root needs headroom
+independently of the data disk.
 
 ### Verify
 

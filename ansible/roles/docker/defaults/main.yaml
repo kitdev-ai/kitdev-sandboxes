@@ -1,0 +1,30 @@
+---
+# Docker Engine, pinned. These are the versions the reference deployment runs;
+# the build steps need buildx and every control-plane operation needs the
+# compose plugin, so both are mandatory rather than optional extras.
+kitdev_docker_packages:
+  - name: docker-ce
+    version: "5:29.7.2-1~ubuntu.26.04~resolute"
+  - name: docker-ce-cli
+    version: "5:29.7.2-1~ubuntu.26.04~resolute"
+  - name: containerd.io
+    version: "2.3.3-1~ubuntu.26.04~resolute"
+  - name: docker-buildx-plugin
+    version: "0.36.1-1~ubuntu.26.04~resolute"
+  - name: docker-compose-plugin
+    version: "5.4.0-1~ubuntu.26.04~resolute"
+
+kitdev_docker_repository_host: download.docker.com
+kitdev_docker_key_url: https://download.docker.com/linux/ubuntu/gpg
+kitdev_docker_key_fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+
+# Project-owned paths, so this role never edits a file another package owns.
+kitdev_docker_keyring_path: /etc/apt/keyrings/kitdev-sandboxes-docker.asc
+kitdev_docker_source_path: /etc/apt/sources.list.d/kitdev-sandboxes-docker.sources
+
+# Adopting an unknown Docker installation is refused by default: the project's
+# host-change policy is to preserve what it did not install, and a foreign
+# engine may carry another workload's containers, networks and daemon
+# configuration. Set true to deliberately install the pinned versions over an
+# existing installation.
+kitdev_docker_override: false
