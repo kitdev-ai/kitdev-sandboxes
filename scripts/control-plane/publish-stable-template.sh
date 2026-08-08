@@ -252,6 +252,7 @@ read_state_value() {
 publish_template() {
   local product="$1" alias="$2" version="$3" journal="$4" digest="$5"
   local document state template_id build_id alias_count code
+  local key_hash reclaim_count reclaim_dir debris_id team_count
   document="$("$STATE_TOOL" reserve --journal "$journal" --product "$product" \
     --version "$version" --definition-sha256 "$digest")" || control_plane_die publication_reserve_failed 65
   state="$(printf '%s' "$document" | state_field state)"
@@ -273,11 +274,17 @@ publish_template() {
     # An alias is reclaimable only when it is private, owned by this very API
     # key's team, and has no build that did not fail. Anything else still
     # refuses, including a previously published template.
-    local key_hash
     key_hash="$(api_key_hash "$api_key_file")" ||
       control_plane_die publication_api_key_hash_failed 65
     [[ "$key_hash" =~ ^\$sha256\$[A-Za-z0-9+/]{43}$ ]] ||
       control_plane_die publication_api_key_hash_invalid 65
+    # Resolve the team first and fail closed if it does not. The guard below
+    # compares against a scalar subquery, and if that subquery yields NULL the
+    # whole NOT(...) is NULL, the row is dropped, and the count reads 0 -- so an
+    # unresolvable key would silently permit the very thing the guard refuses.
+    team_count="$(query_database \
+      "SELECT count(*) FROM public.team_api_keys WHERE api_key_hash='$key_hash';")"
+    [[ "$team_count" == 1 ]] || control_plane_die publication_api_key_team_unresolved 65
     alias_count="$(query_database "
 SELECT count(*) FROM public.env_aliases a JOIN public.envs e ON e.id = a.env_id
 WHERE a.alias='$alias' AND NOT (
@@ -288,6 +295,45 @@ WHERE a.alias='$alias' AND NOT (
                   WHERE b.env_id = e.id AND b.status <> 'failed')
 );")"
     [[ "$alias_count" == 0 ]] || control_plane_die publication_alias_not_owned 65
+    # Debris is removed, not merely tolerated. The client's first assertion is
+    # that the template does not exist, which is what makes a publish a genuine
+    # first build rather than a silent overwrite -- so leaving the failed
+    # attempt in place would trade one refusal for another. Deleting through the
+    # authenticated API rather than SQL keeps the API's own ownership rules in
+    # force, and the reclaim query above has already established the alias is
+    # this team's private, never-successfully-built leftover.
+    # Deleted by template id, never by alias. An alias can be repointed between
+    # the read and the delete; an id cannot, and the rollback path already
+    # deletes by id for the same reason.
+    debris_id="$(query_database "
+SELECT a.env_id FROM public.env_aliases a JOIN public.envs e ON e.id = a.env_id
+WHERE a.alias='$alias' AND e.public = false
+  AND e.team_id = (SELECT k.team_id FROM public.team_api_keys k
+                   WHERE k.api_key_hash='$key_hash')
+  AND NOT EXISTS (SELECT 1 FROM public.env_builds b
+                  WHERE b.env_id = e.id AND b.status <> 'failed');")"
+    if [[ -n "$debris_id" ]]; then
+      [[ "$debris_id" =~ ^[a-z0-9]{16,32}$ ]] || control_plane_die publication_debris_id_invalid 65
+      reclaim_dir="$(mktemp -d /run/kitdev-sandboxes/stable-template-reclaim.XXXXXXXX)"
+      chmod 0700 -- "$reclaim_dir"
+      write_api_config "$api_key_file" "$reclaim_dir/api.curlrc" || {
+        rm -rf -- "$reclaim_dir"
+        control_plane_die sdk_api_key_invalid 65
+      }
+      code="$(curl --disable --config "$reclaim_dir/api.curlrc" --silent --show-error \
+        --output /dev/null --write-out '%{http_code}' --max-time 30 \
+        --request DELETE -- "$API_ROOT/templates/$debris_id")" || {
+        rm -rf -- "$reclaim_dir"
+        control_plane_die publication_debris_delete_failed 65
+      }
+      rm -rf -- "$reclaim_dir"
+      [[ "$code" == 200 || "$code" == 204 ]] ||
+        control_plane_die publication_debris_delete_rejected 65
+      reclaim_count="$(query_database \
+        "SELECT count(*) FROM public.env_aliases WHERE alias='$alias';")"
+      [[ "$reclaim_count" == 0 ]] || control_plane_die publication_debris_delete_incomplete 65
+      printf 'note=publication-debris-reclaimed alias=%s template=%s\n' "$alias" "$debris_id"
+    fi
     prepare_stage "$product" "$alias" "$version"
     write_api_config "$api_key_file" "$stage/api.curlrc" || control_plane_die sdk_api_key_invalid 65
     install_sdk

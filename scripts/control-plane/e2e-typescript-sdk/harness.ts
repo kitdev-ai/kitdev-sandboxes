@@ -55,8 +55,28 @@ export async function withSandbox(
   }
 }
 
+// Report where a failure happened, never what it compared.
+//
+// The message of a failed assertion embeds the values it compared, and these
+// clients assert over the API key and over sandbox output, so printing it would
+// put a credential into a log. Printing only the class name went too far the
+// other way: `kind=AssertionError` identifies nothing, and every failure needed
+// a hand-written probe to locate. The first stack frame inside our own sources
+// names the exact check without disclosing a single value.
+export function failureSite(error: unknown): string {
+  if (!(error instanceof Error) || typeof error.stack !== "string") return "";
+  const frame = error.stack
+    .split("\n")
+    .slice(1)
+    .map((line) => line.trim())
+    .find((line) => /\/(?:e2e-typescript-sdk|workspace)\/[A-Za-z0-9._-]+\.ts:\d+/.test(line));
+  if (frame === undefined) return "";
+  const location = /((?:[A-Za-z0-9._-]+)\.ts:\d+:\d+)/.exec(frame);
+  return location === null ? "" : ` at=${location[1]}`;
+}
+
 export function fail(group: string, error: unknown): never {
   const kind = error instanceof Error ? error.constructor.name : "UnknownError";
-  console.error(`status=error operation=${group} kind=${kind}`);
+  console.error(`status=error operation=${group} kind=${kind}${failureSite(error)}`);
   process.exit(1);
 }

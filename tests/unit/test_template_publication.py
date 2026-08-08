@@ -54,6 +54,29 @@ class TemplatePublicationTests(unittest.TestCase):
         # The team must come from the key being used, never a caller argument.
         self.assertIn('key_hash="$(api_key_hash "$api_key_file")"', RUNNER)
         self.assertIn("publication_api_key_hash_invalid", RUNNER)
+        # The guard compares against a scalar subquery, so an unresolvable key
+        # would make NOT(...) NULL, drop the row, and read as 0 -- permitting
+        # exactly what it exists to refuse. Resolve the team first, fail closed.
+        self.assertIn("publication_api_key_team_unresolved", RUNNER)
+        self.assertLess(
+            RUNNER.index("publication_api_key_team_unresolved"),
+            RUNNER.index("publication_alias_not_owned"),
+        )
+        # Debris is deleted, not tolerated: the client asserts the template does
+        # not exist, so leaving it would swap one refusal for another. Deleting
+        # through the API keeps its ownership rules in force, and the removal is
+        # confirmed rather than assumed.
+        # By template id, never by alias: an alias can be repointed between the
+        # read and the delete, which is why the rollback path deletes by id too.
+        self.assertIn('--request DELETE -- "$API_ROOT/templates/$debris_id"', RUNNER)
+        self.assertIn("publication_debris_id_invalid", RUNNER)
+        self.assertIn("publication_debris_delete_rejected", RUNNER)
+        self.assertIn("publication_debris_delete_incomplete", RUNNER)
+        self.assertLess(
+            RUNNER.index("publication_alias_not_owned"),
+            RUNNER.index("--request DELETE"),
+        )
+        self.assertIn("Template.exists(templateName, connection), false", CODING)
 
     def test_journal_schema_rejects_alias_substitution(self) -> None:
         module = load_state_module()
