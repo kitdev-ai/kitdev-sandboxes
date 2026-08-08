@@ -93,6 +93,11 @@ class IngressAssetTests(unittest.TestCase):
         self.assertIn("metadata.st_nlink != 1", runner)
         self.assertIn('f"*.{domain}"', runner)
         self.assertNotIn("shell=True", runner)
+        # The pinned lego 5.x CLI takes these as `run` subcommand flags and has
+        # no `renew` command. The 4.x layout silently fails at issuance time.
+        self.assertLess(runner.index('"run",'), runner.index('"--accept-tos",'))
+        self.assertIn('"--renew-days", "30", "--no-random-sleep"', runner)
+        self.assertNotIn('"--days"', runner)
         self.assertNotIn("source $", manager)
         self.assertIn("issued_certificate_invalid", manager)
         self.assertLess(manager.index("issued_certificate_invalid"), manager.index("mv -f"))

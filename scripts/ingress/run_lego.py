@@ -97,8 +97,11 @@ def main() -> None:
         "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
     }
     environment.update(read_credentials())
+    # The pinned lego 5.x CLI exposes these as `run` subcommand flags; there is
+    # no separate `renew` command, and the old `--days` is now `--renew-days`.
     command = [
         str(LEGO),
+        "run",
         "--accept-tos",
         "--path",
         state,
@@ -110,10 +113,11 @@ def main() -> None:
         provider,
         "--domains",
         f"*.{domain}",
-        operation,
     ]
     if operation == "renew":
-        command.extend(("--days", "30"))
+        # The timer already randomizes; lego's own sleep would exceed the
+        # oneshot unit's start timeout.
+        command.extend(("--renew-days", "30", "--no-random-sleep"))
     raise SystemExit(subprocess.run(command, env=environment, check=False).returncode)
 
 
