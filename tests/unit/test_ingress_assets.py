@@ -114,6 +114,17 @@ class IngressAssetTests(unittest.TestCase):
         ):
             self.assertIn(required, firewall)
 
+    def test_docker_templates_are_not_backslash_escaped(self) -> None:
+        # Inside a single-quoted shell string a backslash is literal, so
+        # {{index .Config.Labels \"...\"}} reaches Go as an invalid template.
+        # docker inspect then fails, which silently disabled the certificate
+        # reload because that call is guarded by `|| true`.
+        for name in ("install-ingress.sh", "manage-certificate.sh"):
+            text = (SCRIPTS / name).read_text(encoding="ascii")
+            for line in text.splitlines():
+                if "docker inspect" in line or "{{" in line:
+                    self.assertNotIn('\\"', line, f"{name}: escaped quote in Go template")
+
     def test_unmanaged_firewall_dropin_is_converged_both_ways(self) -> None:
         installer = (SCRIPTS / "install-ingress.sh").read_text(encoding="ascii")
         dropin = (

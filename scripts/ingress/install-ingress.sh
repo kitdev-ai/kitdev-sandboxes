@@ -241,7 +241,7 @@ main() {
   systemctl is-enabled --quiet kitdev-e2b-ingress.service
   systemctl is-active --quiet kitdev-e2b-ingress-renew.timer
   systemctl is-enabled --quiet kitdev-e2b-ingress-renew.timer
-  [[ "$(docker inspect --format '{{.State.Running}} {{.State.Health.Status}} {{index .Config.Labels \"com.docker.compose.project\"}} {{index .Config.Labels \"com.docker.compose.service\"}}' kitdev-ingress)" == \
+  [[ "$(docker inspect --format '{{.State.Running}} {{.State.Health.Status}} {{index .Config.Labels "com.docker.compose.project"}} {{index .Config.Labels "com.docker.compose.service"}}' kitdev-ingress)" == \
     'true healthy kitdev-ingress ingress' ]] || control_plane_die ingress_container_invalid 65
   "$SCRIPT_DIR/configure-firewall.sh" verify >/dev/null
   printf 'status=pass operation=%s-ingress\n' "$mode"

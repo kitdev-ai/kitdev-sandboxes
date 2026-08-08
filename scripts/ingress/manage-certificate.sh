@@ -73,7 +73,7 @@ main() {
   sync -f -- "$tls_dir"
   verify_certificate "$tls_dir/wildcard.$domain.crt" "$tls_dir/wildcard.$domain.key" "$domain" ||
     control_plane_die installed_certificate_invalid 65
-  if [[ "$(docker inspect --format '{{.State.Running}} {{index .Config.Labels \"com.docker.compose.project\"}} {{index .Config.Labels \"com.docker.compose.service\"}}' kitdev-ingress 2>/dev/null || true)" == \
+  if [[ "$(docker inspect --format '{{.State.Running}} {{index .Config.Labels "com.docker.compose.project"}} {{index .Config.Labels "com.docker.compose.service"}}' kitdev-ingress 2>/dev/null || true)" == \
     'true kitdev-ingress ingress' ]]; then
     docker kill --signal HUP kitdev-ingress >/dev/null
   fi
