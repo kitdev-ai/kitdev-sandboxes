@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import {
+  CommandExitError,
   FileType,
   FilesystemEventType,
   Sandbox,
@@ -225,13 +226,28 @@ async function stageCommandsAndPty(connection: ConnectionOpts): Promise<void> {
   try {
     sandbox = await create(CODING_TEMPLATE, connection, "commands");
 
-    const foreground = await sandbox.commands.run("printf out; printf err >&2; exit 7", {
-      timeoutMs: 60_000,
-    });
-    assert.equal(foreground.exitCode, 7);
-    assert.equal(foreground.stdout, "out");
-    assert.equal(foreground.stderr, "err");
-    pass("commands-foreground-exit-streams");
+    const ok = await sandbox.commands.run("printf out; printf err >&2", { timeoutMs: 60_000 });
+    assert.equal(ok.exitCode, 0);
+    assert.equal(ok.stdout, "out");
+    assert.equal(ok.stderr, "err");
+    pass("commands-foreground-streams");
+
+    // A non-zero exit throws CommandExitError rather than returning a result;
+    // the streams and exit code must still survive the round trip.
+    await assert.rejects(
+      async () => {
+        await sandbox!.commands.run("printf out; printf err >&2; exit 7", { timeoutMs: 60_000 });
+      },
+      (error: unknown) => {
+        const failure = error as CommandExitError;
+        assert.equal(failure instanceof CommandExitError, true);
+        assert.equal(failure.exitCode, 7);
+        assert.equal(failure.stdout, "out");
+        assert.equal(failure.stderr, "err");
+        return true;
+      },
+    );
+    pass("commands-nonzero-exit-throws");
 
     const chunks: string[] = [];
     const streamed = await sandbox.commands.run(

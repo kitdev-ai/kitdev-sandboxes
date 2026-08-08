@@ -97,15 +97,93 @@ defaults.
 
 | # | Gate | Objective completion evidence | Status |
 |---:|---|---|---|
-| 1 | Cloudflare DNS-01 token installed | Root-owned mode-0600 single-link file with nonzero size; value never printed | Blocked on operator |
-| 2 | Let's Encrypt staging issuance | `issue-staging` returns pass using the staging directory, proving DNS-01 automation without consuming production rate limit | Not started |
-| 3 | Production wildcard issuance | `issue` installs `wildcard.<domain>.crt` mode 0644 and `.key` mode 0600 under a root-only directory, SAN contains the wildcard, key matches certificate | Not started |
-| 4 | Ingress apply and verify | Nginx ingress container running from the pinned image, renewal timer enabled, `verify` passes, TCP 80 closed | Not started |
-| 5 | Public HTTPS mode | `firewall mode public` opens only 443 for IPv4 and IPv6; 80 refused; no datastore, orchestrator, or Docker-published port reachable externally | Not started |
-| 6 | External SDK matrix | Pinned `e2b@2.38.0` on Node 22.18.0 from an off-host client passes auth, lifecycle, commands, PTY, files/watch, pause/resume, snapshots, guest HTTP, streaming, and cleanup | Not started |
+| 1 | Cloudflare DNS-01 token installed | Root-owned mode-0600 single-link file with nonzero size; value never printed | **Pass** |
+| 2 | Let's Encrypt staging issuance | `issue-staging` returns pass using the staging directory, proving DNS-01 automation without consuming production rate limit | **Pass** |
+| 3 | Production wildcard issuance | `issue` installs `wildcard.<domain>.crt` mode 0644 and `.key` mode 0600 under a root-only directory, SAN contains the wildcard, key matches certificate | **Pass** |
+| 4 | Ingress apply and verify | Nginx ingress container running from the pinned image, renewal timer enabled, `verify` passes, TCP 80 closed | **Pass** |
+| 5 | Public HTTPS mode | `firewall mode public` opens only 443 for IPv4 and IPv6; 80 refused; no datastore, orchestrator, or Docker-published port reachable externally | **Pass** |
+| 6 | External SDK matrix | Pinned `e2b@2.38.0` on Node 22.18.0 from an off-host client passes auth, lifecycle, commands, PTY, files/watch, pause/resume, snapshots, guest HTTP, streaming, and cleanup | **Pass** |
 | 7 | Product-server qualification | The same matrix passes from the product bare-metal server with its own installed key | Not started |
 
-## Boundaries that do not change in this gate
+## Execution record
+
+The operator installed the scoped Cloudflare token. Its verification returned
+an active token and resolved exactly one zone, without the value being read or
+printed. Five defects then had to be fixed before any gate could pass; each is
+committed separately with its own reproduction.
+
+| Defect | Effect | Commit |
+|---|---|---|
+| `run_lego.py` built a lego 4.x command line against the pinned lego 5.3.1 | Issuance failed immediately; renewal used a removed subcommand and flag | `2e8266e` |
+| `verify_assets`/`remove_exact_file` passed `require_exact_file` reversed arguments | Verified the release tree's mode instead of the installed file's; blocked apply, verify and remove on every host | `63ad005` |
+| No reviewed way to update a changed installed asset | `publish_exact_file` is create-only, so a code change could only be delivered by hand-editing `/opt` | `63ad005` |
+| Ingress unit hardcodes production lifecycle | The service refused the development-only firewall acknowledgement and never started | `a4c4338` |
+| Container dropped all capabilities | nginx died on `chown` of its tmpfs temp paths and never became healthy | `81dc195` |
+| `docker inspect` Go templates contained backslash-escaped quotes inside single-quoted shell strings | Aborted apply, and silently disabled the post-renewal nginx reload because that call is guarded by `\|\| true` | `123867c` |
+
+The renewal-reload defect is the most consequential: a renewed certificate
+would have been written to disk and never loaded, surfacing months later as an
+expired certificate being served.
+
+### DNS correction
+
+The zone contained exactly one relevant record: a wildcard **CNAME** for
+`*.sandbox.kitdev.ai` pointing at the host's OVH reverse name. That wildcard
+also matched `_acme-challenge.sandbox.kitdev.ai`, so lego followed the CNAME
+and tried to write the ACME TXT record into a zone the project does not
+control. With the operator's explicit approval the wildcard CNAME was replaced
+by wildcard and explicit `A` records, DNS-only, matching the documented design.
+The exact prior record set is retained for rollback in a root-owned mode-0600
+file at `/var/lib/kitdev-sandboxes/ingress-dns-rollback.json`.
+
+A stale CNAME cached by the host's own `systemd-resolved` caused one further
+failure after the records were correct; `resolvectl flush-caches` resolved it.
+
+### Certificate and ingress
+
+Staging issuance passed first, then production issuance installed a Let's
+Encrypt wildcard certificate with SAN `DNS:*.sandbox.kitdev.ai`, valid from
+2026-08-08 to 2026-11-06, mode 0644 with its mode-0600 key under a root-only
+directory. The container-level `nginx -t` that previous qualification could not
+run passed against the pinned image. The ingress service and daily renewal
+timer are enabled and active, and the container reports healthy.
+
+### External verification
+
+From the development Mac over the public Internet:
+
+| Check | Result |
+|---|---|
+| `https://api.sandbox.kitdev.ai/health` | HTTP 200, certificate verified (`ssl_verify_result=0`) |
+| TCP 443 | open |
+| TCP 80 | refused |
+| TCP 3000, 3002, 3003, 3100, 5432, 6379, 8123, 9000 | refused |
+| TCP 5007, 5008, 5010, 5016, 5017, 5018 | refused |
+
+The official `e2b@2.38.0` matrix on Node 22.18.0 then passed **42 of 42 checks
+across all 10 stages** with zero failures: authentication, invalid-key refusal,
+lifecycle with metrics and host derivation, refusal of a second concurrent
+sandbox, commands including non-zero exit semantics and streaming and
+stdin/EOF and disconnect/reconnect, PTY create/resize/input/kill, files
+including a 1 MiB binary round trip and recursive watch streaming, wildcard
+guest HTTP, unbuffered chunked streaming, a WebSocket upgrade, pause with and
+without memory, snapshot create/list/restore/delete, the 8 GiB browser profile
+with Chromium/CDP/Playwright/screenshot, and a final assertion that no sandbox
+from the run remained.
+
+One matrix failure in the first run was a defect in the new harness, not the
+deployment: the SDK raises `CommandExitError` on a non-zero exit instead of
+returning a result. The harness now asserts that contract explicitly.
+
+### Post-run state
+
+Zero Firecracker processes, all 12,288 hugepages free, about 36 GiB
+`MemAvailable`, all seven containers healthy including the new ingress, both
+lifecycle locks free, and the renewal timer scheduled. Six superseded staged
+release trees were removed; the local copy of the product key taken for the
+matrix run was deleted after the run.
+
+## Boundaries that this gate does not move
 
 - Host-level runtime admission control (commit `bc24873`) is **not** deployed.
   The live orchestrator is the transient lab topology and its schema-2 build
@@ -115,4 +193,12 @@ defaults.
   not.
 - Fresh-host automation replay, destructive backup/restore rehearsal, reboot
   persistence of the capacity migration, and the clean-OS matrix remain open.
+- The control-plane firewall on this host is operator-managed, not
+  project-managed. Public exposure runs under an explicit development-only
+  acknowledgement, which is not a production posture.
+- A certificate renewal cycle has not been exercised end to end. The reload
+  defect that would have broken it is fixed and unit-tested, but the first real
+  renewal is still unobserved.
+- Public TCP 443 is open to every Internet source. Only project authentication
+  and the ingress rate limits stand in front of the API.
 - Nothing in this gate authorizes a production readiness claim.

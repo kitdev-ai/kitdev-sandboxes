@@ -1313,3 +1313,50 @@ untracked, and must never be quoted into tracked documentation.
   API-level team limits only. The operator explicitly accepted leaving the two
   internal teams at base-tier concurrency.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Public HTTPS ingress and external SDK qualification
+
+- **Intent:** Make the deployment usable by software on a separate server
+  through the official `e2b@2.38.0` TypeScript SDK over trusted public HTTPS.
+- **Delegated LUNA agent:** LUNA project-lead role.
+- **Safe activity summary:** Verified the operator-installed Cloudflare token
+  without reading its value, corrected the zone's wildcard record shape, proved
+  DNS-01 against Let's Encrypt staging, issued and installed the production
+  wildcard certificate, applied the Nginx ingress and daily renewal timer,
+  opened only TCP 443 in the operator-selected public mode, and ran the full
+  official SDK matrix from an off-host client.
+- **Defects found and fixed, each committed separately:** the lego runner
+  targeted the 4.x CLI while the pinned tool is 5.3.1; `verify_assets` and
+  `remove_exact_file` passed `require_exact_file` reversed arguments and so
+  validated the release tree instead of the installed file; there was no
+  reviewed way to update a changed installed asset; the ingress unit hardcodes
+  production lifecycle and refused the development-only firewall
+  acknowledgement; the container dropped every capability nginx needs for
+  privilege separation; and two `docker inspect` Go templates contained
+  backslash-escaped quotes, which aborted apply and silently disabled the
+  post-renewal nginx reload.
+- **Files and evidence:**
+  [external HTTPS enablement](external-https-enablement-2026-08-08.md),
+  [SDK guide](../typescript-sdk-integration-guide.md),
+  [operator guide](../bare-metal-operator-guide.md), and the new
+  `scripts/external-sdk-matrix` runner.
+- **Result:** `https://api.sandbox.kitdev.ai` serves a trusted Let's Encrypt
+  wildcard certificate. From the development Mac, TCP 443 is open while 80 and
+  every datastore, API, proxy and orchestrator port are refused. The official
+  matrix passed 42 of 42 checks across all 10 stages, including wildcard guest
+  HTTP, unbuffered chunked streaming, a WebSocket upgrade, both pause modes,
+  snapshots, and the 8 GiB browser profile.
+- **Mutation status:** Host mutated deliberately. New persistent state is the
+  ACME account and certificate material, the installed TLS pair, the ingress
+  service and renewal timer, one UFW rule pair for 443, a development-only
+  systemd drop-in, and a DNS rollback record. The zone's wildcard CNAME was
+  replaced by `A` records with explicit operator approval; the exact prior
+  record is retained root-only for rollback.
+- **Limitations / next gate:** The control-plane firewall on this host is
+  operator-managed, so public exposure runs under an explicit development-only
+  acknowledgement and is not a production posture. A real renewal cycle and a
+  failure rollback are unobserved. Host-level runtime admission control is
+  still undeployed; external enforcement is API-level team limits only. The two
+  internal teams remain at base-tier concurrency by operator decision. The
+  matrix has not yet been run from the product bare-metal server.
+- **Commit:** Pending in this change set.

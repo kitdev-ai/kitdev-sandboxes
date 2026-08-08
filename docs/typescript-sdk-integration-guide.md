@@ -24,12 +24,19 @@ key ID:     d63b17ec-07cb-4577-b33d-e576b01be5e9
 ```
 
 The key passed host-local authentication and idempotency checks. It has not
-been printed or committed. Public TCP 80 and 443 are still unreachable, so the
-key is ready for secure installation but external SDK authentication is not
-yet proved.
+been printed or committed.
+
+Public HTTPS is live. On 2026-08-08 the complete official `e2b@2.38.0` matrix
+passed from a client host over the public Internet: 42 checks across 10 stages
+with zero failures, covering authentication, invalid-key refusal, lifecycle,
+concurrency refusal, commands, streaming, PTY, files, wildcard guest HTTP,
+chunked streaming, a WebSocket upgrade, pause/resume, snapshots, and the heavy
+browser profile. Only TCP 443 is reachable from the Internet; 80 and every
+internal port are refused. See
+[external HTTPS enablement](research/external-https-enablement-2026-08-08.md).
 
 Two stable template aliases are published and were launched successfully with
-this exact product key over the loopback API:
+this exact product key, both over loopback and from an off-host client:
 
 ```text
 kitdev-coding:stable          (immutable release kitdev-coding:v1)
@@ -123,18 +130,16 @@ The expected DNS and TLS names are `api.sandbox.kitdev.ai` and
 `*.sandbox.kitdev.ai`. The first serves lifecycle calls. Wildcard names such
 as `<port>-<sandbox-id>.sandbox.kitdev.ai` route sandbox traffic.
 
-The repository has proved the equivalent loopback SDK path, but not this
-external HTTPS path. Do not deploy a product integration until the operator
-confirms that public DNS, TLS, API authentication, ConnectRPC streaming, and
-wildcard sandbox routing have passed from a separate client host.
+Public DNS, trusted wildcard TLS, API authentication, ConnectRPC streaming,
+and wildcard sandbox routing have all passed from a separate client host.
 
 The operator selected unrestricted public TCP 443 as a temporary development
-posture after valid TLS is installed. It is not live yet: current probes still
-time out on both 80 and 443. Public mode exposes the authenticated API and
+posture, and it is now live. Public mode exposes the authenticated API and
 wildcard ingress to every Internet source, increasing scanning, brute-force,
-and denial-of-service risk. It must keep TCP 80 and every internal port closed,
-retain rate limits and monitoring, and be replaced by source-restricted mode
-as soon as the product server has a stable public address.
+and denial-of-service risk. It keeps TCP 80 and every internal port closed and
+retains the ingress rate limits, and it should be replaced with
+`kitdev firewall mode restricted` as soon as the product server has a stable
+public address.
 
 ## Credentials
 
@@ -345,9 +350,9 @@ try {
 }
 ```
 
-The equivalent server-side loopback flow is live-proven. This public-host flow
-remains ingress-dependent. `E2B_TEMPLATE` must be trusted deployment
-configuration supplied by the operator, not an arbitrary end-user value.
+This exact flow is live-proven from an off-host client over public HTTPS.
+`E2B_TEMPLATE` must be trusted deployment configuration supplied by the
+operator, not an arbitrary end-user value.
 
 ## Lifecycle and commands
 
@@ -484,10 +489,16 @@ await sandbox.commands.run("python3 -m http.server 3000", { background: true });
 const url = `https://${sandbox.getHost(3000)}`;
 ```
 
-Do not ship this path yet. It requires proof of wildcard DNS/TLS, original Host
-preservation, guest-port routing, streaming/WebSocket behavior, and traffic
-authentication. The SDK exposes `sandbox.trafficAccessToken`, but caller
-`fetch()` requests do not automatically receive it.
+This path is live-proven from an off-host client: an ordinary HTTP response,
+an unbuffered chunked stream, and a WebSocket upgrade all traversed the public
+wildcard route. Guest ports are reachable at
+`https://<port>-<sandbox-id>.sandbox.kitdev.ai`.
+
+Anyone who learns a sandbox host name can reach that port, so treat an exposed
+guest port as public. The SDK exposes `sandbox.trafficAccessToken`; caller
+`fetch()` requests do not receive it automatically. When a sandbox is created
+with a traffic token, send it as the `e2b-traffic-access-token` request header.
+Do not serve anything from a guest port that you would not publish.
 
 ## Templates
 
@@ -513,8 +524,9 @@ Using a distinct key gives the operator an independent revocation handle; it
 does not create least-privilege build permissions. Keep template building in a
 trusted deployment workflow and never expose it to product users directly.
 
-The external HTTPS path from another server remains ingress-dependent; do not
-automate remote production builds until that public path passes its own gate.
+Remote template builds over the public path are not part of the passing
+external matrix. Prove a remote build in a controlled run before automating
+one, and remember that the team allows only one concurrent build.
 
 ## Coding template
 
@@ -543,9 +555,9 @@ The published product identifiers are `kitdev-browser-heavy:stable` and the
 immutable `kitdev-browser-heavy:v1`, built at 2 vCPU, 8,192 MiB RAM, and
 16,384 MiB requested free disk. The qualification covers Chromium only and
 keeps CDP on `127.0.0.1:9222` inside the guest: drive the browser from a
-process running inside the sandbox. Do not expose CDP with `getHost(9222)` or
-assume arbitrary public browser ports work; authenticated wildcard ingress
-remains unproven. See the
+process running inside the sandbox. Do not expose CDP with `getHost(9222)`:
+the wildcard route carries no authentication of its own, so a published CDP
+endpoint hands full browser control to anyone who learns the host name. See the
 [browser qualification guide](browser-sandbox-guide.md) for the exact boundary.
 
 ## Reliability rules
@@ -573,12 +585,12 @@ remains unproven. See the
 | Files CRUD/metadata/read formats/watch | Live-proven | Isolated SDK sandbox |
 | Both pause/resume modes | Live-proven | Isolated SDK sandbox |
 | Snapshot create/list/restore/delete | Live-proven | Source and restore sandboxes |
-| External API from another server | Ingress-dependent | DNS/TLS/public auth unproven |
-| Guest ports, streaming, WebSockets | Ingress-dependent | Wildcard proxy unproven |
-| Direct URL upload/download | Ingress-dependent | Caller-managed URL unproven |
+| External API from another server | Live-proven | Trusted wildcard TLS; 42-check matrix from an off-host client |
+| Guest ports, streaming, WebSockets | Live-proven | Wildcard guest HTTP, unbuffered chunked streaming, WebSocket upgrade |
+| Direct URL upload/download | Pending | Caller-managed `uploadUrl`/`downloadUrl` still untested externally |
 | Template SDK build/status/exists/tags | Live-proven | Official SDK, loopback API/template manager |
 | Coding template toolchain/files/commands/PTY | Live-proven | `kitdev-coding:v1` and `:stable` published; product-key consumer launch passed |
-| Browser/CDP/Playwright | Live-proven (loopback) | `kitdev-browser-heavy:v1` and `:stable` published; product-key consumer launch passed; public CDP remains pending |
+| Browser/CDP/Playwright | Live-proven | Heavy profile launched and Chromium/CDP/Playwright/screenshot passed from an off-host client; public CDP exposure remains unsupported |
 | Desktop/stream/screen/input | Pending | Product template and live test incomplete |
 | Persistent volumes | Pending | Volume service not deployed |
 
