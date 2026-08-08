@@ -385,16 +385,24 @@
   changed_when: false
   check_mode: false
 
-- name: Require the data filesystem to be a separate device with enough capacity
-  ansible.builtin.assert:
-    that:
-      - data.SOURCE != root.SOURCE
-      - (data.SIZE | int) >= (kitdev_data_minimum_bytes | int)
-    fail_msg: >-
-      {{ kitdev_data_root }} must be a separate disk of at least
-      {{ (kitdev_data_minimum_bytes | int / 1000000000000) | round(1) }} TB.
-      Observed source {{ data.SOURCE }} ({{ (data.SIZE | int / 1000000000000) | round(2) }} TB)
-      against root source {{ root.SOURCE }}.
+# findmnt emits lowercase JSON keys from util-linux 2.41 and uppercase before
+# it, so normalise rather than depending on one release's casing.
+- name: Normalise the findmnt output
+  ansible.builtin.set_fact:
+    kitdev_data_fs: "{{ dict(data.keys() | map('lower') | zip(data.values())) }}"
+    kitdev_root_fs: "{{ dict(root.keys() | map('lower') | zip(root.values())) }}"
   vars:
     data: "{{ (kitdev_data_mount.stdout | from_json).filesystems[0] }}"
     root: "{{ (kitdev_root_mount.stdout | from_json).filesystems[0] }}"
+
+- name: Require the data filesystem to be a separate device with enough capacity
+  ansible.builtin.assert:
+    that:
+      - kitdev_data_fs.source != kitdev_root_fs.source
+      - (kitdev_data_fs.size | int) >= (kitdev_data_minimum_bytes | int)
+    fail_msg: >-
+      {{ kitdev_data_root }} must be a separate disk of at least
+      {{ (kitdev_data_minimum_bytes | int / 1000000000000) | round(1) }} TB.
+      Observed source {{ kitdev_data_fs.source }}
+      ({{ (kitdev_data_fs.size | int / 1000000000000) | round(2) }} TB)
+      against root source {{ kitdev_root_fs.source }}.

@@ -82,7 +82,12 @@ class StorageVerificationTests(unittest.TestCase):
             t for t in self.tasks if t["name"].startswith("Require the data filesystem")
         )
         conditions = str(guard["ansible.builtin.assert"]["that"])
-        self.assertIn("data.SOURCE != root.SOURCE", conditions)
+        self.assertIn("kitdev_data_fs.source != kitdev_root_fs.source", conditions)
+        # findmnt changed JSON key casing across util-linux releases, so the
+        # output is normalised rather than read with one release's casing.
+        text = (PREFLIGHT / "tasks" / "main.yaml").read_text()
+        self.assertIn("map('lower')", text)
+        self.assertNotIn(".SOURCE", text)
 
     def test_minimum_capacity_accepts_a_real_two_terabyte_disk(self) -> None:
         floor = int(self.defaults["kitdev_data_minimum_bytes"])
