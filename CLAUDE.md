@@ -5,8 +5,7 @@ this repository and applies in full to Claude Code.
 
 Quick orientation:
 
-- Read `PROMPT.md`, `docs/PROJECT-HANDOVER.md`, and `docs/open-tasks.md` before
-  changing code or the server.
+- Read `PROMPT.md` and `docs/HANDOVER.md` before changing code or the server.
 - Claim nothing as working, proven, or complete without a recorded result.
 - Never print or commit a secret; verify credentials by their properties.
 - Run the live host only from an exact committed revision staged root-only, and

@@ -10,10 +10,9 @@ host over SSH. Both facts shape everything below.
 ## Read first
 
 1. [`PROMPT.md`](PROMPT.md) — the product contract.
-2. [`docs/PROJECT-HANDOVER.md`](docs/PROJECT-HANDOVER.md) — current state,
-   what is qualified, what is not.
-3. [`docs/open-tasks.md`](docs/open-tasks.md) — dependency-ordered backlog.
-4. The newest dated file in [`docs/research/`](docs/research/README.md).
+2. [`docs/HANDOVER.md`](docs/HANDOVER.md) — current state, capacity model,
+   dependency-ordered backlog, and what is *not* qualified.
+3. The newest dated file in [`docs/research/`](docs/research/README.md).
 
 If two documents disagree, prefer the newer dated evidence and the current
 code, then fix the stale document in the same change.

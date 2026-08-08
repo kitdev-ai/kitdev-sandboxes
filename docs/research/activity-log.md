@@ -1405,3 +1405,27 @@ untracked, and must never be quoted into tracked documentation.
   pool toward the 32 GiB policy ceiling needs the capacity migration
   controller, whose reboot and rollback gates remain open.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Handover consolidation
+
+- **Intent:** Replace two drifting documents with one clean-resume handover, so
+  a new lead has a single place to look rather than reconciling a state
+  document against a separate backlog.
+- **Delegated LUNA agent:** LUNA project-lead role.
+- **Implementation:** Removed `docs/PROJECT-HANDOVER.md` and
+  `docs/open-tasks.md` and wrote `docs/HANDOVER.md` in their place. The backlog
+  is folded in as Now/Next/Later with completion gates, and standing exceptions
+  are stated explicitly rather than left implicit. Added sections that did not
+  exist before: a plain statement of the capacity model, the working-on-the-
+  live-host procedure, and a hard-won-lessons section recording the six ingress
+  defects, the silent renewal-reload failure, and the assertion that a limit
+  change falsified.
+- **Reference integrity:** Updated `AGENTS.md`, `CLAUDE.md` and `docs/README.md`
+  to point at the new file. The only surviving mentions of the old names are
+  the two sentences that record the supersession.
+- **Result:** One authoritative resume document. Current state, capacity, the
+  backlog, rollback paths and known defects are all in it.
+- **Mutation status:** Documentation only; no host change.
+- **Limitations / next gate:** The backlog is a restatement of known work, not
+  new qualification. Nothing in this change moves a gate.
+- **Commit:** Pending in this change set.
