@@ -89,6 +89,9 @@
     update_cache: true
   when: kitdev_docker_source.changed
 
+# Check mode does not write the APT source, so the packages are genuinely
+# unavailable to it and apt cannot predict the install. Skipping is the honest
+# behaviour; everything check mode can evaluate still runs.
 - name: Install pinned Docker Engine packages
   ansible.builtin.apt:
     name: "{{ kitdev_docker_packages | map(attribute='name') | zip(kitdev_docker_packages | map(attribute='version')) | map('join', '=') | list }}"
@@ -98,6 +101,8 @@
 
 # Unattended upgrades would otherwise move these off their pins, which the
 # build steps and the compose contract both depend on.
+  when: not ansible_check_mode
+
 - name: Hold the pinned Docker packages
   ansible.builtin.dpkg_selections:
     name: "{{ item.name }}"
@@ -105,6 +110,7 @@
   loop: "{{ kitdev_docker_packages }}"
   loop_control:
     label: "{{ item.name }}"
+  when: not ansible_check_mode
 
 - name: Enable and start the Docker services
   ansible.builtin.systemd_service:
@@ -118,6 +124,8 @@
 # Both plugins are required: five build steps use buildx and every
 # control-plane operation uses compose. Installing Docker without them passes a
 # naive check and then fails mid-build with no reason code.
+  when: not ansible_check_mode
+
 - name: Verify the engine and both required plugins respond
   ansible.builtin.command:
     argv: "{{ item }}"
