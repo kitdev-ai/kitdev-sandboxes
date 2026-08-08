@@ -71,6 +71,7 @@ observations, not a standing health assertion — recheck before any mutation.
 | HugeTLB | 12,288 of 12,288 2 MiB pages free (24 GiB pool) |
 | Firecracker | 0 processes |
 | Lifecycle locks | both free |
+| Reboot behaviour | HugeTLB pool, kernel modules, `/dev/kvm` and all control-plane containers return unaided. The orchestrator does **not** — it is a transient unit in `/run`, and this host has no persistent one installed |
 
 Published templates, both consumer-verified from an off-host client:
 
@@ -218,7 +219,7 @@ evidence; one successful command is not completion.
 | 2 | Product-server qualification | Blocked on operator access | Run `scripts/external-sdk-matrix` from the product bare-metal server with its own installed key; all stages pass |
 | 3 | Restricted firewall mode | Blocked on operator input | Collect the product server's stable public IPv4 `/32` and any IPv6 `/128`, move from `public` to `restricted`, prove allowed source succeeds, denied source fails, 80 stays closed, removal and rollback work |
 | 4 | Host runtime admission control | Patch committed at `bc24873`, live-unproved | Build and install the patched orchestrator, pass preflight, bind its schema-2 manifest, and prove refusal, release, and crash cleanup before mutation rather than only at the API |
-| 5 | 24 GiB hugepage migration | Apply/reapply proved; reboot and rollback open | Exact 12,288-page state survives reboot; authenticated remove restores captured prior state; second remove and post-removal reboot pass |
+| 5 | 24 GiB hugepage migration | **Reboot proved**; rollback open | Exact 12,288-page state survives reboot; authenticated remove restores captured prior state; second remove and post-removal reboot pass |
 | 6 | Fresh-host bootstrap | **Resolved offline, unexecuted** | The seed step now skips when its pre-made fixture is absent, and install bootstraps a default team via `bootstrap-team.sh` after the migrators run. Previously nothing created a team, so `api-key create` had no slug to resolve and a completed install could not build a template or start a sandbox. Neither change has run on a host. `verify-api-proxy-e2e.sh` still pins the old lab build ID, so `kitdev test-core` remains broken |
 
 ### Next

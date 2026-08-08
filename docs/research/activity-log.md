@@ -1677,3 +1677,57 @@ untracked, and must never be quoted into tracked documentation.
   relocation is still unimplemented. Nothing here is executed, and a fresh
   install remains unproven.
 - **Commit:** Pending in this change set.
+
+## 2026-08-08 - Reboot and build-reproducibility qualification
+
+- **Intent:** Convert the two largest unverified risks in the fresh-install
+  plan into measurements, on a host that is scheduled for reinstall anyway.
+- **Delegated LUNA agent:** LUNA project-lead role.
+- **Preparation:** All recoverable material was archived off-host first and
+  verified by restoring it: credentials, both ACME accounts, the wildcard
+  certificate and key, ingress configuration, publication journals and DNS
+  rollback state, encrypted; plus the seed fixture and both published template
+  builds. The seed fixture's authenticity was confirmed rather than assumed by
+  hashing its memfile against the value pinned in the script, which matched.
+  The orchestrator's transient unit definition was captured beforehand,
+  because it lives in `/run` and could not otherwise be recreated.
+- **Build reproducibility: PASS.** `envd` rebuilt from the pinned source in the
+  digest-pinned toolchain image reproduced both the exact size and the exact
+  sha256 recorded in `build-envd.sh`. This was the single largest unknown in
+  the fresh-install plan; the byte-exact hashes are genuinely deterministic and
+  not an artefact of one machine's state. The build was staged to a scratch
+  path and no installed artefact was touched.
+- **Reboot, hugepages: PASS.** The 12,288-page pool returned unaided, as did
+  the kernel modules, `/dev/kvm` and all six control-plane containers.
+- **Reboot, ingress: FAILED, and the failure was unrecoverable.** ufw persists
+  its rules to `/etc/ufw` while the DOCKER-USER guards are runtime iptables
+  state and vanish. `apply` refused the resulting half-applied state as a
+  conflict, and `remove` refused it too, because it verifies the complete rule
+  set is present before deleting anything. Recovery required deleting the ufw
+  rules by hand. Both paths now reconcile: they clear this project's own
+  tagged remnants and re-add, while still refusing anything foreign.
+- **Fix evidence:** the exact post-reboot condition was reproduced on the host
+  by flushing DOCKER-USER while leaving the ufw rules. The installed code
+  failed on it and the fixed code passed and restored both rule sets. Remove
+  recovery, apply idempotency, and refusal of an injected foreign 443 rule
+  were each verified, with the foreign rule surviving untouched. Finally the
+  broken state was reproduced once more and the ingress service started
+  normally through systemd, self-healing via its pre-start step.
+- **End-to-end after reboot:** the full external SDK matrix passed 42 of 42
+  checks across all ten stages from an off-host client, and external HTTPS
+  returned 200 with a verified chain.
+- **Incidental finding:** git refuses to operate on the legacy source checkout
+  as root because it is owned by `kitdev-worker`. This is legacy drift, not an
+  automation defect: `acquire-source.sh` clones into `/opt` as root, so a fresh
+  install is unaffected.
+- **Mutation status:** Host rebooted with explicit approval. Firewall rules
+  were deliberately broken and restored during testing; final state has both
+  rule sets present, ingress active and healthy, orchestrator restored from the
+  captured definition, seven containers running, zero Firecracker processes and
+  12,288 hugepages.
+- **Limitations / next gate:** the orchestrator on this host is transient and
+  does not survive reboot at all; a fresh install would use the persistent unit
+  that `install-orchestrator-service.sh` provides, so this host's reboot
+  behaviour is not representative. Rollback of the capacity migration is still
+  unexercised.
+- **Commit:** Pending in this change set.
