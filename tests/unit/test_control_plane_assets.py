@@ -684,3 +684,36 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ControlPlaneExecutableModeTests(unittest.TestCase):
+    """lifecycle.sh invokes its siblings directly, so a script committed
+    without the executable bit fails install with Permission denied on any
+    clean checkout."""
+
+    def test_directly_invoked_scripts_are_executable(self) -> None:
+        import subprocess as sp
+
+        root = Path(__file__).resolve().parents[2]
+        listing = sp.run(
+            ["git", "ls-files", "-s", "scripts/control-plane"],
+            cwd=root, capture_output=True, text=True, check=True,
+        ).stdout
+        non_exec = [
+            line.split("\t")[-1]
+            for line in listing.splitlines()
+            if line.startswith("100644") and line.endswith(".sh")
+        ]
+        self.assertEqual(non_exec, [], "shell scripts must be committed executable")
+
+    def test_orchestrator_installer_validates_the_installed_file(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        text = (
+            root / "scripts" / "control-plane" / "install-orchestrator-service.sh"
+        ).read_text()
+        # require_exact_file stats its first argument; passing the release tree
+        # first checks the checkout's mode, which differs legitimately.
+        self.assertNotIn('require_exact_file "$SCRIPT_DIR', text)
+        self.assertIn(
+            'require_exact_file "$KITDEV_OPT_ROOT/libexec/control-plane/common.sh"', text
+        )

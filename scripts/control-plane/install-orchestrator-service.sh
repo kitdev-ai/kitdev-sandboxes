@@ -74,22 +74,26 @@ main() {
       systemctl start kitdev-e2b-orchestrator.service
     fi
   fi
-  require_exact_file "$SCRIPT_DIR/common.sh" \
-    "$KITDEV_OPT_ROOT/libexec/control-plane/common.sh" root root 755
-  require_exact_file "$SCRIPT_DIR/bootstrap-network.sh" \
-    "$KITDEV_OPT_ROOT/libexec/control-plane/bootstrap-network.sh" root root 755
-  require_exact_file "$SCRIPT_DIR/configure-firewall.sh" \
-    "$KITDEV_OPT_ROOT/libexec/control-plane/configure-firewall.sh" root root 755
-  require_exact_file "$SCRIPT_DIR/private_env.py" \
-    "$KITDEV_OPT_ROOT/libexec/control-plane/private_env.py" root root 755
-  require_exact_file "$SCRIPT_DIR/preflight-orchestrator.sh" \
-    "$KITDEV_OPT_ROOT/libexec/control-plane/preflight-orchestrator.sh" root root 755
-  require_exact_file "$stage/orchestrator.env" \
-    /etc/kitdev-sandboxes/orchestrator.env root root 600
-  require_exact_file "$stage/orchestrator.env" \
-    "$KITDEV_OPT_ROOT/libexec/control-plane/orchestrator.env.expected" root root 600
-  require_exact_file "$ORCHESTRATOR_UNIT_SOURCE" \
-    /etc/systemd/system/kitdev-e2b-orchestrator.service root root 644
+  # The helper stats its FIRST argument, so the installed target must come
+  # first. Passing the release tree first validated the checkout's mode instead
+  # of the installed file's, which fails for any source whose mode legitimately
+  # differs -- private_env.py is 644 in Git and installed 755.
+  require_exact_file "$KITDEV_OPT_ROOT/libexec/control-plane/common.sh" \
+    "$SCRIPT_DIR/common.sh" root root 755
+  require_exact_file "$KITDEV_OPT_ROOT/libexec/control-plane/bootstrap-network.sh" \
+    "$SCRIPT_DIR/bootstrap-network.sh" root root 755
+  require_exact_file "$KITDEV_OPT_ROOT/libexec/control-plane/configure-firewall.sh" \
+    "$SCRIPT_DIR/configure-firewall.sh" root root 755
+  require_exact_file "$KITDEV_OPT_ROOT/libexec/control-plane/private_env.py" \
+    "$SCRIPT_DIR/private_env.py" root root 755
+  require_exact_file "$KITDEV_OPT_ROOT/libexec/control-plane/preflight-orchestrator.sh" \
+    "$SCRIPT_DIR/preflight-orchestrator.sh" root root 755
+  require_exact_file /etc/kitdev-sandboxes/orchestrator.env \
+    "$stage/orchestrator.env" root root 600
+  require_exact_file "$KITDEV_OPT_ROOT/libexec/control-plane/orchestrator.env.expected" \
+    "$stage/orchestrator.env" root root 600
+  require_exact_file /etc/systemd/system/kitdev-e2b-orchestrator.service \
+    "$ORCHESTRATOR_UNIT_SOURCE" root root 644
   systemctl is-enabled --quiet kitdev-e2b-orchestrator.service ||
     control_plane_die orchestrator_service_not_enabled 65
   if [[ "$mode" == install-start || "$mode" == verify ]]; then
