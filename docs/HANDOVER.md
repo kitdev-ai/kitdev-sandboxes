@@ -378,6 +378,8 @@ rediscover them.
 
 - [`../PROMPT.md`](../PROMPT.md): original product contract.
 - [`../AGENTS.md`](../AGENTS.md): how agents must work in this repository.
+- [`vision.md`](vision.md): how the snapshot mechanism works, the unexploited
+  `fork` primitive, and the multi-node target topology. Aspirational.
 - [`fresh-host-remediation-plan.md`](fresh-host-remediation-plan.md): the
   ordered plan to make a fresh install work end to end, and the risks that only
   execution can settle.
