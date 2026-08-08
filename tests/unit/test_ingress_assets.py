@@ -105,6 +105,25 @@ class IngressAssetTests(unittest.TestCase):
         ):
             self.assertIn(required, firewall)
 
+    def test_unmanaged_firewall_dropin_is_converged_both_ways(self) -> None:
+        installer = (SCRIPTS / "install-ingress.sh").read_text(encoding="ascii")
+        dropin = (
+            ROOT / "systemd" / "kitdev-e2b-ingress.service.d" / "kitdev-unmanaged-firewall.conf"
+        ).read_text(encoding="ascii")
+        self.assertIn("Environment=KITDEV_LIFECYCLE=development", dropin)
+        self.assertIn(
+            "Environment=KITDEV_UNMANAGED_CONTROL_PLANE_FIREWALL=acknowledged", dropin
+        )
+        guard = installer.split("unmanaged_firewall_acknowledged() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn('"${KITDEV_LIFECYCLE:-}" == development', guard)
+        # Absent acknowledgement the drop-in must be removed, not merely skipped,
+        # so an unacknowledged run converges a host back to the strict unit.
+        converge = installer.split("converge_dropin() {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("update_exact_file", converge)
+        self.assertIn("remove_exact_file", converge)
+        self.assertIn("unmanaged_firewall_dropin_present", installer)
+        self.assertIn('remove_exact_file "$DROPIN_SOURCE"', installer)
+
     def test_installer_validates_the_installed_file_not_the_release_tree(self) -> None:
         installer = (SCRIPTS / "install-ingress.sh").read_text(encoding="ascii")
         # require_exact_file stats its first argument. Passing the release tree

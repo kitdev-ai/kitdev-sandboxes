@@ -9,6 +9,28 @@ readonly INSTALLED_DIR="$KITDEV_OPT_ROOT/libexec/ingress"
 readonly COMPOSE_DIR="$KITDEV_OPT_ROOT/compose/ingress"
 readonly INGRESS_ETC="$KITDEV_ETC_ROOT/ingress"
 readonly UNIT_DIR=/etc/systemd/system
+readonly DROPIN_DIR="$UNIT_DIR/kitdev-e2b-ingress.service.d"
+readonly DROPIN_NAME=kitdev-unmanaged-firewall.conf
+readonly DROPIN_SOURCE="$REPO_ROOT/systemd/kitdev-e2b-ingress.service.d/$DROPIN_NAME"
+
+# The unit is production-first, so a development lab that acknowledged an
+# unmanaged control-plane firewall needs that acknowledgement inside the
+# service environment too. The drop-in exists exactly while the
+# acknowledgement is active and is converged away on any run without it.
+unmanaged_firewall_acknowledged() {
+  [[ "${KITDEV_UNMANAGED_CONTROL_PLANE_FIREWALL:-}" == acknowledged &&
+    "${KITDEV_LIFECYCLE:-}" == development ]]
+}
+
+converge_dropin() {
+  if unmanaged_firewall_acknowledged; then
+    ensure_directory "$DROPIN_DIR" root root 755
+    update_exact_file "$DROPIN_SOURCE" "$DROPIN_DIR/$DROPIN_NAME" root root 644
+  else
+    remove_exact_file "$DROPIN_SOURCE" "$DROPIN_DIR/$DROPIN_NAME" root root 644
+    rmdir --ignore-fail-on-non-empty "$DROPIN_DIR" 2>/dev/null || true
+  fi
+}
 
 ensure_managed_directories() {
   ensure_directory "$KITDEV_ETC_ROOT" root root 700
@@ -71,6 +93,11 @@ verify_assets() {
     kitdev-e2b-ingress-renew.timer; do
     require_exact_file "$UNIT_DIR/$name" "$REPO_ROOT/systemd/$name" root root 644
   done
+  if unmanaged_firewall_acknowledged; then
+    require_exact_file "$DROPIN_DIR/$DROPIN_NAME" "$DROPIN_SOURCE" root root 644
+  elif [[ -e "$DROPIN_DIR/$DROPIN_NAME" || -L "$DROPIN_DIR/$DROPIN_NAME" ]]; then
+    control_plane_die unmanaged_firewall_dropin_present 65
+  fi
 }
 
 # Converge one managed asset to this release. publish_exact_file is
@@ -146,11 +173,12 @@ remove_assets() {
   for name in firewall_source_state.py ingress_config.py run_lego.py; do
     remove_exact_file "$SCRIPT_DIR/$name" "$INSTALLED_DIR/$name" root root 755
   done
+  remove_exact_file "$DROPIN_SOURCE" "$DROPIN_DIR/$DROPIN_NAME" root root 644
   for name in kitdev-e2b-ingress.service kitdev-e2b-ingress-renew.service \
     kitdev-e2b-ingress-renew.timer; do
     remove_exact_file "$REPO_ROOT/systemd/$name" "$UNIT_DIR/$name" root root 644
   done
-  rmdir --ignore-fail-on-non-empty "$INSTALLED_DIR" "$COMPOSE_DIR" 2>/dev/null || true
+  rmdir --ignore-fail-on-non-empty "$DROPIN_DIR" "$INSTALLED_DIR" "$COMPOSE_DIR" 2>/dev/null || true
 }
 
 main() {
@@ -177,6 +205,7 @@ main() {
   elif [[ "$mode" == update ]]; then
     ensure_managed_directories
     update_assets
+    converge_dropin
     systemctl daemon-reload
     "$SCRIPT_DIR/acquire-artifacts.sh" apply
     verify_assets
@@ -187,6 +216,7 @@ main() {
     return
   else
     publish_assets
+    converge_dropin
     systemctl daemon-reload
     "$SCRIPT_DIR/acquire-artifacts.sh" apply
   fi
