@@ -140,10 +140,29 @@ require_exact_directory() {
     control_plane_die directory_metadata_conflict 65
 }
 
+# Create a directory with exact ownership and mode.
+#
+# Ownership is assigned with chown rather than `install -o/-g` deliberately.
+# Ubuntu ships uutils coreutils from 25.10, and its `install` rejects a numeric
+# owner that resolves to no account -- `install: invalid user: '999'` -- where
+# GNU coreutils accepts it. The datastore directories are owned by the UIDs
+# their container images run as (999 postgres/redis, 10001 loki), which exist
+# only inside those images and never in the host password database. chown
+# accepts unresolvable numeric IDs under both implementations.
+#
+# The directory is created root-owned at 0700 and widened only after ownership
+# is set, so it is never briefly more permissive than intended. chmod runs last
+# so setgid directories (mode 2700) keep their bit whatever an implementation
+# does to mode bits during chown.
 ensure_directory() {
   local path="$1" owner="$2" group="$3" mode="$4"
+  local owner_id group_id
   if [[ ! -e "$path" && ! -L "$path" ]]; then
-    install -d -o "$owner" -g "$group" -m "$mode" -- "$path"
+    owner_id="$(identity_uid "$owner")"
+    group_id="$(identity_gid "$group")"
+    install -d -m 0700 -- "$path"
+    chown -- "$owner_id:$group_id" "$path"
+    chmod -- "$mode" "$path"
   fi
   require_exact_directory "$path" "$owner" "$group" "$mode"
 }

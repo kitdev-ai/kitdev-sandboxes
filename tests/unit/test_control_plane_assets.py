@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
@@ -199,6 +200,50 @@ getent() {{ printf '%s\\n' 'kitdev:x:61042:'; }}
 """
         gid_result = subprocess.run(["bash", "-c", gid_probe], capture_output=True, text=True)
         self.assertEqual(gid_result.returncode, 0, gid_result.stderr)
+
+    def test_directory_ownership_survives_unresolvable_numeric_ids(self) -> None:
+        # Ubuntu ships uutils coreutils from 25.10, whose `install` rejects a
+        # numeric owner resolving to no account -- `install: invalid user:
+        # '999'` -- where GNU coreutils accepts it. The datastore UIDs 999 and
+        # 10001 exist only inside their container images, so a fresh host has
+        # no such accounts and `install -o` aborts the very first install step.
+        common = (SCRIPTS / "common.sh").read_text(encoding="ascii")
+        body = common[common.index("ensure_directory() {") :]
+        body = body[: body.index("\n}\n")]
+        self.assertNotIn("-o ", body)
+        self.assertNotIn("-g ", body)
+        self.assertLess(body.index("chown"), body.index("chmod"))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "require_exact_directory needs stat -c")
+    def test_ensure_directory_applies_exact_ownership_and_setgid(self) -> None:
+        # Exercise the real install/chown/chmod path unprivileged by claiming
+        # the identity the test already runs as, including the setgid mode the
+        # template-storage directory uses. Running it twice also covers the
+        # already-exists branch, which must verify rather than recreate.
+        with TemporaryDirectory() as tmp:
+            probe = f"""
+source {SCRIPTS / "common.sh"}
+ensure_directory {tmp}/plain {os.getuid()} {os.getgid()} 750
+ensure_directory {tmp}/setgid {os.getuid()} {os.getgid()} 2700
+ensure_directory {tmp}/plain {os.getuid()} {os.getgid()} 750
+"""
+            created = subprocess.run(["bash", "-c", probe], capture_output=True, text=True)
+            self.assertEqual(created.returncode, 0, created.stderr)
+            self.assertEqual((Path(tmp) / "plain").stat().st_mode & 0o7777, 0o750)
+            self.assertEqual((Path(tmp) / "setgid").stat().st_mode & 0o7777, 0o2700)
+
+    def test_no_script_passes_an_unresolvable_numeric_owner_to_install(self) -> None:
+        # `install -o`/`-g` is safe only for names the host password database
+        # can resolve. Guard the whole class of defect, not just the one site
+        # that broke, since a numeric literal here fails on a fresh host only.
+        numeric_owner = re.compile(r"\binstall\b[^\n|;&]*\s-[og]\s+[\"']?[0-9]")
+        offenders = [
+            f"{path.relative_to(ROOT)}:{number}"
+            for path in sorted(ROOT.glob("scripts/**/*.sh"))
+            for number, line in enumerate(path.read_text(encoding="ascii").splitlines(), 1)
+            if numeric_owner.search(line)
+        ]
+        self.assertEqual(offenders, [])
 
     def test_private_environment_is_nonrotating_and_parent_bound(self) -> None:
         source = (SCRIPTS / "private_env.py").read_text(encoding="ascii")
