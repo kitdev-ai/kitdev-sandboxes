@@ -103,6 +103,11 @@ def validate_deb822(path: Path, codename: str) -> int:
             current, value = line.split(":", 1)
             current = current.lower()
             fields[current] = value.strip()
+        # A paragraph of only comments carries no fields. Ubuntu's cloud images
+        # ship exactly that as a header block above the real stanzas, so
+        # demanding Types here rejected a stock install.
+        if not fields:
+            continue
         if fields.get("enabled", "yes").lower() == "no":
             continue
         source_types = set(fields.get("types", "").split())

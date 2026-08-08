@@ -135,6 +135,38 @@ class HostPrerequisiteAssetTests(unittest.TestCase):
         # require that it exists.
         self.assertNotIn("kitdev", worker["supplementary_groups"])
 
+    def test_apt_validator_accepts_a_stock_ubuntu_cloud_image(self) -> None:
+        # Ubuntu cloud images ship a cloud-init comment header above the real
+        # stanzas. Requiring Types in every paragraph rejected that header and
+        # therefore rejected a stock install on first run.
+        import tempfile
+
+        validator = ROOT / "ansible" / "files" / "validate_apt_sources.py"
+        namespace: dict[str, object] = {}
+        source = validator.read_text().replace(
+            'if __name__ == "__main__":\n    main()', ""
+        )
+        exec(compile(source, str(validator), "exec"), namespace)  # noqa: S102
+        sample = (
+            "## Note, this file is written by cloud-init\n"
+            "## modifications made here will not survive a re-bundle.\n"
+            "\n"
+            "## Ubuntu distribution repository\n"
+            "\n"
+            "Types: deb\n"
+            "URIs: http://nova.clouds.archive.ubuntu.com/ubuntu/\n"
+            "Suites: resolute resolute-updates\n"
+            "Components: main universe\n"
+            "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".sources", delete=False) as handle:
+            handle.write(sample)
+            path = Path(handle.name)
+        try:
+            self.assertEqual(namespace["validate_deb822"](path, "resolute"), 1)
+        finally:
+            path.unlink()
+
     def test_apt_allowlist_carries_no_provider_mirror(self) -> None:
         # A provider mirror in the built-in set silently made this validator
         # refuse every host that was not on that provider.
