@@ -378,6 +378,9 @@ rediscover them.
 
 - [`../PROMPT.md`](../PROMPT.md): original product contract.
 - [`../AGENTS.md`](../AGENTS.md): how agents must work in this repository.
+- [`fresh-host-remediation-plan.md`](fresh-host-remediation-plan.md): the
+  ordered plan to make a fresh install work end to end, and the risks that only
+  execution can settle.
 - [`fresh-server-installation.md`](fresh-server-installation.md): stage-by-stage
   fresh-host runbook, and an explicit list of what is still manual.
 - [`bare-metal-operator-guide.md`](bare-metal-operator-guide.md): operator
